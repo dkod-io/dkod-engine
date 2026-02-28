@@ -25,6 +25,21 @@ pub async fn handle_connect(
     // 1. Auth
     let _authed_agent_id = server.validate_auth(&req.auth_token)?;
 
+    // Check for session resume
+    if let Some(ref ws_config) = req.workspace_config {
+        if let Some(ref resume_id_str) = ws_config.resume_session_id {
+            if let Ok(resume_id) = resume_id_str.parse::<uuid::Uuid>() {
+                if let Some(snapshot) = server.session_mgr().take_snapshot(&resume_id) {
+                    info!(
+                        resume_from = %resume_id,
+                        agent_id = %snapshot.agent_id,
+                        "CONNECT: resuming previous session"
+                    );
+                }
+            }
+        }
+    }
+
     // 2-4. Resolve repo, get summary, and read HEAD version.
     //      Everything involving `GitRepository` (which is !Sync) is scoped
     //      inside a block so the future remains Send.
