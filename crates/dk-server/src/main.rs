@@ -5,6 +5,7 @@ use anyhow::Result;
 use clap::Parser;
 use dk_engine::repo::Engine;
 use dk_protocol::agent_service_server::AgentServiceServer;
+use dk_protocol::auth::AuthConfig;
 use dk_protocol::ProtocolServer;
 use sqlx::PgPool;
 use tracing_subscriber::EnvFilter;
@@ -27,6 +28,11 @@ struct Cli {
     /// Shared auth token agents must present on Connect
     #[arg(long, env = "AUTH_TOKEN")]
     auth_token: String,
+
+    /// JWT signing secret (enables JWT auth mode; if both --auth-token
+    /// and --jwt-secret are provided, dual-mode is used)
+    #[arg(long, env = "JWT_SECRET")]
+    jwt_secret: Option<String>,
 }
 
 #[tokio::main]
@@ -51,13 +57,32 @@ async fn main() -> Result<()> {
     let engine = Engine::new(cli.storage_path, db)?;
     let engine = Arc::new(engine);
 
-    let protocol = ProtocolServer::new(engine, cli.auth_token);
+    if cli.jwt_secret.is_none() && cli.auth_token.is_empty() {
+        anyhow::bail!("Either --auth-token or --jwt-secret must be provided");
+    }
+
+    let auth_config = match (cli.jwt_secret, cli.auth_token.is_empty()) {
+        (Some(jwt_secret), true) => AuthConfig::Jwt { secret: jwt_secret },
+        (Some(jwt_secret), false) => AuthConfig::Dual {
+            jwt_secret,
+            shared_token: cli.auth_token,
+        },
+        (None, _) => AuthConfig::SharedSecret {
+            token: cli.auth_token,
+        },
+    };
+
+    let protocol = ProtocolServer::new(engine, auth_config);
 
     let grpc_addr = cli.listen_addr.parse()?;
     tracing::info!("Starting gRPC server on {}", grpc_addr);
 
+    let grpc_service = AgentServiceServer::new(protocol);
+    let grpc_web_service = tonic_web::enable(grpc_service);
+
     tonic::transport::Server::builder()
-        .add_service(AgentServiceServer::new(protocol))
+        .accept_http1(true)
+        .add_service(grpc_web_service)
         .serve(grpc_addr)
         .await?;
 

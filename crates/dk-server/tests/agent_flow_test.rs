@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use dk_engine::repo::Engine;
 use dk_protocol::agent_service_server::AgentService;
+use dk_protocol::auth::AuthConfig;
 use dk_protocol::*;
 use sqlx::PgPool;
 use tonic::Request;
@@ -63,7 +64,10 @@ pub fn validate_token(token: &str) -> Result<String, String> {
     drop(git_repo);
 
     // Create the protocol server.
-    let server = ProtocolServer::new(Arc::new(engine), "test-token".to_string());
+    let server = ProtocolServer::new(
+        Arc::new(engine),
+        AuthConfig::SharedSecret { token: "test-token".to_string() },
+    );
 
     // ── 1. CONNECT ──
 
@@ -196,7 +200,10 @@ async fn test_connect_invalid_auth() {
 
     let tmp = tempfile::TempDir::new().unwrap();
     let engine = Engine::new(tmp.path().to_path_buf(), pool).unwrap();
-    let server = ProtocolServer::new(Arc::new(engine), "correct-token".to_string());
+    let server = ProtocolServer::new(
+        Arc::new(engine),
+        AuthConfig::SharedSecret { token: "correct-token".to_string() },
+    );
 
     let result = server
         .connect(Request::new(ConnectRequest {
@@ -227,7 +234,10 @@ async fn test_context_invalid_session() {
 
     let tmp = tempfile::TempDir::new().unwrap();
     let engine = Engine::new(tmp.path().to_path_buf(), pool).unwrap();
-    let server = ProtocolServer::new(Arc::new(engine), "test-token".to_string());
+    let server = ProtocolServer::new(
+        Arc::new(engine),
+        AuthConfig::SharedSecret { token: "test-token".to_string() },
+    );
 
     let result = server
         .context(Request::new(ContextRequest {
@@ -267,7 +277,10 @@ async fn test_submit_modify_nonexistent_file() {
     let repo_name = format!("test/submit-err-{}", uuid::Uuid::new_v4());
     engine.create_repo(&repo_name).await.unwrap();
 
-    let server = ProtocolServer::new(Arc::new(engine), "test-token".to_string());
+    let server = ProtocolServer::new(
+        Arc::new(engine),
+        AuthConfig::SharedSecret { token: "test-token".to_string() },
+    );
 
     // CONNECT to get a session
     let connect_resp = server

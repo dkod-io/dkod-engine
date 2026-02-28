@@ -185,7 +185,36 @@ pub async fn handle_context(
     Ok(Response::new(ContextResponse {
         symbols: symbol_results,
         call_graph: call_edges,
-        dependencies: vec![], // TODO: populate when include_dependencies is set
+        dependencies: if req.include_dependencies {
+            let (repo_id, _git_repo) = engine
+                .get_repo(&session.codebase)
+                .await
+                .map_err(|e| Status::internal(format!("Repo error: {e}")))?;
+
+            let deps = engine
+                .dep_store()
+                .find_by_repo(repo_id)
+                .await
+                .unwrap_or_default();
+
+            let mut dep_refs = Vec::with_capacity(deps.len());
+            for dep in &deps {
+                let symbol_ids = engine
+                    .dep_store()
+                    .find_symbols_for_dep(dep.id)
+                    .await
+                    .unwrap_or_default();
+
+                dep_refs.push(crate::DependencyRef {
+                    package: dep.package.clone(),
+                    version_req: dep.version_req.clone(),
+                    used_by_symbol_ids: symbol_ids.iter().map(|id| id.to_string()).collect(),
+                });
+            }
+            dep_refs
+        } else {
+            vec![]
+        },
         estimated_tokens,
     }))
 }

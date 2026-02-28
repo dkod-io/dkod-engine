@@ -1,4 +1,4 @@
-use dk_protocol::session::SessionManager;
+use dk_protocol::session::{SessionManager, SessionSnapshot};
 use std::time::Duration;
 
 #[test]
@@ -47,4 +47,43 @@ fn test_expired_session() {
     let sid = mgr.create_session("agent".into(), "repo".into(), "test".into(), "v1".into());
     std::thread::sleep(Duration::from_millis(10));
     assert!(mgr.get_session(&sid).is_none());
+}
+
+#[test]
+fn test_save_and_take_snapshot() {
+    let mgr = SessionManager::new(Duration::from_secs(60));
+    let sid = mgr.create_session("agent".into(), "repo".into(), "test".into(), "v1".into());
+
+    mgr.save_snapshot(&sid, SessionSnapshot {
+        agent_id: "agent".into(),
+        codebase: "repo".into(),
+        intent: "test".into(),
+        codebase_version: "v1".into(),
+    });
+
+    let snap = mgr.take_snapshot(&sid).unwrap();
+    assert_eq!(snap.agent_id, "agent");
+    assert_eq!(snap.codebase, "repo");
+
+    // Second take returns None (consumed)
+    assert!(mgr.take_snapshot(&sid).is_none());
+}
+
+#[test]
+fn test_cleanup_expired_saves_snapshots() {
+    let mgr = SessionManager::new(Duration::from_millis(1));
+    let sid = mgr.create_session("agent".into(), "repo".into(), "test".into(), "v1".into());
+    std::thread::sleep(Duration::from_millis(10));
+
+    mgr.cleanup_expired();
+
+    // Session should be gone
+    assert!(mgr.get_session(&sid).is_none());
+
+    // But a snapshot should have been saved
+    let snap = mgr.take_snapshot(&sid).unwrap();
+    assert_eq!(snap.agent_id, "agent");
+    assert_eq!(snap.codebase, "repo");
+    assert_eq!(snap.intent, "test");
+    assert_eq!(snap.codebase_version, "v1");
 }

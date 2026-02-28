@@ -10,6 +10,7 @@ pub mod proto {
 
 pub use proto::dekode::v1::*;
 
+pub mod auth;
 pub mod connect;
 pub mod context;
 pub mod events;
@@ -20,7 +21,10 @@ pub mod merge;
 pub mod pre_submit;
 pub mod server;
 pub mod session;
+#[cfg(feature = "redis")]
+pub mod session_redis;
 pub mod session_status;
+pub mod session_store;
 pub mod submit;
 pub mod validation;
 pub mod verify;

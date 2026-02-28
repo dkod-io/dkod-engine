@@ -1,4 +1,5 @@
 use dashmap::DashMap;
+use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
@@ -14,9 +15,21 @@ pub struct AgentSession {
     pub last_active: Instant,
 }
 
+/// Snapshot of a session's identity info, saved when a session expires or
+/// is explicitly removed, allowing a new CONNECT to resume it.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SessionSnapshot {
+    pub agent_id: String,
+    pub codebase: String,
+    pub intent: String,
+    pub codebase_version: String,
+}
+
 pub struct SessionManager {
     sessions: DashMap<SessionId, AgentSession>,
     timeout: Duration,
+    /// Snapshots of expired session workspaces for resume support.
+    snapshots: DashMap<SessionId, SessionSnapshot>,
 }
 
 impl SessionManager {
@@ -24,6 +37,7 @@ impl SessionManager {
         Self {
             sessions: DashMap::new(),
             timeout,
+            snapshots: DashMap::new(),
         }
     }
 
@@ -82,8 +96,32 @@ impl SessionManager {
         self.sessions.remove(id).is_some()
     }
 
+    /// Save a snapshot of a session for later resume.
+    pub fn save_snapshot(&self, id: &SessionId, snapshot: SessionSnapshot) {
+        self.snapshots.insert(*id, snapshot);
+    }
+
+    /// Retrieve and remove a saved session snapshot.
+    pub fn take_snapshot(&self, id: &SessionId) -> Option<SessionSnapshot> {
+        self.snapshots.remove(id).map(|(_, snap)| snap)
+    }
+
     pub fn cleanup_expired(&self) {
-        self.sessions
-            .retain(|_, session| session.last_active.elapsed() <= self.timeout);
+        let mut expired = Vec::new();
+        self.sessions.retain(|id, session| {
+            let alive = session.last_active.elapsed() <= self.timeout;
+            if !alive {
+                expired.push((*id, SessionSnapshot {
+                    agent_id: session.agent_id.clone(),
+                    codebase: session.codebase.clone(),
+                    intent: session.intent.clone(),
+                    codebase_version: session.codebase_version.clone(),
+                }));
+            }
+            alive
+        });
+        for (id, snap) in expired {
+            self.snapshots.insert(id, snap);
+        }
     }
 }

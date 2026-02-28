@@ -23,11 +23,41 @@ pub async fn handle_connect(
     req: ConnectRequest,
 ) -> Result<Response<ConnectResponse>, Status> {
     // 1. Auth
-    server.validate_auth(&req.auth_token)?;
+    let _authed_agent_id = server.validate_auth(&req.auth_token)?;
 
-    // 2-4. Resolve repo, get summary, and read HEAD version.
-    //      Everything involving `GitRepository` (which is !Sync) is scoped
-    //      inside a block so the future remains Send.
+    // Check for session resume.
+    //
+    // NOTE: `take_snapshot` intentionally *consumes* the snapshot so it cannot
+    // be reused by a stale reconnect.  However, the snapshot data is not yet
+    // used to restore workspace state — the workspace is always created fresh
+    // from the request parameters below.  Full state restoration (overlay
+    // files, cursor position, pending changes) requires persistent storage
+    // (Redis / S3) and is tracked as future work.
+    if let Some(ref ws_config) = req.workspace_config {
+        if let Some(ref resume_id_str) = ws_config.resume_session_id {
+            if let Ok(resume_id) = resume_id_str.parse::<uuid::Uuid>() {
+                if let Some(snapshot) = server.session_mgr().take_snapshot(&resume_id) {
+                    info!(
+                        resume_from = %resume_id,
+                        agent_id = %snapshot.agent_id,
+                        "CONNECT: previous session snapshot acknowledged (workspace created fresh; full restore not yet implemented)"
+                    );
+                }
+            }
+        }
+    }
+
+    // Extract the requested base_commit early so it can be validated during
+    // the initial repo lookup (avoids a redundant `get_repo` call later).
+    let requested_base_commit = req
+        .workspace_config
+        .as_ref()
+        .and_then(|c| c.base_commit.clone());
+
+    // 2-4. Resolve repo, get summary, read HEAD version, and validate
+    //      base_commit if one was provided.  Everything involving
+    //      `GitRepository` (which is !Sync) is scoped inside a block so
+    //      the future remains Send.
     let engine = server.engine();
 
     let (repo_id, version, summary) = {
@@ -41,6 +71,20 @@ pub async fn handle_connect(
             .head_hash()
             .map_err(|e| Status::internal(format!("Failed to read HEAD: {e}")))?
             .unwrap_or_else(|| "initial".to_string());
+
+        // Validate custom base_commit while we still hold git_repo, avoiding
+        // a second `get_repo` call.
+        if let Some(ref base) = requested_base_commit {
+            if base != &version && base != "initial" {
+                git_repo
+                    .list_tree_files(base)
+                    .map_err(|_| {
+                        Status::invalid_argument(format!(
+                            "base_commit '{base}' does not resolve to a valid commit"
+                        ))
+                    })?;
+            }
+        }
 
         // Drop git_repo before the next .await to keep the future Send.
         drop(git_repo);
@@ -75,28 +119,7 @@ pub async fn handle_connect(
     };
 
     // Use the provided base_commit or default to current HEAD version
-    let base_commit = req
-        .workspace_config
-        .as_ref()
-        .and_then(|c| c.base_commit.clone())
-        .unwrap_or_else(|| version.clone());
-
-    // Validate custom base_commit resolves to a real commit in the repo
-    if base_commit != version && base_commit != "initial" {
-        let (_rid, git_repo) = engine
-            .get_repo(&req.codebase)
-            .await
-            .map_err(|e| Status::internal(format!("Repo error: {e}")))?;
-        // list_tree_files calls find_commit internally; failure means bad commit
-        git_repo
-            .list_tree_files(&base_commit)
-            .map_err(|_| {
-                Status::invalid_argument(format!(
-                    "base_commit '{base_commit}' does not resolve to a valid commit"
-                ))
-            })?;
-        // git_repo dropped here before next .await
-    }
+    let base_commit = requested_base_commit.unwrap_or_else(|| version.clone());
 
     // Create the session workspace
     let workspace_id = engine

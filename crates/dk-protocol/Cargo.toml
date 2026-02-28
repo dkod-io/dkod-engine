@@ -16,7 +16,16 @@ dashmap = "6"
 tonic = "0.12"
 prost = "0.13"
 tokio-stream = "0.1"
+serde.workspace = true
 serde_json.workspace = true
+jsonwebtoken.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+redis = { workspace = true, optional = true }
+
+[features]
+default = []
+redis = ["dep:redis"]
 
 [build-dependencies]
 tonic-build = "0.12"
