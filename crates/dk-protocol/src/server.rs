@@ -3,6 +3,7 @@ use std::sync::Arc;
 use dk_engine::repo::Engine;
 use tonic::{Request, Response, Status};
 
+use crate::auth::AuthConfig;
 use crate::events::EventBus;
 use crate::session::{AgentSession, SessionManager};
 
@@ -14,22 +15,22 @@ use crate::session::{AgentSession, SessionManager};
 pub struct ProtocolServer {
     pub(crate) engine: Arc<Engine>,
     pub(crate) session_mgr: Arc<SessionManager>,
-    pub(crate) auth_token: String,
+    pub(crate) auth_config: AuthConfig,
     pub(crate) event_bus: Arc<EventBus>,
 }
 
 impl ProtocolServer {
     /// Create a new `ProtocolServer`.
     ///
-    /// `auth_token` is a shared secret that agents must present in every
+    /// `auth_config` controls how agents authenticate on every
     /// `ConnectRequest`.  The session timeout is fixed at 30 minutes.
-    pub fn new(engine: Arc<Engine>, auth_token: String) -> Self {
+    pub fn new(engine: Arc<Engine>, auth_config: AuthConfig) -> Self {
         Self {
             engine,
             session_mgr: Arc::new(SessionManager::new(std::time::Duration::from_secs(
                 30 * 60,
             ))),
-            auth_token,
+            auth_config,
             event_bus: Arc::new(EventBus::new()),
         }
     }
@@ -50,12 +51,8 @@ impl ProtocolServer {
     }
 
     /// Validate an auth token against the configured secret.
-    pub(crate) fn validate_auth(&self, token: &str) -> Result<(), Status> {
-        if token == self.auth_token {
-            Ok(())
-        } else {
-            Err(Status::unauthenticated("Invalid auth token"))
-        }
+    pub(crate) fn validate_auth(&self, token: &str) -> Result<String, Status> {
+        self.auth_config.validate(token)
     }
 
     /// Look up a session by its string-encoded UUID.  Returns an error if the
@@ -107,7 +104,7 @@ impl crate::agent_service_server::AgentService for ProtocolServer {
         let server_clone = ProtocolServer {
             engine: self.engine.clone(),
             session_mgr: self.session_mgr.clone(),
-            auth_token: self.auth_token.clone(),
+            auth_config: self.auth_config.clone(),
             event_bus: self.event_bus.clone(),
         };
 
@@ -137,7 +134,7 @@ impl crate::agent_service_server::AgentService for ProtocolServer {
         let server_clone = ProtocolServer {
             engine: self.engine.clone(),
             session_mgr: self.session_mgr.clone(),
-            auth_token: self.auth_token.clone(),
+            auth_config: self.auth_config.clone(),
             event_bus: self.event_bus.clone(),
         };
         tokio::spawn(async move {

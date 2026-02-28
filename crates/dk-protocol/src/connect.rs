@@ -23,7 +23,7 @@ pub async fn handle_connect(
     req: ConnectRequest,
 ) -> Result<Response<ConnectResponse>, Status> {
     // 1. Auth
-    server.validate_auth(&req.auth_token)?;
+    let _authed_agent_id = server.validate_auth(&req.auth_token)?;
 
     // 2-4. Resolve repo, get summary, and read HEAD version.
     //      Everything involving `GitRepository` (which is !Sync) is scoped
