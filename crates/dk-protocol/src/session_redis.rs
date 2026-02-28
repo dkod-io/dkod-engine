@@ -3,6 +3,14 @@
 //! Available only when the `redis` cargo feature is enabled.
 //! Sessions are stored as JSON values with Redis TTL for automatic expiration.
 //! Snapshots expire after 24 hours.
+//!
+//! ## Session expiry and snapshots
+//!
+//! When a session expires (via Redis TTL), there is no callback to save a
+//! snapshot.  To support session resume, `remove_session` saves a snapshot
+//! before deleting the key, and `cleanup_expired` scans for sessions whose
+//! `last_active_ms` exceeds the configured timeout, migrates them to
+//! snapshots, and removes the session key.
 
 use async_trait::async_trait;
 use chrono::{DateTime, TimeZone, Utc};
@@ -24,8 +32,9 @@ const SNAPSHOT_TTL_SECS: u64 = 86_400;
 
 /// A serializable representation of an [`AgentSession`] for Redis storage.
 ///
-/// `std::time::Instant` is not serializable, so we store `created_at` and
-/// `last_active` as Unix-epoch milliseconds via `chrono`.
+/// Timestamps are stored as Unix-epoch milliseconds so they survive
+/// serialization round-trips and server restarts (unlike `std::time::Instant`
+/// which is process-local and non-serializable).
 #[derive(Serialize, Deserialize)]
 struct StoredSession {
     id: Uuid,
@@ -65,6 +74,25 @@ impl StoredSession {
             last_active,
         }
     }
+
+    fn to_snapshot(&self) -> SessionSnapshot {
+        SessionSnapshot {
+            agent_id: self.agent_id.clone(),
+            codebase: self.codebase.clone(),
+            intent: self.intent.clone(),
+            codebase_version: self.codebase_version.clone(),
+        }
+    }
+
+    /// Returns true if this session has exceeded the given timeout based on
+    /// `last_active_ms`.
+    fn is_expired(&self, timeout: &Duration) -> bool {
+        let last_active = millis_to_utc(self.last_active_ms);
+        let elapsed = Utc::now().signed_duration_since(last_active);
+        let timeout_delta = chrono::TimeDelta::from_std(*timeout)
+            .unwrap_or(chrono::TimeDelta::max_value());
+        elapsed > timeout_delta
+    }
 }
 
 /// Redis-backed session store.
@@ -94,6 +122,27 @@ impl RedisSessionStore {
 
     fn snapshot_key(id: &Uuid) -> String {
         format!("{SNAPSHOT_PREFIX}{id}")
+    }
+
+    /// Save a session's data as a snapshot before removing it, so the session
+    /// can be resumed later via CONNECT.
+    async fn save_snapshot_from_stored(&self, id: &Uuid, stored: &StoredSession) {
+        let snapshot = stored.to_snapshot();
+        let key = Self::snapshot_key(id);
+        let json = match serde_json::to_string(&snapshot) {
+            Ok(j) => j,
+            Err(e) => {
+                warn!("Failed to serialize snapshot for session {id}: {e}");
+                return;
+            }
+        };
+        let mut conn = self.conn.clone();
+        if let Err(e) = conn
+            .set_ex::<_, _, ()>(&key, &json, SNAPSHOT_TTL_SECS)
+            .await
+        {
+            warn!("Redis SET failed for snapshot {id}: {e}");
+        }
     }
 }
 
@@ -131,7 +180,21 @@ impl SessionStore for RedisSessionStore {
         let mut conn = self.conn.clone();
         let json: Option<String> = conn.get(&key).await.ok()?;
         let json = json?;
-        let stored: StoredSession = serde_json::from_str(&json).ok()?;
+        let stored: StoredSession = match serde_json::from_str(&json) {
+            Ok(s) => s,
+            Err(_) => return None,
+        };
+
+        // Check application-level timeout in addition to Redis TTL.
+        // After a server restart, the timeout config may differ from the
+        // original TTL that was set on the key.
+        if stored.is_expired(&self.timeout) {
+            // Save a snapshot before removing so resume is possible.
+            self.save_snapshot_from_stored(id, &stored).await;
+            let _: Option<i64> = conn.del(&key).await.ok();
+            return None;
+        }
+
         Some(stored.into_agent_session())
     }
 
@@ -169,12 +232,55 @@ impl SessionStore for RedisSessionStore {
     async fn remove_session(&self, id: &SessionId) -> bool {
         let key = Self::session_key(id);
         let mut conn = self.conn.clone();
+
+        // Read the session data before deleting so we can save a snapshot.
+        let json: Option<String> = conn.get(&key).await.unwrap_or(None);
+        if let Some(json) = json {
+            if let Ok(stored) = serde_json::from_str::<StoredSession>(&json) {
+                self.save_snapshot_from_stored(id, &stored).await;
+            }
+        }
+
         let removed: i64 = conn.del(&key).await.unwrap_or(0);
         removed > 0
     }
 
     async fn cleanup_expired(&self) {
-        // No-op: Redis TTL handles expiration automatically.
+        // Scan for sessions that have exceeded the application-level timeout.
+        // Redis TTL is a safety net, but after a server restart the timeout
+        // config may differ from the original TTL on the key.  This method
+        // mirrors the in-memory SessionManager behavior: expired sessions are
+        // converted to snapshots for resume support.
+        let mut conn = self.conn.clone();
+        let pattern = format!("{SESSION_PREFIX}*");
+        let keys: Vec<String> = match redis::cmd("KEYS")
+            .arg(&pattern)
+            .query_async(&mut conn)
+            .await
+        {
+            Ok(k) => k,
+            Err(e) => {
+                warn!("Redis KEYS scan failed during cleanup: {e}");
+                return;
+            }
+        };
+
+        for key in keys {
+            let json: Option<String> = match conn.get(&key).await {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            let Some(json) = json else { continue };
+            let stored: StoredSession = match serde_json::from_str(&json) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+
+            if stored.is_expired(&self.timeout) {
+                self.save_snapshot_from_stored(&stored.id, &stored).await;
+                let _: Option<i64> = conn.del(&key).await.ok();
+            }
+        }
     }
 
     async fn save_snapshot(&self, id: &SessionId, snapshot: SessionSnapshot) {
