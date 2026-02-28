@@ -47,9 +47,17 @@ pub async fn handle_connect(
         }
     }
 
-    // 2-4. Resolve repo, get summary, and read HEAD version.
-    //      Everything involving `GitRepository` (which is !Sync) is scoped
-    //      inside a block so the future remains Send.
+    // Extract the requested base_commit early so it can be validated during
+    // the initial repo lookup (avoids a redundant `get_repo` call later).
+    let requested_base_commit = req
+        .workspace_config
+        .as_ref()
+        .and_then(|c| c.base_commit.clone());
+
+    // 2-4. Resolve repo, get summary, read HEAD version, and validate
+    //      base_commit if one was provided.  Everything involving
+    //      `GitRepository` (which is !Sync) is scoped inside a block so
+    //      the future remains Send.
     let engine = server.engine();
 
     let (repo_id, version, summary) = {
@@ -63,6 +71,20 @@ pub async fn handle_connect(
             .head_hash()
             .map_err(|e| Status::internal(format!("Failed to read HEAD: {e}")))?
             .unwrap_or_else(|| "initial".to_string());
+
+        // Validate custom base_commit while we still hold git_repo, avoiding
+        // a second `get_repo` call.
+        if let Some(ref base) = requested_base_commit {
+            if base != &version && base != "initial" {
+                git_repo
+                    .list_tree_files(base)
+                    .map_err(|_| {
+                        Status::invalid_argument(format!(
+                            "base_commit '{base}' does not resolve to a valid commit"
+                        ))
+                    })?;
+            }
+        }
 
         // Drop git_repo before the next .await to keep the future Send.
         drop(git_repo);
@@ -97,28 +119,7 @@ pub async fn handle_connect(
     };
 
     // Use the provided base_commit or default to current HEAD version
-    let base_commit = req
-        .workspace_config
-        .as_ref()
-        .and_then(|c| c.base_commit.clone())
-        .unwrap_or_else(|| version.clone());
-
-    // Validate custom base_commit resolves to a real commit in the repo
-    if base_commit != version && base_commit != "initial" {
-        let (_rid, git_repo) = engine
-            .get_repo(&req.codebase)
-            .await
-            .map_err(|e| Status::internal(format!("Repo error: {e}")))?;
-        // list_tree_files calls find_commit internally; failure means bad commit
-        git_repo
-            .list_tree_files(&base_commit)
-            .map_err(|_| {
-                Status::invalid_argument(format!(
-                    "base_commit '{base_commit}' does not resolve to a valid commit"
-                ))
-            })?;
-        // git_repo dropped here before next .await
-    }
+    let base_commit = requested_base_commit.unwrap_or_else(|| version.clone());
 
     // Create the session workspace
     let workspace_id = engine
