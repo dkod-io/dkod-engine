@@ -32,6 +32,7 @@ tonic-web = "0.12"
 jsonwebtoken = "9"
 redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
 opendal = { version = "0.51", features = ["services-fs", "services-s3"] }
+qdrant-client = "1.12"
 
 # Internal crates
 dk-core = { path = "crates/dk-core" }
