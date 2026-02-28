@@ -1,5 +1,5 @@
 use tonic::{Response, Status};
-use tracing::info;
+use tracing::{info, warn};
 
 use dk_engine::workspace::session_workspace::WorkspaceMode;
 
@@ -34,21 +34,38 @@ pub async fn handle_connect(
     let mut resumed_snapshot: Option<crate::session::SessionSnapshot> = None;
     if let Some(ref ws_config) = req.workspace_config {
         if let Some(ref resume_id_str) = ws_config.resume_session_id {
-            if let Ok(resume_id) = resume_id_str.parse::<uuid::Uuid>() {
-                if let Some(snapshot) = server.session_mgr().take_snapshot(&resume_id) {
-                    if snapshot.codebase != req.codebase {
-                        return Err(Status::invalid_argument(format!(
-                            "Cannot resume session from codebase '{}' into '{}'",
-                            snapshot.codebase, req.codebase
-                        )));
+            match resume_id_str.parse::<uuid::Uuid>() {
+                Ok(resume_id) => {
+                    match server.session_mgr().take_snapshot(&resume_id) {
+                        Some(snapshot) => {
+                            if snapshot.codebase != req.codebase {
+                                return Err(Status::invalid_argument(format!(
+                                    "Cannot resume session from codebase '{}' into '{}'",
+                                    snapshot.codebase, req.codebase
+                                )));
+                            }
+                            info!(
+                                resume_from = %resume_id,
+                                agent_id = %snapshot.agent_id,
+                                base_version = %snapshot.codebase_version,
+                                "CONNECT: resuming from previous session snapshot"
+                            );
+                            resumed_snapshot = Some(snapshot);
+                        }
+                        None => {
+                            warn!(
+                                resume_session_id = %resume_id,
+                                "CONNECT: resume requested but no snapshot found \
+                                 (session may have expired beyond snapshot TTL)"
+                            );
+                        }
                     }
-                    info!(
-                        resume_from = %resume_id,
-                        agent_id = %snapshot.agent_id,
-                        base_version = %snapshot.codebase_version,
-                        "CONNECT: resuming from previous session snapshot"
-                    );
-                    resumed_snapshot = Some(snapshot);
+                }
+                Err(_) => {
+                    return Err(Status::invalid_argument(format!(
+                        "resume_session_id '{}' is not a valid UUID",
+                        resume_id_str
+                    )));
                 }
             }
         }
