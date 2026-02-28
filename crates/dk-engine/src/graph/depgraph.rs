@@ -97,6 +97,21 @@ impl DependencyStore {
         Ok(())
     }
 
+    /// Find all symbol IDs that are linked to a specific dependency.
+    pub async fn find_symbols_for_dep(
+        &self,
+        dep_id: Uuid,
+    ) -> dk_core::Result<Vec<SymbolId>> {
+        let rows: Vec<(Uuid,)> = sqlx::query_as(
+            "SELECT symbol_id FROM symbol_dependencies WHERE dependency_id = $1",
+        )
+        .bind(dep_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
+
     /// Delete all dependencies for a repository. Returns the number of rows deleted.
     ///
     /// Note: this cascades to `symbol_dependencies` via foreign key constraints.
