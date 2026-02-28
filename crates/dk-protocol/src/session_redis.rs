@@ -5,9 +5,10 @@
 //! Snapshots expire after 24 hours.
 
 use async_trait::async_trait;
+use chrono::{DateTime, TimeZone, Utc};
 use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tracing::warn;
 use uuid::Uuid;
 
@@ -51,26 +52,8 @@ impl StoredSession {
     }
 
     fn into_agent_session(self) -> AgentSession {
-        // DESIGN NOTE: `AgentSession` uses `std::time::Instant` for its time
-        // fields, but `Instant` is relative to an arbitrary process-local epoch
-        // and cannot be constructed from a wall-clock timestamp. We approximate
-        // by subtracting the wall-clock elapsed time from `Instant::now()`.
-        //
-        // This approximation is imperfect across server restarts (the Instant
-        // epoch resets), but it is acceptable for the Redis store because:
-        //   1. Redis TTL is the source of truth for session expiration — the
-        //      key is deleted automatically when the TTL expires, regardless of
-        //      what the in-memory Instant values say.
-        //   2. The reconstructed Instant values are only used by callers that
-        //      inspect `created_at`/`last_active` for display or logging; they
-        //      are never used to enforce expiration in the Redis code path.
-        //   3. The DashMap-based `SessionManager` (session.rs) does use Instant
-        //      for timeout checks, but that is an entirely separate store.
-        let now_ms = chrono::Utc::now().timestamp_millis();
-        let now_instant = Instant::now();
-
-        let created_elapsed = Duration::from_millis((now_ms - self.created_at_ms).max(0) as u64);
-        let active_elapsed = Duration::from_millis((now_ms - self.last_active_ms).max(0) as u64);
+        let created_at = millis_to_utc(self.created_at_ms);
+        let last_active = millis_to_utc(self.last_active_ms);
 
         AgentSession {
             id: self.id,
@@ -78,8 +61,8 @@ impl StoredSession {
             codebase: self.codebase,
             intent: self.intent,
             codebase_version: self.codebase_version,
-            created_at: now_instant - created_elapsed,
-            last_active: now_instant - active_elapsed,
+            created_at,
+            last_active,
         }
     }
 }
@@ -223,4 +206,13 @@ impl SessionStore for RedisSessionStore {
 
         serde_json::from_str(&json).ok()
     }
+}
+
+/// Convert Unix-epoch milliseconds to `DateTime<Utc>`.
+fn millis_to_utc(ms: i64) -> DateTime<Utc> {
+    let secs = ms / 1000;
+    let nsecs = ((ms % 1000) * 1_000_000) as u32;
+    Utc.timestamp_opt(secs, nsecs)
+        .single()
+        .unwrap_or_else(Utc::now)
 }

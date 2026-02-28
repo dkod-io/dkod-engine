@@ -27,21 +27,28 @@ pub async fn handle_connect(
 
     // Check for session resume.
     //
-    // NOTE: `take_snapshot` intentionally *consumes* the snapshot so it cannot
-    // be reused by a stale reconnect.  However, the snapshot data is not yet
-    // used to restore workspace state — the workspace is always created fresh
-    // from the request parameters below.  Full state restoration (overlay
-    // files, cursor position, pending changes) requires persistent storage
-    // (Redis / S3) and is tracked as future work.
+    // `take_snapshot` consumes the snapshot so it cannot be reused by a stale
+    // reconnect.  When a valid snapshot is found, its `codebase_version` is
+    // used as the default base_commit so the resumed session starts from the
+    // same commit the old session was on.
+    let mut resumed_snapshot: Option<crate::session::SessionSnapshot> = None;
     if let Some(ref ws_config) = req.workspace_config {
         if let Some(ref resume_id_str) = ws_config.resume_session_id {
             if let Ok(resume_id) = resume_id_str.parse::<uuid::Uuid>() {
                 if let Some(snapshot) = server.session_mgr().take_snapshot(&resume_id) {
+                    if snapshot.codebase != req.codebase {
+                        return Err(Status::invalid_argument(format!(
+                            "Cannot resume session from codebase '{}' into '{}'",
+                            snapshot.codebase, req.codebase
+                        )));
+                    }
                     info!(
                         resume_from = %resume_id,
                         agent_id = %snapshot.agent_id,
-                        "CONNECT: previous session snapshot acknowledged (workspace created fresh; full restore not yet implemented)"
+                        base_version = %snapshot.codebase_version,
+                        "CONNECT: resuming from previous session snapshot"
                     );
+                    resumed_snapshot = Some(snapshot);
                 }
             }
         }
@@ -49,10 +56,13 @@ pub async fn handle_connect(
 
     // Extract the requested base_commit early so it can be validated during
     // the initial repo lookup (avoids a redundant `get_repo` call later).
+    // If resuming, default to the snapshot's codebase_version so the
+    // workspace starts from the same commit the old session was on.
     let requested_base_commit = req
         .workspace_config
         .as_ref()
-        .and_then(|c| c.base_commit.clone());
+        .and_then(|c| c.base_commit.clone())
+        .or_else(|| resumed_snapshot.as_ref().map(|s| s.codebase_version.clone()));
 
     // 2-4. Resolve repo, get summary, read HEAD version, and validate
     //      base_commit if one was provided.  Everything involving
