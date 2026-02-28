@@ -1,6 +1,7 @@
+use chrono::{DateTime, TimeDelta, Utc};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use uuid::Uuid;
 
 pub type SessionId = Uuid;
@@ -11,8 +12,8 @@ pub struct AgentSession {
     pub codebase: String,
     pub intent: String,
     pub codebase_version: String,
-    pub created_at: Instant,
-    pub last_active: Instant,
+    pub created_at: DateTime<Utc>,
+    pub last_active: DateTime<Utc>,
 }
 
 /// Snapshot of a session's identity info, saved when a session expires or
@@ -49,7 +50,7 @@ impl SessionManager {
         codebase_version: String,
     ) -> SessionId {
         let id = Uuid::new_v4();
-        let now = Instant::now();
+        let now = Utc::now();
         self.sessions.insert(
             id,
             AgentSession {
@@ -67,7 +68,9 @@ impl SessionManager {
 
     pub fn get_session(&self, id: &SessionId) -> Option<AgentSession> {
         let entry = self.sessions.get(id)?;
-        if entry.last_active.elapsed() > self.timeout {
+        let elapsed = Utc::now().signed_duration_since(entry.last_active);
+        let timeout = TimeDelta::from_std(self.timeout).unwrap_or(TimeDelta::MAX);
+        if elapsed > timeout {
             drop(entry);
             self.sessions.remove(id);
             return None;
@@ -85,7 +88,7 @@ impl SessionManager {
 
     pub fn touch_session(&self, id: &SessionId) -> bool {
         if let Some(mut entry) = self.sessions.get_mut(id) {
-            entry.last_active = Instant::now();
+            entry.last_active = Utc::now();
             true
         } else {
             false
@@ -107,9 +110,11 @@ impl SessionManager {
     }
 
     pub fn cleanup_expired(&self) {
+        let now = Utc::now();
+        let timeout = TimeDelta::from_std(self.timeout).unwrap_or(TimeDelta::MAX);
         let mut expired = Vec::new();
         self.sessions.retain(|id, session| {
-            let alive = session.last_active.elapsed() <= self.timeout;
+            let alive = now.signed_duration_since(session.last_active) <= timeout;
             if !alive {
                 expired.push((*id, SessionSnapshot {
                     agent_id: session.agent_id.clone(),

@@ -48,7 +48,13 @@ impl AuthConfig {
     /// Returns the agent id on success:
     /// - JWT modes: the `sub` claim from the decoded token.
     /// - SharedSecret mode: the literal `"anonymous"`.
+    ///
+    /// Empty tokens are always rejected regardless of auth mode.
     pub fn validate(&self, token: &str) -> Result<String, Status> {
+        if token.is_empty() {
+            return Err(Status::unauthenticated("Auth token must not be empty"));
+        }
+
         match self {
             AuthConfig::Jwt { secret } => validate_jwt(token, secret),
 
@@ -245,5 +251,34 @@ mod tests {
         };
         let result = config.validate("garbage-that-matches-nothing");
         assert!(result.is_err(), "should reject invalid token in dual mode");
+    }
+
+    #[test]
+    fn empty_token_rejected_in_all_modes() {
+        let jwt = AuthConfig::Jwt {
+            secret: TEST_SECRET.to_string(),
+        };
+        assert!(jwt.validate("").is_err(), "JWT mode should reject empty token");
+
+        let shared = AuthConfig::SharedSecret {
+            token: "my-token".to_string(),
+        };
+        assert!(shared.validate("").is_err(), "SharedSecret should reject empty token");
+
+        let dual = AuthConfig::Dual {
+            jwt_secret: TEST_SECRET.to_string(),
+            shared_token: "fallback".to_string(),
+        };
+        assert!(dual.validate("").is_err(), "Dual mode should reject empty token");
+    }
+
+    #[test]
+    fn empty_shared_secret_never_matches() {
+        // Even if someone constructs SharedSecret with an empty token,
+        // empty incoming tokens are rejected before comparison.
+        let config = AuthConfig::SharedSecret {
+            token: "".to_string(),
+        };
+        assert!(config.validate("").is_err(), "empty token should be rejected even if shared secret is empty");
     }
 }
