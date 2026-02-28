@@ -28,6 +28,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "json"] }
 chrono = { version = "0.4", features = ["serde"] }
 async-trait = "0.1"
+tonic-web = "0.12"
 
 # Internal crates
 dk-core = { path = "crates/dk-core" }

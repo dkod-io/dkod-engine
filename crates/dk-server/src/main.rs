@@ -56,8 +56,12 @@ async fn main() -> Result<()> {
     let grpc_addr = cli.listen_addr.parse()?;
     tracing::info!("Starting gRPC server on {}", grpc_addr);
 
+    let grpc_service = AgentServiceServer::new(protocol);
+    let grpc_web_service = tonic_web::enable(grpc_service);
+
     tonic::transport::Server::builder()
-        .add_service(AgentServiceServer::new(protocol))
+        .accept_http1(true)
+        .add_service(grpc_web_service)
         .serve(grpc_addr)
         .await?;
 
