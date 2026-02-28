@@ -10,6 +10,7 @@ pub mod proto {
 
 pub use proto::dekode::v1::*;
 
+pub mod auth;
 pub mod connect;
 pub mod context;
 pub mod events;
