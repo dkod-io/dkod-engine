@@ -4,5 +4,6 @@ pub mod graph;
 pub mod parser;
 pub mod pipeline;
 pub mod repo;
+pub mod storage;
 pub mod tool_ops;
 pub mod workspace;
