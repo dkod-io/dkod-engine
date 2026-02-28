@@ -1,9 +1,0 @@
-pyproject.toml
-dekode/__init__.py
-dekode/py.typed
-dekode.egg-info/PKG-INFO
-dekode.egg-info/SOURCES.txt
-dekode.egg-info/dependency_links.txt
-dekode.egg-info/requires.txt
-dekode.egg-info/top_level.txt
-dekode/_generated/__init__.py
