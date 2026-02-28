@@ -57,6 +57,10 @@ async fn main() -> Result<()> {
     let engine = Engine::new(cli.storage_path, db)?;
     let engine = Arc::new(engine);
 
+    if cli.jwt_secret.is_none() && cli.auth_token.is_empty() {
+        anyhow::bail!("Either --auth-token or --jwt-secret must be provided");
+    }
+
     let auth_config = match (cli.jwt_secret, cli.auth_token.is_empty()) {
         (Some(jwt_secret), true) => AuthConfig::Jwt { secret: jwt_secret },
         (Some(jwt_secret), false) => AuthConfig::Dual {

@@ -25,7 +25,14 @@ pub async fn handle_connect(
     // 1. Auth
     let _authed_agent_id = server.validate_auth(&req.auth_token)?;
 
-    // Check for session resume
+    // Check for session resume.
+    //
+    // NOTE: `take_snapshot` intentionally *consumes* the snapshot so it cannot
+    // be reused by a stale reconnect.  However, the snapshot data is not yet
+    // used to restore workspace state — the workspace is always created fresh
+    // from the request parameters below.  Full state restoration (overlay
+    // files, cursor position, pending changes) requires persistent storage
+    // (Redis / S3) and is tracked as future work.
     if let Some(ref ws_config) = req.workspace_config {
         if let Some(ref resume_id_str) = ws_config.resume_session_id {
             if let Ok(resume_id) = resume_id_str.parse::<uuid::Uuid>() {
@@ -33,7 +40,7 @@ pub async fn handle_connect(
                     info!(
                         resume_from = %resume_id,
                         agent_id = %snapshot.agent_id,
-                        "CONNECT: resuming previous session"
+                        "CONNECT: previous session snapshot acknowledged (workspace created fresh; full restore not yet implemented)"
                     );
                 }
             }
