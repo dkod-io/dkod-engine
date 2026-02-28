@@ -1,0 +1,21 @@
+[package]
+name = "dk-server"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+dk-core.workspace = true
+dk-engine.workspace = true
+dk-protocol.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+sqlx.workspace = true
+tonic = "0.12"
+clap = { version = "4", features = ["derive", "env"] }
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+uuid.workspace = true

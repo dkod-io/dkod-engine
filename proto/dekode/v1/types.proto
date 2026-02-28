@@ -1,0 +1,46 @@
+syntax = "proto3";
+package dekode.v1;
+
+message SymbolRef {
+  string id = 1;
+  string name = 2;
+  string qualified_name = 3;
+  string kind = 4;
+  string visibility = 5;
+  string file_path = 6;
+  uint32 start_byte = 7;
+  uint32 end_byte = 8;
+  string signature = 9;
+  optional string doc_comment = 10;
+  optional string parent_id = 11;
+}
+
+message CallEdgeRef {
+  string caller_id = 1;
+  string callee_id = 2;
+  string kind = 3;
+}
+
+message DependencyRef {
+  string package = 1;
+  string version_req = 2;
+  repeated string used_by_symbol_ids = 3;
+}
+
+message TypeInfoRef {
+  string symbol_id = 1;
+  repeated Param params = 2;
+  optional string return_type = 3;
+  repeated Field fields = 4;
+  repeated string implements = 5;
+}
+
+message Param {
+  string name = 1;
+  string type_str = 2;
+}
+
+message Field {
+  string name = 1;
+  string type_str = 2;
+}

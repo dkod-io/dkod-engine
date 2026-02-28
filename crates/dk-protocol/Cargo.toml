@@ -1,0 +1,22 @@
+[package]
+name = "dk-protocol"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+dk-core.workspace = true
+dk-engine.workspace = true
+dk-runner.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+dashmap = "6"
+tonic = "0.12"
+prost = "0.13"
+tokio-stream = "0.1"
+serde_json.workspace = true
+
+[build-dependencies]
+tonic-build = "0.12"

@@ -1,0 +1,14 @@
+Metadata-Version: 2.4
+Name: dekode
+Version: 0.1.0
+Summary: Python SDK for the Dekode Agent Protocol
+Requires-Python: >=3.11
+Requires-Dist: grpcio>=1.62.0
+Requires-Dist: protobuf>=4.25.0
+Requires-Dist: pydantic>=2.0.0
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0; extra == "dev"
+Requires-Dist: pytest-mock>=3.12; extra == "dev"
+Requires-Dist: grpcio-tools>=1.62.0; extra == "dev"
+Provides-Extra: anthropic
+Requires-Dist: anthropic>=0.40.0; extra == "anthropic"

@@ -1,0 +1,29 @@
+[package]
+name = "dk-engine"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+dk-core.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+sqlx.workspace = true
+chrono.workspace = true
+gix = { version = "0.79", features = ["max-performance", "tree-editor"] }
+tree-sitter = "0.24"
+tree-sitter-rust = "0.23"
+tree-sitter-typescript = "0.23"
+tree-sitter-python = "0.23"
+tantivy = "0.22"
+arc-swap = "1"
+dashmap = "6"
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true, features = ["test-util", "macros"] }

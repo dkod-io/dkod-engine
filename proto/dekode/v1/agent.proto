@@ -1,0 +1,309 @@
+syntax = "proto3";
+package dekode.v1;
+
+import "dekode/v1/types.proto";
+
+service AgentService {
+  rpc Connect(ConnectRequest) returns (ConnectResponse);
+  rpc Context(ContextRequest) returns (ContextResponse);
+  rpc Submit(SubmitRequest) returns (SubmitResponse);
+
+  // Trigger verification pipeline on a changeset (server-streaming)
+  rpc Verify(VerifyRequest) returns (stream VerifyStepResult);
+
+  // Merge an approved changeset into a Git commit
+  rpc Merge(MergeRequest) returns (MergeResponse);
+
+  // Watch for repo events from other agents (server-streaming)
+  rpc Watch(WatchRequest) returns (stream WatchEvent);
+
+  // File-level operations through the session workspace overlay
+  rpc FileRead(FileReadRequest) returns (FileReadResponse);
+  rpc FileWrite(FileWriteRequest) returns (FileWriteResponse);
+  rpc FileList(FileListRequest) returns (FileListResponse);
+
+  // Dry-run conflict detection before SUBMIT
+  rpc PreSubmitCheck(PreSubmitCheckRequest) returns (PreSubmitCheckResponse);
+
+  // Get current session workspace state
+  rpc GetSessionStatus(SessionStatusRequest) returns (SessionStatusResponse);
+}
+
+// ── CONNECT ──
+
+message ConnectRequest {
+  string agent_id = 1;
+  string auth_token = 2;
+  string codebase = 3;
+  string intent = 4;
+  WorkspaceConfig workspace_config = 5;
+}
+
+message ConnectResponse {
+  string session_id = 1;
+  string codebase_version = 2;
+  CodebaseSummary summary = 3;
+  string changeset_id = 4;   // auto-created changeset
+  string workspace_id = 5;
+  WorkspaceConcurrencyInfo concurrency = 6;
+}
+
+message WorkspaceConfig {
+  WorkspaceMode mode = 1;
+  optional string base_commit = 2;
+  optional string resume_session_id = 3;
+  bool watch_other_sessions = 4;
+}
+
+enum WorkspaceMode {
+  EPHEMERAL = 0;
+  PERSISTENT = 1;
+}
+
+message WorkspaceConcurrencyInfo {
+  uint32 active_sessions = 1;
+  repeated ActiveSessionSummary other_sessions = 2;
+}
+
+message ActiveSessionSummary {
+  string agent_id = 1;
+  string intent = 2;
+  repeated string active_files = 3;
+}
+
+message CodebaseSummary {
+  repeated string languages = 1;
+  uint64 total_symbols = 2;
+  uint64 total_files = 3;
+}
+
+// ── CONTEXT ──
+
+message ContextRequest {
+  string session_id = 1;
+  string query = 2;
+  ContextDepth depth = 3;
+  bool include_tests = 4;
+  bool include_dependencies = 5;
+  uint32 max_tokens = 6;
+}
+
+enum ContextDepth {
+  SIGNATURES = 0;
+  FULL = 1;
+  CALL_GRAPH = 2;
+}
+
+message ContextResponse {
+  repeated SymbolResult symbols = 1;
+  repeated CallEdgeRef call_graph = 2;
+  repeated DependencyRef dependencies = 3;
+  uint32 estimated_tokens = 4;
+}
+
+message SymbolResult {
+  SymbolRef symbol = 1;
+  optional string source = 2;
+  repeated string caller_ids = 3;
+  repeated string callee_ids = 4;
+  repeated string test_symbol_ids = 5;
+}
+
+// ── SUBMIT ──
+
+message SubmitRequest {
+  string session_id = 1;
+  string intent = 2;
+  repeated Change changes = 3;
+  string changeset_id = 4;   // target changeset
+}
+
+message Change {
+  ChangeType type = 1;
+  string symbol_name = 2;
+  string file_path = 3;
+  optional string old_symbol_id = 4;
+  string new_source = 5;
+  string rationale = 6;
+}
+
+enum ChangeType {
+  MODIFY_FUNCTION = 0;
+  ADD_FUNCTION = 1;
+  DELETE_FUNCTION = 2;
+  MODIFY_TYPE = 3;
+  ADD_TYPE = 4;
+  ADD_DEPENDENCY = 5;
+}
+
+message SubmitResponse {
+  SubmitStatus status = 1;
+  string changeset_id = 2;
+  optional string new_version = 3;
+  repeated SubmitError errors = 4;
+}
+
+enum SubmitStatus {
+  ACCEPTED = 0;
+  REJECTED = 1;
+  CONFLICT = 2;
+}
+
+message SubmitError {
+  string message = 1;
+  optional string symbol_id = 2;
+  optional string file_path = 3;
+}
+
+// --- VERIFY ---
+
+message VerifyRequest {
+  string session_id = 1;
+  string changeset_id = 2;
+}
+
+message VerifyStepResult {
+  int32 step_order = 1;
+  string step_name = 2;
+  string status = 3;
+  string output = 4;
+  bool required = 5;
+  repeated Finding findings = 6;
+  repeated Suggestion suggestions = 7;
+}
+
+message Finding {
+  string severity = 1;
+  string check_name = 2;
+  string message = 3;
+  optional string file_path = 4;
+  optional uint32 line = 5;
+  optional string symbol = 6;
+}
+
+message Suggestion {
+  uint32 finding_index = 1;
+  string description = 2;
+  string file_path = 3;
+  optional string replacement = 4;
+}
+
+// --- MERGE ---
+
+message MergeRequest {
+  string session_id = 1;
+  string changeset_id = 2;
+  string commit_message = 3;
+}
+
+message MergeResponse {
+  string commit_hash = 1;
+  string merged_version = 2;
+  repeated ConflictInfo conflicts = 3;
+  bool auto_rebased = 4;
+  repeated string auto_rebased_files = 5;
+}
+
+message ConflictInfo {
+  string file_path = 1;
+  string symbol_name = 2;
+  string conflict_type = 3;
+  string other_agent_id = 4;
+  string other_changeset_id = 5;
+  string description = 6;
+}
+
+// --- WATCH ---
+
+message WatchRequest {
+  string session_id = 1;
+  string repo_id = 2;
+  string filter = 3;
+}
+
+message WatchEvent {
+  string event_type = 1;
+  string changeset_id = 2;
+  string agent_id = 3;
+  repeated string affected_symbols = 4;
+  string details = 5;
+}
+
+// --- FILE OPERATIONS ---
+
+message FileReadRequest {
+  string session_id = 1;
+  string path = 2;
+}
+
+message FileReadResponse {
+  bytes content = 1;
+  string hash = 2;
+  bool modified_in_session = 3;
+}
+
+message FileWriteRequest {
+  string session_id = 1;
+  string path = 2;
+  bytes content = 3;
+}
+
+message FileWriteResponse {
+  string new_hash = 1;
+  repeated SymbolChange detected_changes = 2;
+}
+
+message FileListRequest {
+  string session_id = 1;
+  optional string prefix = 2;
+  bool only_modified = 3;
+}
+
+message FileListResponse {
+  repeated FileEntry files = 1;
+}
+
+message FileEntry {
+  string path = 1;
+  bool modified_in_session = 2;
+}
+
+// --- PRE-SUBMIT CHECK ---
+
+message PreSubmitCheckRequest {
+  string session_id = 1;
+}
+
+message PreSubmitCheckResponse {
+  bool has_conflicts = 1;
+  repeated SemanticConflict potential_conflicts = 2;
+  uint32 files_modified = 3;
+  uint32 symbols_changed = 4;
+}
+
+message SemanticConflict {
+  string file_path = 1;
+  string symbol_name = 2;
+  string our_change = 3;
+  string their_change = 4;
+}
+
+message SymbolChange {
+  string symbol_name = 1;
+  string change_type = 2;
+}
+
+// ── Session Status ──
+
+message SessionStatusRequest {
+  string session_id = 1;
+}
+
+message SessionStatusResponse {
+  string session_id = 1;
+  string base_commit = 2;
+  repeated string files_modified = 3;
+  repeated string symbols_modified = 4;
+  uint64 overlay_size_bytes = 5;
+  uint32 active_other_sessions = 6;
+}

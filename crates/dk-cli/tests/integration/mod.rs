@@ -1,0 +1,13 @@
+mod add_test;
+mod branch_test;
+mod checkout_test;
+mod clone_test;
+mod commit_test;
+mod diff_test;
+mod init_test;
+mod log_test;
+mod merge_test;
+mod push_pull_test;
+mod remote_test;
+mod status_test;
+mod workflow_test;
