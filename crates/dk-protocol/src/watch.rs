@@ -33,10 +33,10 @@ pub async fn handle_watch(
     loop {
         match rx.recv().await {
             Ok(event) => {
-                if matches_filter(&event.event_type, filter) {
-                    if tx.send(Ok(event)).await.is_err() {
-                        break;
-                    }
+                if matches_filter(&event.event_type, filter)
+                    && tx.send(Ok(event)).await.is_err()
+                {
+                    break;
                 }
             }
             Err(broadcast::error::RecvError::Lagged(n)) => {
