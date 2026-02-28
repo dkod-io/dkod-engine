@@ -1,4 +1,5 @@
 use dashmap::DashMap;
+use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
@@ -16,7 +17,7 @@ pub struct AgentSession {
 
 /// Snapshot of a session's identity info, saved when a session expires or
 /// is explicitly removed, allowing a new CONNECT to resume it.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SessionSnapshot {
     pub agent_id: String,
     pub codebase: String,
