@@ -1,5 +1,5 @@
 use dk_protocol::agent_service_client::AgentServiceClient;
-use tonic::transport::Channel;
+use tonic::transport::{Channel, ClientTlsConfig};
 
 use crate::error::{Result, SdkError};
 use crate::session::Session;
@@ -18,12 +18,20 @@ pub struct AgentClient {
 impl AgentClient {
     /// Connect to a Dekode Agent Protocol server at the given address.
     ///
-    /// `addr` should be a full URI such as `"http://localhost:50051"`.
+    /// `addr` should be a full URI such as `"http://localhost:50051"` or
+    /// `"https://agent.dkod.io:443"`. TLS is enabled automatically for
+    /// `https://` addresses.
     pub async fn connect(addr: &str, auth_token: &str) -> Result<Self> {
-        let channel = Channel::from_shared(addr.to_string())
-            .map_err(|e| SdkError::Connection(e.to_string()))?
-            .connect()
-            .await?;
+        let mut endpoint = Channel::from_shared(addr.to_string())
+            .map_err(|e| SdkError::Connection(e.to_string()))?;
+
+        if addr.starts_with("https://") {
+            endpoint = endpoint
+                .tls_config(ClientTlsConfig::new().with_webpki_roots())
+                .map_err(|e| SdkError::Connection(format!("TLS config error: {e}")))?;
+        }
+
+        let channel = endpoint.connect().await?;
 
         Ok(Self {
             inner: AgentServiceClient::new(channel),

@@ -93,7 +93,7 @@ pub fn api_base_from_grpc(grpc_addr: &str) -> String {
     if grpc_addr.contains("localhost") || grpc_addr.contains("[::1]") || grpc_addr.contains("127.0.0.1") {
         "http://localhost:8080".to_string()
     } else {
-        "https://app.dkod.io".to_string()
+        "https://api.dkod.io".to_string()
     }
 }
 
@@ -185,7 +185,13 @@ mod tests {
 
     #[tokio::test]
     async fn empty_env_token_is_skipped() {
+        // Empty env token should not be returned — resolve_token should skip it
+        // and fall through to cached token or device flow.
         let result = resolve_token("http://localhost:9999", Some("")).await;
-        assert!(result.is_err());
+        // If there's a cached token, it succeeds; otherwise it errors.
+        // Either way, the empty string must NOT be the result.
+        if let Ok(ref token) = result {
+            assert!(!token.is_empty(), "empty env token should have been skipped");
+        }
     }
 }
