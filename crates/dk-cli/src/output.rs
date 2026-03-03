@@ -15,14 +15,6 @@ impl Output {
         Self { json }
     }
 
-    pub fn human() -> Self {
-        Self { json: false }
-    }
-
-    pub fn json() -> Self {
-        Self { json: true }
-    }
-
     pub fn is_json(&self) -> bool {
         self.json
     }
@@ -34,17 +26,21 @@ impl Output {
             }
         }
     }
+}
+
+/// Test-only constructors and helpers.
+#[cfg(test)]
+impl Output {
+    pub fn human() -> Self {
+        Self { json: false }
+    }
+
+    pub fn json() -> Self {
+        Self { json: true }
+    }
 
     pub fn format(&self, value: &serde_json::Value) -> String {
         serde_json::to_string(value).unwrap_or_default()
-    }
-
-    pub fn error(&self, msg: &str) {
-        if self.json {
-            println!(r#"{{"error":"{}"}}"#, msg.replace('"', r#"\""#));
-        } else {
-            eprintln!("error: {msg}");
-        }
     }
 }
 
