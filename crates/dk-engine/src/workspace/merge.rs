@@ -55,10 +55,6 @@ pub fn merge_workspace(
     author_name: &str,
     author_email: &str,
 ) -> Result<WorkspaceMergeResult> {
-    let head_hash = git_repo
-        .head_hash()?
-        .ok_or_else(|| dk_core::Error::Git("repository has no HEAD".into()))?;
-
     let overlay = workspace.overlay_for_tree();
 
     if overlay.is_empty() {
@@ -66,6 +62,27 @@ pub fn merge_workspace(
             "workspace has no changes to merge".into(),
         ));
     }
+
+    // ── Initial commit (empty repo) ──────────────────────────────
+    //
+    // When the repository has no HEAD (no commits yet) and the workspace
+    // base_commit is "initial", create an orphan root commit from the
+    // overlay. This supports the first-ever commit on a new repository.
+    let head_hash = match git_repo.head_hash()? {
+        Some(hash) => hash,
+        None => {
+            if workspace.base_commit == "initial" {
+                let commit_hash = git_repo.commit_initial_overlay(
+                    &overlay,
+                    commit_message,
+                    author_name,
+                    author_email,
+                )?;
+                return Ok(WorkspaceMergeResult::FastMerge { commit_hash });
+            }
+            return Err(dk_core::Error::Git("repository has no HEAD".into()));
+        }
+    };
 
     // ── Fast path ────────────────────────────────────────────────
     if head_hash == workspace.base_commit {

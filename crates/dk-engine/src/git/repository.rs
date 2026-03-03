@@ -296,6 +296,108 @@ impl GitRepository {
         Ok(commit_hex)
     }
 
+    /// Create an orphan commit from overlay entries on an empty repository
+    /// (no existing commits). This is used for the very first commit.
+    ///
+    /// Builds a tree from scratch using only the overlay entries (ignoring
+    /// `None`/deletion entries since there's nothing to delete), creates a
+    /// root commit with no parents, and updates HEAD.
+    ///
+    /// Returns the hex SHA of the new commit.
+    pub fn commit_initial_overlay(
+        &self,
+        overlay: &[(String, Option<Vec<u8>>)],
+        message: &str,
+        author_name: &str,
+        author_email: &str,
+    ) -> Result<String> {
+        use gix::object::tree::EntryKind;
+
+        // Start from an empty tree and build up the initial file tree.
+        let empty_tree = self
+            .inner
+            .empty_tree();
+
+        let mut editor = self
+            .inner
+            .edit_tree(empty_tree.id)
+            .map_err(|e| Error::Git(format!("failed to create tree editor: {e}")))?;
+
+        // Apply overlay entries (only additions, skip deletions)
+        for (path, maybe_content) in overlay {
+            if let Some(content) = maybe_content {
+                let blob_id = self
+                    .inner
+                    .write_blob(content)
+                    .map_err(|e| Error::Git(format!("failed to write blob for '{path}': {e}")))?;
+
+                editor
+                    .upsert(path.as_str(), EntryKind::Blob, blob_id.detach())
+                    .map_err(|e| Error::Git(format!("failed to upsert '{path}': {e}")))?;
+            }
+        }
+
+        let new_tree_id = editor
+            .write()
+            .map_err(|e| Error::Git(format!("failed to write initial tree: {e}")))?;
+
+        // Build the commit with no parents (orphan/root commit)
+        let now_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+
+        let time = gix::date::Time {
+            seconds: now_secs,
+            offset: 0,
+        };
+
+        let sig = gix::actor::Signature {
+            name: author_name.into(),
+            email: author_email.into(),
+            time,
+        };
+
+        let mut time_buf = gix::date::parse::TimeBuf::default();
+        let sig_ref = sig.to_ref(&mut time_buf);
+
+        // Root commit: no parents (empty iterator)
+        let commit_id = self
+            .inner
+            .commit_as(
+                sig_ref,
+                sig_ref,
+                "HEAD",
+                message,
+                new_tree_id.detach(),
+                std::iter::empty::<gix::ObjectId>(),
+            )
+            .map_err(|e| Error::Git(format!("failed to create initial commit: {e}")))?;
+
+        let commit_hex = commit_id.to_hex().to_string();
+
+        // Update working directory
+        let work_dir = self.path().to_path_buf();
+        let output = std::thread::spawn(move || {
+            std::process::Command::new("git")
+                .args(["checkout", "HEAD", "--", "."])
+                .current_dir(&work_dir)
+                .output()
+        })
+        .join()
+        .map_err(|_| Error::Git("git checkout thread panicked".into()))?
+        .map_err(|e| Error::Git(format!("git checkout failed: {e}")))?;
+
+        if !output.status.success() {
+            tracing::warn!(
+                "git checkout HEAD -- . failed after initial commit: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+
+        Ok(commit_hex)
+    }
+
     /// Get the HEAD commit hash as a hex string, or `None` if the repository
     /// is empty (no commits yet).
     pub fn head_hash(&self) -> Result<Option<String>> {
