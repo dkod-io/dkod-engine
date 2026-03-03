@@ -1,9 +1,11 @@
 //! JWT and shared-secret authentication for the Agent Protocol.
 //!
-//! [`AuthConfig`] supports three modes:
+//! [`AuthConfig`] supports four modes:
 //! - **Jwt** -- HMAC-SHA256 JWT validation/issuance.
 //! - **SharedSecret** -- simple string comparison (legacy).
 //! - **Dual** -- try JWT first, fall back to shared secret.
+//! - **External** -- trust an outer layer (e.g. tonic interceptor) that already
+//!   validated the token; pass through the token value as agent id.
 
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
@@ -40,6 +42,12 @@ pub enum AuthConfig {
         jwt_secret: String,
         shared_token: String,
     },
+    /// External mode -- an outer authentication layer (e.g. a tonic
+    /// interceptor) has already validated the token. The raw token value
+    /// is passed through as the agent id. Useful for managed platforms
+    /// where a gateway handles JWT verification before the request
+    /// reaches the protocol server.
+    External,
 }
 
 impl AuthConfig {
@@ -84,6 +92,12 @@ impl AuthConfig {
                     }
                 }
             }
+
+            AuthConfig::External => {
+                // The outer layer already validated the token; pass it
+                // through as the agent id (typically a user_id).
+                Ok(token.to_string())
+            }
         }
     }
 
@@ -101,9 +115,9 @@ impl AuthConfig {
         let secret = match self {
             AuthConfig::Jwt { secret } => secret,
             AuthConfig::Dual { jwt_secret, .. } => jwt_secret,
-            AuthConfig::SharedSecret { .. } => {
+            AuthConfig::SharedSecret { .. } | AuthConfig::External => {
                 return Err(Status::failed_precondition(
-                    "Cannot issue JWT tokens in SharedSecret-only mode",
+                    "Cannot issue JWT tokens without a JWT secret",
                 ));
             }
         };
@@ -270,6 +284,9 @@ mod tests {
             shared_token: "fallback".to_string(),
         };
         assert!(dual.validate("").is_err(), "Dual mode should reject empty token");
+
+        let external = AuthConfig::External;
+        assert!(external.validate("").is_err(), "External mode should reject empty token");
     }
 
     #[test]
@@ -280,5 +297,32 @@ mod tests {
             token: "".to_string(),
         };
         assert!(config.validate("").is_err(), "empty token should be rejected even if shared secret is empty");
+    }
+
+    #[test]
+    fn external_passes_through_token_as_agent_id() {
+        let config = AuthConfig::External;
+        let agent_id = config
+            .validate("user_abc123")
+            .expect("External should accept any non-empty token");
+        assert_eq!(agent_id, "user_abc123");
+    }
+
+    #[test]
+    fn external_rejects_empty_token() {
+        let config = AuthConfig::External;
+        assert!(
+            config.validate("").is_err(),
+            "External should reject empty token"
+        );
+    }
+
+    #[test]
+    fn external_cannot_issue_tokens() {
+        let config = AuthConfig::External;
+        assert!(
+            config.issue_token("agent", "read", 3600).is_err(),
+            "External mode should not issue JWT tokens"
+        );
     }
 }
