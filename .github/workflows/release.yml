@@ -1,0 +1,137 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            name: linux-amd64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            name: linux-arm64
+          - target: x86_64-apple-darwin
+            os: macos-13
+            name: darwin-amd64
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            name: darwin-arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Install protobuf compiler (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Install protobuf compiler (macOS)
+        if: runner.os == 'macOS'
+        run: brew install protobuf
+
+      - name: Install cross-compilation tools (Linux ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build binaries
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.target == 'aarch64-unknown-linux-gnu' && 'aarch64-linux-gnu-gcc' || '' }}
+        run: cargo build --release --target ${{ matrix.target }} -p dk-cli -p dk-server
+
+      - name: Package binaries
+        run: |
+          STAGING="dk-${{ github.ref_name }}-${{ matrix.name }}"
+          mkdir "$STAGING"
+          cp "target/${{ matrix.target }}/release/dk" "$STAGING/"
+          cp "target/${{ matrix.target }}/release/dk-server" "$STAGING/"
+          cp LICENSE README.md "$STAGING/"
+          tar czf "$STAGING.tar.gz" "$STAGING"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dk-${{ github.ref_name }}-${{ matrix.name }}
+          path: dk-${{ github.ref_name }}-${{ matrix.name }}.tar.gz
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          find . -name '*.tar.gz' -exec mv {} . \;
+          sha256sum *.tar.gz > checksums-sha256.txt
+          cat checksums-sha256.txt
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          # Generate release notes from commits since previous tag
+          PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${TAG}$" | head -1)
+          if [ -n "$PREV_TAG" ]; then
+            NOTES=$(git log "${PREV_TAG}..${TAG}" --pretty=format:"- %s" --no-merges)
+          else
+            NOTES="Initial release"
+          fi
+
+          cd artifacts
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes "$(cat <<EOF
+          ## Install
+
+          \`\`\`bash
+          # Download (example: macOS Apple Silicon)
+          curl -fsSL https://github.com/dkod-io/dkod-engine/releases/download/${TAG}/dk-${TAG}-darwin-arm64.tar.gz | tar xz
+          sudo mv dk-${TAG}-darwin-arm64/dk /usr/local/bin/
+
+          # Or build from source
+          cargo install --git https://github.com/dkod-io/dkod-engine dk-cli
+          \`\`\`
+
+          ## Changes
+
+          ${NOTES}
+
+          ## Checksums
+
+          \`\`\`
+          $(cat checksums-sha256.txt)
+          \`\`\`
+          EOF
+          )" \
+            *.tar.gz checksums-sha256.txt
