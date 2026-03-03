@@ -22,16 +22,14 @@ pub async fn run(out: Output) -> Result<()> {
             "modified_files": resp.files.iter().map(|f| &f.path).collect::<Vec<_>>(),
             "count": resp.files.len(),
         }));
+    } else if resp.files.is_empty() {
+        println!("No pending changes.");
     } else {
-        if resp.files.is_empty() {
-            println!("No pending changes.");
-        } else {
-            println!("{}", "Modified files:".bold());
-            for entry in &resp.files {
-                println!("  {} {}", "M".yellow(), entry.path);
-            }
-            println!("\n{} file(s) modified", resp.files.len());
+        println!("{}", "Modified files:".bold());
+        for entry in &resp.files {
+            println!("  {} {}", "M".yellow(), entry.path);
         }
+        println!("\n{} file(s) modified", resp.files.len());
     }
 
     Ok(())

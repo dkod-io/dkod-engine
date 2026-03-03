@@ -33,15 +33,13 @@ pub async fn run(out: Output, message: Option<&str>) -> Result<()> {
                 })
             }).collect::<Vec<_>>(),
         }));
+    } else if resp.conflicts.is_empty() {
+        println!("{} {}", "Merged.".green().bold(), resp.commit_hash.dimmed());
+        println!("  Version: {}", resp.merged_version);
     } else {
-        if resp.conflicts.is_empty() {
-            println!("{} {}", "Merged.".green().bold(), resp.commit_hash.dimmed());
-            println!("  Version: {}", resp.merged_version);
-        } else {
-            println!("{} {} conflict(s):", "Merge blocked.".red().bold(), resp.conflicts.len());
-            for c in &resp.conflicts {
-                println!("  {} {} ({}) -- {}", "conflict:".red(), c.file_path, c.conflict_type, c.description);
-            }
+        println!("{} {} conflict(s):", "Merge blocked.".red().bold(), resp.conflicts.len());
+        for c in &resp.conflicts {
+            println!("  {} {} ({}) -- {}", "conflict:".red(), c.file_path, c.conflict_type, c.description);
         }
     }
 

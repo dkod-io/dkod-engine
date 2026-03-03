@@ -1,6 +1,6 @@
 #!/bin/bash
-# Claude hook: run cargo check with -D warnings before git commit.
-# Catches CI failures locally before pushing.
+# Claude hook: run cargo clippy with -D warnings before git commit.
+# Catches CI failures locally before pushing (CI runs clippy, not just check).
 # Trigger: PreToolUse on Bash (git commit commands only)
 
 set -euo pipefail
@@ -16,9 +16,9 @@ if [ ! -f "Cargo.toml" ]; then
     exit 0
 fi
 
-# Run cargo check with the same flags as CI
-if ! RUSTFLAGS="-D warnings" cargo check --workspace 2>&1; then
-    echo "BLOCK: cargo check --workspace failed with -D warnings (same as CI)" >&2
-    echo "Fix the warnings before committing." >&2
+# Run cargo clippy with the same flags as CI
+if ! cargo clippy --workspace -- -D warnings 2>&1; then
+    echo "BLOCK: cargo clippy --workspace failed with -D warnings (same as CI)" >&2
+    echo "Fix the clippy warnings before committing." >&2
     exit 1
 fi
