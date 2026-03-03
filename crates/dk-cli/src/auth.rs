@@ -142,6 +142,8 @@ pub async fn run_device_flow(api_base: &str) -> Result<String> {
                 println!();
                 return Ok(token);
             }
+        } else if resp.status == "denied" || resp.status == "expired" {
+            anyhow::bail!("authentication {} by user", resp.status);
         }
     }
 }
