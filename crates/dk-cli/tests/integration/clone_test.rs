@@ -23,17 +23,14 @@ fn configure_git_user(dir: &std::path::Path) {
 
 fn create_source_repo() -> TempDir {
     let dir = TempDir::new().unwrap();
-    dk().arg("init").arg(dir.path()).assert().success();
+    dk().arg("git").arg("init").arg(dir.path()).assert().success();
     configure_git_user(dir.path());
     fs::write(dir.path().join("hello.txt"), "hello world").unwrap();
-    dk().arg("add")
-        .arg("hello.txt")
+    dk().args(["git", "add", "hello.txt"])
         .current_dir(dir.path())
         .assert()
         .success();
-    dk().arg("commit")
-        .arg("-m")
-        .arg("initial")
+    dk().args(["git", "commit", "-m", "initial"])
         .current_dir(dir.path())
         .assert()
         .success();
@@ -46,7 +43,7 @@ fn clone_local_repo() {
     let dest = TempDir::new().unwrap();
     let clone_path = dest.path().join("cloned");
 
-    dk().arg("clone")
+    dk().args(["git", "clone"])
         .arg(source.path())
         .arg(&clone_path)
         .assert()
@@ -73,7 +70,7 @@ fn clone_into_default_directory() {
         .to_string_lossy()
         .to_string();
 
-    dk().arg("clone")
+    dk().args(["git", "clone"])
         .arg(source.path())
         .current_dir(work_dir.path())
         .assert()

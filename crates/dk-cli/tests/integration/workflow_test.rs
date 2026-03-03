@@ -26,11 +26,11 @@ fn full_workflow_init_add_commit_log_diff() {
     let dir = TempDir::new().unwrap();
 
     // 1. Init
-    dk().arg("init").arg(dir.path()).assert().success();
+    dk().arg("git").arg("init").arg(dir.path()).assert().success();
     configure_git_user(dir.path());
 
     // 2. Status on empty repo
-    dk().arg("status")
+    dk().args(["git", "status"])
         .current_dir(dir.path())
         .assert()
         .success()
@@ -41,7 +41,7 @@ fn full_workflow_init_add_commit_log_diff() {
     fs::write(dir.path().join("main.rs"), "fn main() {}\n").unwrap();
 
     // 4. Status shows untracked
-    dk().arg("status")
+    dk().args(["git", "status"])
         .current_dir(dir.path())
         .assert()
         .success()
@@ -50,31 +50,27 @@ fn full_workflow_init_add_commit_log_diff() {
         );
 
     // 5. Add all
-    dk().arg("add")
-        .arg("-A")
+    dk().args(["git", "add", "-A"])
         .current_dir(dir.path())
         .assert()
         .success();
 
     // 6. Commit
-    dk().arg("commit")
-        .arg("-m")
-        .arg("initial commit")
+    dk().args(["git", "commit", "-m", "initial commit"])
         .current_dir(dir.path())
         .assert()
         .success()
         .stdout(predicate::str::contains("initial commit"));
 
     // 7. Log shows commit
-    dk().arg("log")
+    dk().args(["git", "log"])
         .current_dir(dir.path())
         .assert()
         .success()
         .stdout(predicate::str::contains("initial commit"));
 
     // 8. Log oneline
-    dk().arg("log")
-        .arg("--oneline")
+    dk().args(["git", "log", "--oneline"])
         .current_dir(dir.path())
         .assert()
         .success()
@@ -84,33 +80,29 @@ fn full_workflow_init_add_commit_log_diff() {
     fs::write(dir.path().join("README.md"), "# My Project\n\nUpdated.\n").unwrap();
 
     // 10. Diff shows change
-    dk().arg("diff")
+    dk().args(["git", "diff"])
         .current_dir(dir.path())
         .assert()
         .success()
         .stdout(predicate::str::contains("Updated"));
 
     // 11. Add and commit the modification
-    dk().arg("add")
-        .arg("README.md")
+    dk().args(["git", "add", "README.md"])
         .current_dir(dir.path())
         .assert()
         .success();
-    dk().arg("diff")
-        .arg("--staged")
+    dk().args(["git", "diff", "--staged"])
         .current_dir(dir.path())
         .assert()
         .success()
         .stdout(predicate::str::contains("Updated"));
-    dk().arg("commit")
-        .arg("-m")
-        .arg("update readme")
+    dk().args(["git", "commit", "-m", "update readme"])
         .current_dir(dir.path())
         .assert()
         .success();
 
     // 12. Log shows both commits
-    dk().arg("log")
+    dk().args(["git", "log"])
         .current_dir(dir.path())
         .assert()
         .success()
@@ -120,7 +112,7 @@ fn full_workflow_init_add_commit_log_diff() {
         );
 
     // 13. Status is clean
-    dk().arg("status")
+    dk().args(["git", "status"])
         .current_dir(dir.path())
         .assert()
         .success()
@@ -130,53 +122,53 @@ fn full_workflow_init_add_commit_log_diff() {
 #[test]
 fn branch_checkout_merge_workflow() {
     let dir = TempDir::new().unwrap();
-    dk().arg("init").arg(dir.path()).assert().success();
+    dk().arg("git").arg("init").arg(dir.path()).assert().success();
     configure_git_user(dir.path());
 
     // Initial commit on main
     std::fs::write(dir.path().join("main.txt"), "main content").unwrap();
-    dk().args(["add", "main.txt"])
+    dk().args(["git", "add", "main.txt"])
         .current_dir(dir.path())
         .assert()
         .success();
-    dk().args(["commit", "-m", "init"])
+    dk().args(["git", "commit", "-m", "init"])
         .current_dir(dir.path())
         .assert()
         .success();
 
     // Create feature branch
-    dk().args(["checkout", "-b", "feature"])
+    dk().args(["git", "checkout", "-b", "feature"])
         .current_dir(dir.path())
         .assert()
         .success();
 
     // Add feature work
     std::fs::write(dir.path().join("feature.txt"), "feature work").unwrap();
-    dk().args(["add", "feature.txt"])
+    dk().args(["git", "add", "feature.txt"])
         .current_dir(dir.path())
         .assert()
         .success();
-    dk().args(["commit", "-m", "add feature"])
+    dk().args(["git", "commit", "-m", "add feature"])
         .current_dir(dir.path())
         .assert()
         .success();
 
     // Switch back to main
-    dk().args(["checkout", "main"])
+    dk().args(["git", "checkout", "main"])
         .current_dir(dir.path())
         .assert()
         .success();
     assert!(!dir.path().join("feature.txt").exists());
 
     // Merge feature into main
-    dk().args(["merge", "feature"])
+    dk().args(["git", "merge", "feature"])
         .current_dir(dir.path())
         .assert()
         .success();
     assert!(dir.path().join("feature.txt").exists());
 
     // Log should show both commits
-    dk().args(["log", "--oneline"])
+    dk().args(["git", "log", "--oneline"])
         .current_dir(dir.path())
         .assert()
         .success()
@@ -196,7 +188,7 @@ fn clone_push_pull_workflow() {
     // 2. Clone, add, commit, push
     let work = TempDir::new().unwrap();
     let work_path = work.path().join("myrepo");
-    dk().arg("clone")
+    dk().args(["git", "clone"])
         .arg(bare.path())
         .arg(&work_path)
         .assert()
@@ -204,18 +196,15 @@ fn clone_push_pull_workflow() {
     configure_git_user(&work_path);
 
     fs::write(work_path.join("hello.txt"), "hello").unwrap();
-    dk().arg("add")
-        .arg("hello.txt")
+    dk().args(["git", "add", "hello.txt"])
         .current_dir(&work_path)
         .assert()
         .success();
-    dk().arg("commit")
-        .arg("-m")
-        .arg("first")
+    dk().args(["git", "commit", "-m", "first"])
         .current_dir(&work_path)
         .assert()
         .success();
-    dk().arg("push")
+    dk().args(["git", "push"])
         .current_dir(&work_path)
         .assert()
         .success();
@@ -223,7 +212,7 @@ fn clone_push_pull_workflow() {
     // 3. Second clone should have the file
     let clone2 = TempDir::new().unwrap();
     let clone2_path = clone2.path().join("repo2");
-    dk().arg("clone")
+    dk().args(["git", "clone"])
         .arg(bare.path())
         .arg(&clone2_path)
         .assert()

@@ -21,17 +21,14 @@ fn configure_git_user(dir: &std::path::Path) {
 }
 
 fn init_with_commit(dir: &std::path::Path) {
-    dk().arg("init").arg(dir).assert().success();
+    dk().arg("git").arg("init").arg(dir).assert().success();
     configure_git_user(dir);
     fs::write(dir.join("file.txt"), "content").unwrap();
-    dk().arg("add")
-        .arg("file.txt")
+    dk().args(["git", "add", "file.txt"])
         .current_dir(dir)
         .assert()
         .success();
-    dk().arg("commit")
-        .arg("-m")
-        .arg("initial")
+    dk().args(["git", "commit", "-m", "initial"])
         .current_dir(dir)
         .assert()
         .success();
@@ -43,23 +40,18 @@ fn merge_branch_into_main() {
     init_with_commit(dir.path());
 
     // Create and switch to feature branch
-    dk().arg("checkout")
-        .arg("-b")
-        .arg("feature")
+    dk().args(["git", "checkout", "-b", "feature"])
         .current_dir(dir.path())
         .assert()
         .success();
 
     // Add a new file on feature branch
     fs::write(dir.path().join("feature.txt"), "feature content").unwrap();
-    dk().arg("add")
-        .arg("feature.txt")
+    dk().args(["git", "add", "feature.txt"])
         .current_dir(dir.path())
         .assert()
         .success();
-    dk().arg("commit")
-        .arg("-m")
-        .arg("add feature file")
+    dk().args(["git", "commit", "-m", "add feature file"])
         .current_dir(dir.path())
         .assert()
         .success();
@@ -71,15 +63,10 @@ fn merge_branch_into_main() {
         .current_dir(dir.path())
         .output()
         .unwrap();
-    // We're on feature, need to go back to the initial branch
-    dk().arg("checkout")
-        .arg("-b")
-        .arg("feature") // already exists, so let's figure out the default
-        .current_dir(dir.path());
 
     // Determine the default branch by listing branches
     let branch_output = dk()
-        .arg("branch")
+        .args(["git", "branch"])
         .current_dir(dir.path())
         .output()
         .unwrap();
@@ -90,8 +77,7 @@ fn merge_branch_into_main() {
         "master"
     };
 
-    dk().arg("checkout")
-        .arg(default_branch)
+    dk().args(["git", "checkout", default_branch])
         .current_dir(dir.path())
         .assert()
         .success();
@@ -100,8 +86,7 @@ fn merge_branch_into_main() {
     assert!(!dir.path().join("feature.txt").exists());
 
     // Merge feature into main
-    dk().arg("merge")
-        .arg("feature")
+    dk().args(["git", "merge", "feature"])
         .current_dir(dir.path())
         .assert()
         .success();

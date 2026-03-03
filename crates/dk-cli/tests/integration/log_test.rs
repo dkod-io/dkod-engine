@@ -23,17 +23,14 @@ fn configure_git_user(dir: &std::path::Path) {
 
 fn init_repo_with_commit(msg: &str) -> TempDir {
     let dir = TempDir::new().unwrap();
-    dk().arg("init").arg(dir.path()).assert().success();
+    dk().arg("git").arg("init").arg(dir.path()).assert().success();
     configure_git_user(dir.path());
     fs::write(dir.path().join("file.txt"), "content").unwrap();
-    dk().arg("add")
-        .arg("file.txt")
+    dk().args(["git", "add", "file.txt"])
         .current_dir(dir.path())
         .assert()
         .success();
-    dk().arg("commit")
-        .arg("-m")
-        .arg(msg)
+    dk().args(["git", "commit", "-m", msg])
         .current_dir(dir.path())
         .assert()
         .success();
@@ -43,7 +40,7 @@ fn init_repo_with_commit(msg: &str) -> TempDir {
 #[test]
 fn log_shows_commit() {
     let dir = init_repo_with_commit("initial commit");
-    dk().arg("log")
+    dk().args(["git", "log"])
         .current_dir(dir.path())
         .assert()
         .success()
@@ -57,8 +54,7 @@ fn log_shows_commit() {
 #[test]
 fn log_oneline() {
     let dir = init_repo_with_commit("my message");
-    dk().arg("log")
-        .arg("--oneline")
+    dk().args(["git", "log", "--oneline"])
         .current_dir(dir.path())
         .assert()
         .success()
@@ -69,22 +65,17 @@ fn log_oneline() {
 fn log_limit() {
     let dir = init_repo_with_commit("first");
     fs::write(dir.path().join("second.txt"), "second").unwrap();
-    dk().arg("add")
-        .arg("second.txt")
+    dk().args(["git", "add", "second.txt"])
         .current_dir(dir.path())
         .assert()
         .success();
-    dk().arg("commit")
-        .arg("-m")
-        .arg("second")
+    dk().args(["git", "commit", "-m", "second"])
         .current_dir(dir.path())
         .assert()
         .success();
 
     // -n 1 should only show latest
-    dk().arg("log")
-        .arg("-n")
-        .arg("1")
+    dk().args(["git", "log", "-n", "1"])
         .current_dir(dir.path())
         .assert()
         .success()
@@ -94,8 +85,8 @@ fn log_limit() {
 #[test]
 fn log_empty_repo_fails() {
     let dir = TempDir::new().unwrap();
-    dk().arg("init").arg(dir.path()).assert().success();
-    dk().arg("log")
+    dk().arg("git").arg("init").arg(dir.path()).assert().success();
+    dk().args(["git", "log"])
         .current_dir(dir.path())
         .assert()
         .failure()

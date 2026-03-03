@@ -10,7 +10,7 @@ fn dk() -> Command {
 
 fn init_repo() -> TempDir {
     let dir = TempDir::new().unwrap();
-    dk().arg("init").arg(dir.path()).assert().success();
+    dk().arg("git").arg("init").arg(dir.path()).assert().success();
     dir
 }
 
@@ -19,14 +19,16 @@ fn add_single_file() {
     let dir = init_repo();
     fs::write(dir.path().join("hello.txt"), "hello world").unwrap();
 
-    dk().arg("add")
+    dk().arg("git")
+        .arg("add")
         .arg("hello.txt")
         .current_dir(dir.path())
         .assert()
         .success();
 
     // After adding, the file should no longer appear as untracked
-    dk().arg("status")
+    dk().arg("git")
+        .arg("status")
         .current_dir(dir.path())
         .assert()
         .success()
@@ -43,7 +45,8 @@ fn add_multiple_files() {
     fs::write(dir.path().join("a.txt"), "aaa").unwrap();
     fs::write(dir.path().join("b.txt"), "bbb").unwrap();
 
-    dk().arg("add")
+    dk().arg("git")
+        .arg("add")
         .arg("a.txt")
         .arg("b.txt")
         .current_dir(dir.path())
@@ -52,6 +55,7 @@ fn add_multiple_files() {
 
     // Both files should no longer appear as untracked
     let output = dk()
+        .arg("git")
         .arg("status")
         .current_dir(dir.path())
         .assert()
@@ -67,14 +71,16 @@ fn add_all_flag() {
     fs::write(dir.path().join("x.txt"), "xxx").unwrap();
     fs::write(dir.path().join("y.txt"), "yyy").unwrap();
 
-    dk().arg("add")
+    dk().arg("git")
+        .arg("add")
         .arg("-A")
         .current_dir(dir.path())
         .assert()
         .success();
 
     // After adding all, no untracked files should remain
-    dk().arg("status")
+    dk().arg("git")
+        .arg("status")
         .current_dir(dir.path())
         .assert()
         .success()
@@ -85,7 +91,8 @@ fn add_all_flag() {
 fn add_nonexistent_file_fails() {
     let dir = init_repo();
 
-    dk().arg("add")
+    dk().arg("git")
+        .arg("add")
         .arg("does_not_exist.txt")
         .current_dir(dir.path())
         .assert()

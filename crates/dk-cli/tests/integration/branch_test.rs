@@ -22,17 +22,14 @@ fn configure_git_user(dir: &std::path::Path) {
 }
 
 fn init_with_commit(dir: &std::path::Path) {
-    dk().arg("init").arg(dir).assert().success();
+    dk().arg("git").arg("init").arg(dir).assert().success();
     configure_git_user(dir);
     fs::write(dir.join("file.txt"), "content").unwrap();
-    dk().arg("add")
-        .arg("file.txt")
+    dk().args(["git", "add", "file.txt"])
         .current_dir(dir)
         .assert()
         .success();
-    dk().arg("commit")
-        .arg("-m")
-        .arg("initial")
+    dk().args(["git", "commit", "-m", "initial"])
         .current_dir(dir)
         .assert()
         .success();
@@ -43,7 +40,7 @@ fn branch_list_shows_current() {
     let dir = TempDir::new().unwrap();
     init_with_commit(dir.path());
 
-    dk().arg("branch")
+    dk().args(["git", "branch"])
         .current_dir(dir.path())
         .assert()
         .success()
@@ -57,13 +54,12 @@ fn branch_create_and_list() {
     let dir = TempDir::new().unwrap();
     init_with_commit(dir.path());
 
-    dk().arg("branch")
-        .arg("feature-x")
+    dk().args(["git", "branch", "feature-x"])
         .current_dir(dir.path())
         .assert()
         .success();
 
-    dk().arg("branch")
+    dk().args(["git", "branch"])
         .current_dir(dir.path())
         .assert()
         .success()
@@ -75,20 +71,17 @@ fn branch_delete() {
     let dir = TempDir::new().unwrap();
     init_with_commit(dir.path());
 
-    dk().arg("branch")
-        .arg("to-delete")
+    dk().args(["git", "branch", "to-delete"])
         .current_dir(dir.path())
         .assert()
         .success();
 
-    dk().arg("branch")
-        .arg("-d")
-        .arg("to-delete")
+    dk().args(["git", "branch", "-d", "to-delete"])
         .current_dir(dir.path())
         .assert()
         .success();
 
-    dk().arg("branch")
+    dk().args(["git", "branch"])
         .current_dir(dir.path())
         .assert()
         .success()
