@@ -98,8 +98,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${{ github.ref_name }}"
-          cd artifacts
-
           # Generate release notes from commits since previous tag
           PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${TAG}$" | head -1)
           if [ -n "$PREV_TAG" ]; then
@@ -108,6 +106,7 @@ jobs:
             NOTES="Initial release"
           fi
 
+          cd artifacts
           gh release create "$TAG" \
             --title "$TAG" \
             --notes "$(cat <<EOF
