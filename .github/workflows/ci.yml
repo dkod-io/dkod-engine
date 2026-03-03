@@ -10,6 +10,9 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
 
+permissions:
+  contents: write
+
 jobs:
   check:
     name: Check & Clippy
@@ -58,3 +61,173 @@ jobs:
         env:
           DATABASE_URL: postgres://dekode:dekode@localhost:5432/dekode_test
         run: cargo test --workspace
+
+  version:
+    name: Compute Version
+    runs-on: ubuntu-latest
+    needs: [check, test]
+    if: github.ref == 'refs/heads/main'
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Compute next version
+        id: version
+        run: |
+          git fetch --tags
+          TAG_LATEST=$(git tag --list 'v*' --sort=-version:refname | head -1)
+          if [ -z "$TAG_LATEST" ]; then
+            TAG_LATEST="v0.0.0"
+          fi
+          echo "Latest tag: $TAG_LATEST"
+
+          VERSION="${TAG_LATEST#v}"
+          MAJOR=$(echo "$VERSION" | cut -d. -f1)
+          MINOR=$(echo "$VERSION" | cut -d. -f2)
+          PATCH=$(echo "$VERSION" | cut -d. -f3)
+          NEXT_PATCH=$((PATCH + 1))
+          NEXT_VERSION="v${MAJOR}.${MINOR}.${NEXT_PATCH}"
+
+          while git rev-parse "$NEXT_VERSION" >/dev/null 2>&1; do
+            echo "Tag $NEXT_VERSION already exists, bumping again..."
+            NEXT_PATCH=$((NEXT_PATCH + 1))
+            NEXT_VERSION="v${MAJOR}.${MINOR}.${NEXT_PATCH}"
+          done
+
+          echo "version=$NEXT_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Next version: $NEXT_VERSION"
+
+  build:
+    name: Build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    needs: [version]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            name: linux-amd64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            name: linux-arm64
+          - target: x86_64-apple-darwin
+            os: macos-13
+            name: darwin-amd64
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            name: darwin-arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Install protobuf compiler (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Install protobuf compiler (macOS)
+        if: runner.os == 'macOS'
+        run: brew install protobuf
+
+      - name: Install cross-compilation tools (Linux ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build binaries
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.target == 'aarch64-unknown-linux-gnu' && 'aarch64-linux-gnu-gcc' || '' }}
+        run: cargo build --release --target ${{ matrix.target }} -p dk-cli -p dk-server
+
+      - name: Package binaries
+        run: |
+          VERSION="${{ needs.version.outputs.version }}"
+          STAGING="dk-${VERSION}-${{ matrix.name }}"
+          mkdir "$STAGING"
+          cp "target/${{ matrix.target }}/release/dk" "$STAGING/"
+          cp "target/${{ matrix.target }}/release/dk-server" "$STAGING/"
+          cp LICENSE README.md "$STAGING/"
+          tar czf "$STAGING.tar.gz" "$STAGING"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dk-${{ needs.version.outputs.version }}-${{ matrix.name }}
+          path: dk-${{ needs.version.outputs.version }}-${{ matrix.name }}.tar.gz
+
+  release:
+    name: Create Release
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          find . -name '*.tar.gz' -exec mv {} . \;
+          sha256sum *.tar.gz > checksums-sha256.txt
+          cat checksums-sha256.txt
+
+      - name: Create tag and GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ needs.version.outputs.version }}"
+
+          # Create and push the tag
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$VERSION"
+          git push origin "$VERSION"
+
+          # Generate release notes from commits since previous tag
+          PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${VERSION}$" | head -1)
+          if [ -n "$PREV_TAG" ]; then
+            NOTES=$(git log "${PREV_TAG}..${VERSION}" --pretty=format:"- %s" --no-merges)
+          else
+            NOTES="Initial release"
+          fi
+
+          cd artifacts
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --notes "$(cat <<EOF
+          ## Install
+
+          \`\`\`bash
+          # Download (example: macOS Apple Silicon)
+          curl -fsSL https://github.com/dkod-io/dkod-engine/releases/download/${VERSION}/dk-${VERSION}-darwin-arm64.tar.gz | tar xz
+          sudo mv dk-${VERSION}-darwin-arm64/dk /usr/local/bin/
+
+          # Or build from source
+          cargo install --git https://github.com/dkod-io/dkod-engine dk-cli
+          \`\`\`
+
+          ## Changes
+
+          ${NOTES}
+
+          ## Checksums
+
+          \`\`\`
+          $(cat checksums-sha256.txt)
+          \`\`\`
+          EOF
+          )" \
+            *.tar.gz checksums-sha256.txt
