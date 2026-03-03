@@ -10,17 +10,14 @@ fn dk() -> Command {
 #[test]
 fn remote_add_and_list() {
     let dir = TempDir::new().unwrap();
-    dk().arg("init").arg(dir.path()).assert().success();
+    dk().arg("git").arg("init").arg(dir.path()).assert().success();
 
-    dk().arg("remote")
-        .arg("add")
-        .arg("origin")
-        .arg("https://example.com/repo.git")
+    dk().args(["git", "remote", "add", "origin", "https://example.com/repo.git"])
         .current_dir(dir.path())
         .assert()
         .success();
 
-    dk().arg("remote")
+    dk().args(["git", "remote"])
         .current_dir(dir.path())
         .assert()
         .success()
@@ -30,24 +27,19 @@ fn remote_add_and_list() {
 #[test]
 fn remote_remove() {
     let dir = TempDir::new().unwrap();
-    dk().arg("init").arg(dir.path()).assert().success();
+    dk().arg("git").arg("init").arg(dir.path()).assert().success();
 
-    dk().arg("remote")
-        .arg("add")
-        .arg("upstream")
-        .arg("https://example.com/upstream.git")
+    dk().args(["git", "remote", "add", "upstream", "https://example.com/upstream.git"])
         .current_dir(dir.path())
         .assert()
         .success();
 
-    dk().arg("remote")
-        .arg("remove")
-        .arg("upstream")
+    dk().args(["git", "remote", "remove", "upstream"])
         .current_dir(dir.path())
         .assert()
         .success();
 
-    dk().arg("remote")
+    dk().args(["git", "remote"])
         .current_dir(dir.path())
         .assert()
         .success()

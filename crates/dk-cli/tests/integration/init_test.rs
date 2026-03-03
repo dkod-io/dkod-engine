@@ -10,7 +10,8 @@ fn dk() -> Command {
 #[test]
 fn init_creates_git_directory() {
     let dir = TempDir::new().unwrap();
-    dk().arg("init")
+    dk().arg("git")
+        .arg("init")
         .arg(dir.path())
         .assert()
         .success()
@@ -21,7 +22,8 @@ fn init_creates_git_directory() {
 #[test]
 fn init_defaults_to_current_directory() {
     let dir = TempDir::new().unwrap();
-    dk().arg("init")
+    dk().arg("git")
+        .arg("init")
         .current_dir(dir.path())
         .assert()
         .success();
@@ -32,7 +34,8 @@ fn init_defaults_to_current_directory() {
 fn init_creates_subdirectory_if_needed() {
     let dir = TempDir::new().unwrap();
     let sub = dir.path().join("my-repo");
-    dk().arg("init")
+    dk().arg("git")
+        .arg("init")
         .arg(&sub)
         .assert()
         .success();
@@ -42,8 +45,9 @@ fn init_creates_subdirectory_if_needed() {
 #[test]
 fn init_in_existing_repo_succeeds() {
     let dir = TempDir::new().unwrap();
-    dk().arg("init").arg(dir.path()).assert().success();
-    dk().arg("init")
+    dk().arg("git").arg("init").arg(dir.path()).assert().success();
+    dk().arg("git")
+        .arg("init")
         .arg(dir.path())
         .assert()
         .success()

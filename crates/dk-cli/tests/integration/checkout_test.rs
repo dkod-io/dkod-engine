@@ -22,17 +22,14 @@ fn configure_git_user(dir: &std::path::Path) {
 }
 
 fn init_with_commit(dir: &std::path::Path) {
-    dk().arg("init").arg(dir).assert().success();
+    dk().arg("git").arg("init").arg(dir).assert().success();
     configure_git_user(dir);
     fs::write(dir.join("file.txt"), "content").unwrap();
-    dk().arg("add")
-        .arg("file.txt")
+    dk().args(["git", "add", "file.txt"])
         .current_dir(dir)
         .assert()
         .success();
-    dk().arg("commit")
-        .arg("-m")
-        .arg("initial")
+    dk().args(["git", "commit", "-m", "initial"])
         .current_dir(dir)
         .assert()
         .success();
@@ -43,14 +40,12 @@ fn checkout_create_and_switch() {
     let dir = TempDir::new().unwrap();
     init_with_commit(dir.path());
 
-    dk().arg("checkout")
-        .arg("-b")
-        .arg("new-branch")
+    dk().args(["git", "checkout", "-b", "new-branch"])
         .current_dir(dir.path())
         .assert()
         .success();
 
-    dk().arg("branch")
+    dk().args(["git", "branch"])
         .current_dir(dir.path())
         .assert()
         .success()
@@ -63,20 +58,18 @@ fn checkout_existing_branch() {
     init_with_commit(dir.path());
 
     // Create branch without switching
-    dk().arg("branch")
-        .arg("other")
+    dk().args(["git", "branch", "other"])
         .current_dir(dir.path())
         .assert()
         .success();
 
     // Switch to it
-    dk().arg("checkout")
-        .arg("other")
+    dk().args(["git", "checkout", "other"])
         .current_dir(dir.path())
         .assert()
         .success();
 
-    dk().arg("branch")
+    dk().args(["git", "branch"])
         .current_dir(dir.path())
         .assert()
         .success()

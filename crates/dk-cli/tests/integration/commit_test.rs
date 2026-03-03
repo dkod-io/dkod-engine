@@ -10,7 +10,7 @@ fn dk() -> Command {
 
 fn init_repo() -> TempDir {
     let dir = TempDir::new().unwrap();
-    dk().arg("init").arg(dir.path()).assert().success();
+    dk().arg("git").arg("init").arg(dir.path()).assert().success();
     configure_git_user(dir.path());
     dir
 }
@@ -33,15 +33,12 @@ fn commit_with_message() {
     let dir = init_repo();
     fs::write(dir.path().join("hello.txt"), "hello world").unwrap();
 
-    dk().arg("add")
-        .arg("hello.txt")
+    dk().args(["git", "add", "hello.txt"])
         .current_dir(dir.path())
         .assert()
         .success();
 
-    dk().arg("commit")
-        .arg("-m")
-        .arg("initial commit")
+    dk().args(["git", "commit", "-m", "initial commit"])
         .current_dir(dir.path())
         .assert()
         .success()
@@ -52,9 +49,7 @@ fn commit_with_message() {
 fn commit_nothing_staged_fails() {
     let dir = init_repo();
 
-    dk().arg("commit")
-        .arg("-m")
-        .arg("empty commit")
+    dk().args(["git", "commit", "-m", "empty commit"])
         .current_dir(dir.path())
         .assert()
         .failure()
@@ -66,15 +61,12 @@ fn commit_creates_head() {
     let dir = init_repo();
     fs::write(dir.path().join("file.txt"), "content").unwrap();
 
-    dk().arg("add")
-        .arg("file.txt")
+    dk().args(["git", "add", "file.txt"])
         .current_dir(dir.path())
         .assert()
         .success();
 
-    dk().arg("commit")
-        .arg("-m")
-        .arg("first commit")
+    dk().args(["git", "commit", "-m", "first commit"])
         .current_dir(dir.path())
         .assert()
         .success();
@@ -100,28 +92,22 @@ fn commit_second_commit() {
 
     // First commit
     fs::write(dir.path().join("a.txt"), "aaa").unwrap();
-    dk().arg("add")
-        .arg("a.txt")
+    dk().args(["git", "add", "a.txt"])
         .current_dir(dir.path())
         .assert()
         .success();
-    dk().arg("commit")
-        .arg("-m")
-        .arg("first commit")
+    dk().args(["git", "commit", "-m", "first commit"])
         .current_dir(dir.path())
         .assert()
         .success();
 
     // Second commit
     fs::write(dir.path().join("b.txt"), "bbb").unwrap();
-    dk().arg("add")
-        .arg("b.txt")
+    dk().args(["git", "add", "b.txt"])
         .current_dir(dir.path())
         .assert()
         .success();
-    dk().arg("commit")
-        .arg("-m")
-        .arg("second commit")
+    dk().args(["git", "commit", "-m", "second commit"])
         .current_dir(dir.path())
         .assert()
         .success()
