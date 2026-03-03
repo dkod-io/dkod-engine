@@ -114,7 +114,7 @@ jobs:
             os: ubuntu-latest
             name: linux-arm64
           - target: x86_64-apple-darwin
-            os: macos-13
+            os: macos-latest
             name: darwin-amd64
           - target: aarch64-apple-darwin
             os: macos-latest
