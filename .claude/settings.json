@@ -1,0 +1,19 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/cargo-fmt-pre-commit.sh"
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/cargo-check-pre-commit.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
