@@ -304,7 +304,7 @@ pub async fn handle_submit(
             }
         }
         // Detect deleted symbols: symbols that existed before but are gone now
-        for (name, _old_id) in &pre_submit_symbols {
+        for name in pre_submit_symbols.keys() {
             // Check if this symbol was in this file and is now missing
             if let Ok(new_symbols) = engine.symbol_store().find_by_file(repo_id, &rel_str).await {
                 let still_exists = new_symbols.iter().any(|s| s.qualified_name == *name);
