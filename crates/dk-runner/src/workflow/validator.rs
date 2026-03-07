@@ -1,7 +1,7 @@
 use anyhow::{bail, Result};
 use super::types::{Workflow, StepType};
 
-const FORBIDDEN_SHELL_CHARS: &[char] = &[';', '&', '|', '`', '$', '(', ')', '{', '}', '<', '>', '\n', '\r'];
+const FORBIDDEN_SHELL_CHARS: &[char] = &[';', '&', '|', '`', '$', '(', ')', '{', '}', '<', '>', '\n', '\r', '*', '?', '[', ']'];
 
 const ALLOWED_COMMAND_PREFIXES: &[&str] = &[
     "cargo check", "cargo test", "cargo clippy", "cargo fmt", "cargo build",
@@ -113,5 +113,14 @@ mod tests {
             }],
         };
         assert!(validate_workflow(&wf).is_err());
+    }
+
+    #[test]
+    fn test_glob_chars_rejected() {
+        assert!(validate_command("cargo test src/*.rs").is_err());
+        assert!(validate_command("cargo test src/?.rs").is_err());
+        assert!(validate_command("cargo test src/[a-z].rs").is_err());
+        assert!(validate_command("echo /etc/*").is_err());
+        assert!(validate_command("echo ../../*").is_err());
     }
 }
