@@ -44,7 +44,7 @@ esac
 
 # Block private key and credential files (public certs like *.crt are allowed)
 case "$BASENAME" in
-    credentials*|secrets*|*.p12|*.pfx|*private*.pem|*private*.key|id_rsa|id_ed25519)
+    credentials*|secrets*|*.p12|*.pfx|*private*.pem|*private*.key|id_rsa|id_ed25519|id_ecdsa)
         echo "BLOCK: refusing to edit credential file: $BASENAME" >&2
         echo "Credential files should be edited manually." >&2
         exit 1
