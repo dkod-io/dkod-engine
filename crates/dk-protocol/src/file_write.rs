@@ -37,15 +37,28 @@ pub async fn handle_file_write(
 
     // Determine if the file is new (not in base tree) synchronously,
     // then drop the git_repo before async work to keep future Send.
-    let is_new = {
-        let (_repo_id, git_repo) = engine
+    // Capture repo_id here to avoid a redundant second get_repo call later.
+    let (repo_id, is_new) = {
+        let (rid, git_repo) = engine
             .get_repo(&session.codebase)
             .await
             .map_err(|e| Status::internal(format!("Repo error: {e}")))?;
-        git_repo
+        let new = git_repo
             .read_tree_entry(&ws.base_commit, &req.path)
-            .is_err()
+            .is_err();
+        (rid, new)
     };
+    let repo_id_str = repo_id.to_string();
+
+    // Capture pre-write symbols for accurate change detection
+    let pre_write_symbols: std::collections::HashSet<String> = engine
+        .symbol_store()
+        .find_by_file(repo_id, &req.path)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|s| s.qualified_name)
+        .collect();
 
     // Write through the overlay (async DB persist)
     let new_hash = ws
@@ -70,28 +83,47 @@ pub async fn handle_file_write(
     // Attempt to detect symbol changes by parsing the new content
     let detected_changes = detect_symbol_changes(engine, &req.path, &req.content);
 
-    // Resolve repo_id for the event
-    let repo_id_str = match engine.get_repo(&session.codebase).await {
-        Ok((rid, _)) => rid.to_string(),
-        Err(_) => String::new(),
-    };
-
-    // Build symbol change details from detected changes
+    // Build symbol change details with accurate change types by comparing
+    // against pre-write symbols.
     let symbol_changes: Vec<crate::SymbolChangeDetail> = detected_changes
         .iter()
-        .map(|sc| crate::SymbolChangeDetail {
-            symbol_name: sc.symbol_name.clone(),
-            file_path: req.path.clone(),
-            change_type: if is_new { "added".to_string() } else { "modified".to_string() },
-            kind: sc.change_type.clone(),
+        .map(|sc| {
+            let change_type = if is_new || !pre_write_symbols.contains(&sc.symbol_name) {
+                "added"
+            } else {
+                "modified"
+            };
+            crate::SymbolChangeDetail {
+                symbol_name: sc.symbol_name.clone(),
+                file_path: req.path.clone(),
+                change_type: change_type.to_string(),
+                kind: sc.change_type.clone(),
+            }
         })
         .collect();
+
+    // Detect deleted symbols (existed before but no longer present)
+    let detected_names: std::collections::HashSet<&str> = detected_changes
+        .iter()
+        .map(|sc| sc.symbol_name.as_str())
+        .collect();
+    let mut all_symbol_changes = symbol_changes;
+    for name in &pre_write_symbols {
+        if !detected_names.contains(name.as_str()) {
+            all_symbol_changes.push(crate::SymbolChangeDetail {
+                symbol_name: name.clone(),
+                file_path: req.path.clone(),
+                change_type: "deleted".to_string(),
+                kind: String::new(),
+            });
+        }
+    }
 
     // Emit a file.modified (or file.added) event
     let event_type = if is_new { "file.added" } else { "file.modified" };
     server.event_bus().publish(crate::WatchEvent {
         event_type: event_type.to_string(),
-        changeset_id: String::new(),
+        changeset_id: changeset_id.to_string(),
         agent_id: session.agent_id.clone(),
         affected_symbols: vec![],
         details: format!("file {}: {}", op, req.path),
@@ -100,7 +132,7 @@ pub async fn handle_file_write(
             path: req.path.clone(),
             operation: op.to_string(),
         }],
-        symbol_changes,
+        symbol_changes: all_symbol_changes,
         repo_id: repo_id_str,
         event_id: uuid::Uuid::new_v4().to_string(),
     });

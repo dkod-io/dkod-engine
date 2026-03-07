@@ -75,20 +75,35 @@ pub async fn handle_submit(
         // git_repo is dropped here
     };
 
-    // Snapshot the existing symbols (qualified_name -> id) for files that
-    // will be changed.  After re-indexing we compare by ID so that
+    // Snapshot the existing symbols per file (file_path -> (qualified_name -> id))
+    // for files that will be changed.  After re-indexing we compare by ID so that
     // modifications (same name, new UUID) are still detected.
-    let pre_submit_symbols: std::collections::HashMap<String, uuid::Uuid> = {
-        let mut syms = std::collections::HashMap::new();
+    let mut pre_submit_symbols: std::collections::HashMap<String, std::collections::HashMap<String, uuid::Uuid>> = {
+        let mut file_syms = std::collections::HashMap::new();
         for change in &req.changes {
+            let entry: &mut std::collections::HashMap<String, uuid::Uuid> = file_syms.entry(change.file_path.clone()).or_default();
             if let Ok(symbols) = engine.symbol_store().find_by_file(repo_id, &change.file_path).await {
                 for sym in symbols {
-                    syms.insert(sym.qualified_name, sym.id);
+                    entry.insert(sym.qualified_name, sym.id);
                 }
             }
         }
-        syms
+        file_syms
     };
+
+    // MCP path: when req.changes is empty, files come from the overlay.
+    // Populate pre_submit_symbols from overlay paths so symbol diffs are accurate.
+    if req.changes.is_empty() {
+        let overlay_paths: Vec<String> = ws.overlay.list_changes().into_iter().map(|(path, _)| path).collect();
+        for path in &overlay_paths {
+            let entry = pre_submit_symbols.entry(path.clone()).or_default();
+            if let Ok(symbols) = engine.symbol_store().find_by_file(repo_id, path).await {
+                for sym in symbols {
+                    entry.insert(sym.qualified_name, sym.id);
+                }
+            }
+        }
+    }
 
     let mut errors = Vec::new();
     let mut changed_files = Vec::new();
@@ -235,11 +250,12 @@ pub async fn handle_submit(
     //       (the symbol was modified -- see symbols.rs ON CONFLICT ... SET id).
     for file_path in &changed_files {
         let rel_str = file_path.to_string_lossy().to_string();
+        let file_pre_syms = pre_submit_symbols.get(&rel_str);
         if let Ok(new_symbols) = engine.symbol_store().find_by_file(repo_id, &rel_str).await {
             for sym in &new_symbols {
                 // Record if the symbol is new OR its ID changed (modified).
-                let unchanged = pre_submit_symbols
-                    .get(&sym.qualified_name)
+                let unchanged = file_pre_syms
+                    .and_then(|m| m.get(&sym.qualified_name))
                     .is_some_and(|old_id| *old_id == sym.id);
                 if !unchanged {
                     let _ = engine.changeset_store()
@@ -286,14 +302,14 @@ pub async fn handle_submit(
     let mut symbol_changes: Vec<crate::SymbolChangeDetail> = Vec::new();
     for file_path in &changed_files {
         let rel_str = file_path.to_string_lossy().to_string();
+        let file_pre_syms = pre_submit_symbols.get(&rel_str);
         if let Ok(new_symbols) = engine.symbol_store().find_by_file(repo_id, &rel_str).await {
+            // Detect added/modified symbols
             for sym in &new_symbols {
-                let change_type = if pre_submit_symbols.contains_key(&sym.qualified_name) {
-                    let old_id = pre_submit_symbols[&sym.qualified_name];
-                    if old_id == sym.id { continue; } // unchanged
-                    "modified"
-                } else {
-                    "added"
+                let change_type = match file_pre_syms.and_then(|m| m.get(&sym.qualified_name)) {
+                    Some(old_id) if *old_id == sym.id => continue, // unchanged
+                    Some(_) => "modified",
+                    None => "added",
                 };
                 symbol_changes.push(crate::SymbolChangeDetail {
                     symbol_name: sym.qualified_name.clone(),
@@ -302,15 +318,11 @@ pub async fn handle_submit(
                     kind: sym.kind.to_string(),
                 });
             }
-        }
-        // Detect deleted symbols: symbols that existed before but are gone now
-        for name in pre_submit_symbols.keys() {
-            // Check if this symbol was in this file and is now missing
-            if let Ok(new_symbols) = engine.symbol_store().find_by_file(repo_id, &rel_str).await {
-                let still_exists = new_symbols.iter().any(|s| s.qualified_name == *name);
-                if !still_exists {
-                    // Only add if it's not already tracked
-                    if !symbol_changes.iter().any(|sc| sc.symbol_name == *name) {
+            // Detect deleted symbols: only check symbols that belonged to THIS file
+            if let Some(old_syms) = file_pre_syms {
+                for name in old_syms.keys() {
+                    let still_exists = new_symbols.iter().any(|s| s.qualified_name == *name);
+                    if !still_exists {
                         symbol_changes.push(crate::SymbolChangeDetail {
                             symbol_name: name.clone(),
                             file_path: rel_str.clone(),

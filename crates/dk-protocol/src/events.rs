@@ -68,4 +68,19 @@ impl EventBus {
     pub fn subscribe_all(&self) -> broadcast::Receiver<WatchEvent> {
         self.get_or_create_sender(ALL_CHANNEL).subscribe()
     }
+
+    /// Remove the channel for a specific repo (e.g. when decommissioned).
+    pub fn remove_repo(&self, repo_id: &str) {
+        if repo_id != ALL_CHANNEL {
+            self.channels.remove(repo_id);
+        }
+    }
+
+    /// Remove channels that have no active receivers, excluding the global channel.
+    /// Call periodically (e.g. every few minutes) to prevent unbounded growth.
+    pub fn cleanup_idle(&self) {
+        self.channels.retain(|key, sender| {
+            key == ALL_CHANNEL || sender.receiver_count() > 0
+        });
+    }
 }
