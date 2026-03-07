@@ -62,7 +62,7 @@ Generate release notes for the next version of dkod-engine.
 
 ...
 
-**Full Changelog**: `<last-tag>..v<next-version>`
+**Full Changelog**: `<last-tag>..v<next-version>` (omit this line for the first release when there is no prior tag)
 ```
 
 7. If there are no commits since the last tag, say so.
