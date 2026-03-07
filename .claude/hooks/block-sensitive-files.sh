@@ -10,7 +10,9 @@ FLAT_INPUT=$(echo "$TOOL_INPUT" | tr -d '\n' | tr -s ' ')
 
 # For Bash tool: check if the command references sensitive files
 if [ "$TOOL_NAME" = "Bash" ]; then
-    COMMAND=$(echo "$FLAT_INPUT" | sed -n 's/.*"command" *: *"\([^"]*\)".*/\1/p' 2>/dev/null || true)
+    # Use python3 for robust JSON parsing; fall back to greedy sed if unavailable
+    COMMAND=$(echo "$FLAT_INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('command',''))" 2>/dev/null || \
+              echo "$FLAT_INPUT" | sed -n 's/.*"command" *: *"\(.*\)"/\1/p' | sed 's/\\\"/"/g' | head -1)
     if [ -z "$COMMAND" ]; then
         exit 0
     fi
