@@ -1,6 +1,6 @@
 #!/bin/bash
 # Claude hook: run cargo test for the affected crate after editing a .rs file.
-# Trigger: PostToolUse on Edit
+# Trigger: PostToolUse on Edit|Write
 
 set -euo pipefail
 

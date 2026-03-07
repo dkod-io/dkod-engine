@@ -26,22 +26,24 @@ Validate and synchronize protobuf definitions with generated Rust code.
 
    Flag any breaking changes and warn the user.
 
-3. Rebuild the protocol crate to regenerate Rust code:
+3. If no proto files changed in steps 1–2, skip to step 6 and report "no proto changes detected."
+
+4. Rebuild the protocol crate to regenerate Rust code:
    ```bash
    cargo build -p dk-protocol
    ```
 
-4. Check that the rest of the workspace compiles with the new proto:
+5. Check that the rest of the workspace compiles with the new proto:
    ```bash
    cargo check --workspace
    ```
 
-5. Run clippy on the workspace:
+6. Run clippy on the workspace:
    ```bash
    cargo clippy --workspace -- -D warnings
    ```
 
-6. If everything passes, report success and summarize what changed. If anything fails, show the errors and suggest fixes.
+7. If everything passes, report success and summarize what changed. If anything fails, show the errors and suggest fixes.
 
 ## Output
 
