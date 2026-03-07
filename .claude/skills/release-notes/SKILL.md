@@ -23,7 +23,14 @@ Generate release notes for the next version of dkod-engine.
    git log --pretty=format:"%h %s" --no-merges
    ```
 
-3. Categorize each commit by its conventional-commit prefix:
+3. Determine the next version from the last tag and commit types:
+   - If any commit contains `BREAKING CHANGE` or uses `!:` → bump **major** version
+   - If any commit starts with `feat:` → bump **minor** version
+   - Otherwise → bump **patch** version
+   - If no previous tag exists, default to `v0.1.0`
+   - Ask the user to confirm or override before generating notes.
+
+4. Categorize each commit by its conventional-commit prefix:
    - `feat:` → **New Features**
    - `fix:` → **Bug Fixes**
    - `perf:` → **Performance**
@@ -34,12 +41,12 @@ Generate release notes for the next version of dkod-engine.
    - `BREAKING CHANGE` or `!:` → **Breaking Changes** (always listed first)
    - Uncategorized → **Other**
 
-4. For each commit, note which crate(s) are affected by checking the changed files:
+5. For each commit, note which crate(s) are affected by checking the changed files:
    ```bash
    git diff-tree --no-commit-id --name-only -r <hash> | grep '^crates/' | cut -d/ -f2 | sort -u
    ```
 
-5. Output the release notes in this format:
+6. Output the release notes in this format:
 
 ```markdown
 ## v<next-version>
@@ -58,4 +65,4 @@ Generate release notes for the next version of dkod-engine.
 **Full Changelog**: `<last-tag>..v<next-version>`
 ```
 
-6. If there are no commits since the last tag, say so.
+7. If there are no commits since the last tag, say so.

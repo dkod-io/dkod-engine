@@ -43,7 +43,7 @@ fi
 # Skip tests that require DATABASE_URL if it's not set
 if [ -z "${DATABASE_URL:-}" ]; then
     echo "HOOK: running cargo test -p $CRATE (skipping integration tests — DATABASE_URL not set)"
-    if ! cargo test -p "$CRATE" --lib 2>&1; then
+    if ! cargo test -p "$CRATE" --lib --bins 2>&1; then
         echo "WARNING: unit tests failed for $CRATE" >&2
     fi
 else

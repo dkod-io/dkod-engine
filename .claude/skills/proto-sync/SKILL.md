@@ -26,7 +26,9 @@ Validate and synchronize protobuf definitions with generated Rust code.
 
    Flag any breaking changes and warn the user.
 
-3. If no proto files changed in steps 1–2, skip to step 6 and report "no proto changes detected."
+3. If no proto files changed (both lists from step 1 are empty), report
+   "No proto changes detected -- workspace is in sync." and **stop here** (do not
+   execute steps 4-7).
 
 4. Rebuild the protocol crate to regenerate Rust code:
    ```bash
