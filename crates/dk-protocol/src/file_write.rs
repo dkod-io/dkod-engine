@@ -102,20 +102,25 @@ pub async fn handle_file_write(
         })
         .collect();
 
-    // Detect deleted symbols (existed before but no longer present)
-    let detected_names: std::collections::HashSet<&str> = detected_changes
-        .iter()
-        .map(|sc| sc.symbol_name.as_str())
-        .collect();
+    // Detect deleted symbols (existed before but no longer present).
+    // Only infer deletions when the parser produced output — if parsing
+    // failed (e.g. incomplete syntax mid-edit), detected_changes is empty
+    // and we'd falsely report every pre-existing symbol as deleted.
     let mut all_symbol_changes = symbol_changes;
-    for name in &pre_write_symbols {
-        if !detected_names.contains(name.as_str()) {
-            all_symbol_changes.push(crate::SymbolChangeDetail {
-                symbol_name: name.clone(),
-                file_path: req.path.clone(),
-                change_type: "deleted".to_string(),
-                kind: String::new(),
-            });
+    if !detected_changes.is_empty() {
+        let detected_names: std::collections::HashSet<&str> = detected_changes
+            .iter()
+            .map(|sc| sc.symbol_name.as_str())
+            .collect();
+        for name in &pre_write_symbols {
+            if !detected_names.contains(name.as_str()) {
+                all_symbol_changes.push(crate::SymbolChangeDetail {
+                    symbol_name: name.clone(),
+                    file_path: req.path.clone(),
+                    change_type: "deleted".to_string(),
+                    kind: String::new(),
+                });
+            }
         }
     }
 

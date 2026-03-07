@@ -60,13 +60,29 @@ impl EventBus {
     }
 
     /// Subscribe to events for a specific repo.
+    ///
+    /// The receiver is created while the DashMap shard lock is held so that
+    /// `cleanup_idle` cannot race and remove the channel between creation
+    /// and subscription.
     pub fn subscribe(&self, repo_id: &str) -> broadcast::Receiver<WatchEvent> {
-        self.get_or_create_sender(repo_id).subscribe()
+        self.channels
+            .entry(repo_id.to_string())
+            .or_insert_with(|| {
+                let (tx, _) = broadcast::channel(256);
+                tx
+            })
+            .subscribe()
     }
 
     /// Subscribe to ALL events across all repos (for the platform bridge).
     pub fn subscribe_all(&self) -> broadcast::Receiver<WatchEvent> {
-        self.get_or_create_sender(ALL_CHANNEL).subscribe()
+        self.channels
+            .entry(ALL_CHANNEL.to_string())
+            .or_insert_with(|| {
+                let (tx, _) = broadcast::channel(256);
+                tx
+            })
+            .subscribe()
     }
 
     /// Remove the channel for a specific repo (e.g. when decommissioned).

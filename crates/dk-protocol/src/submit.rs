@@ -91,11 +91,12 @@ pub async fn handle_submit(
         file_syms
     };
 
-    // MCP path: when req.changes is empty, files come from the overlay.
-    // Populate pre_submit_symbols from overlay paths so symbol diffs are accurate.
-    if req.changes.is_empty() {
-        let overlay_paths: Vec<String> = ws.overlay.list_changes().into_iter().map(|(path, _)| path).collect();
-        for path in &overlay_paths {
+    // Snapshot overlay early so we can reuse it for both pre_submit_symbols
+    // (MCP path) and later for changeset_files, avoiding a redundant call.
+    let early_overlay_snapshot = if req.changes.is_empty() {
+        let snap = ws.overlay.list_changes();
+        // Populate pre_submit_symbols from overlay paths so symbol diffs are accurate.
+        for (path, _) in &snap {
             let entry = pre_submit_symbols.entry(path.clone()).or_default();
             if let Ok(symbols) = engine.symbol_store().find_by_file(repo_id, path).await {
                 for sym in symbols {
@@ -103,7 +104,10 @@ pub async fn handle_submit(
                 }
             }
         }
-    }
+        Some(snap)
+    } else {
+        None
+    };
 
     let mut errors = Vec::new();
     let mut changed_files = Vec::new();
@@ -164,11 +168,8 @@ pub async fn handle_submit(
         }
     }
 
-    // Snapshot overlay files before dropping the workspace guard.
-    // When agents use dk_file_write -> dk_submit, the files live in the
-    // overlay rather than in req.changes. We need this data to populate
-    // changeset_files for the MCP path.
-    let overlay_snapshot = ws.overlay.list_changes();
+    // Reuse early snapshot if available (MCP path), otherwise take it now.
+    let overlay_snapshot = early_overlay_snapshot.unwrap_or_else(|| ws.overlay.list_changes());
 
     // Drop the workspace guard before further async work
     drop(ws);
