@@ -70,6 +70,41 @@ pub async fn handle_file_write(
     // Attempt to detect symbol changes by parsing the new content
     let detected_changes = detect_symbol_changes(engine, &req.path, &req.content);
 
+    // Resolve repo_id for the event
+    let repo_id_str = match engine.get_repo(&session.codebase).await {
+        Ok((rid, _)) => rid.to_string(),
+        Err(_) => String::new(),
+    };
+
+    // Build symbol change details from detected changes
+    let symbol_changes: Vec<crate::SymbolChangeDetail> = detected_changes
+        .iter()
+        .map(|sc| crate::SymbolChangeDetail {
+            symbol_name: sc.symbol_name.clone(),
+            file_path: req.path.clone(),
+            change_type: if is_new { "added".to_string() } else { "modified".to_string() },
+            kind: sc.change_type.clone(),
+        })
+        .collect();
+
+    // Emit a file.modified (or file.added) event
+    let event_type = if is_new { "file.added" } else { "file.modified" };
+    server.event_bus().publish(crate::WatchEvent {
+        event_type: event_type.to_string(),
+        changeset_id: String::new(),
+        agent_id: session.agent_id.clone(),
+        affected_symbols: vec![],
+        details: format!("file {}: {}", op, req.path),
+        session_id: req.session_id.clone(),
+        affected_files: vec![crate::FileChange {
+            path: req.path.clone(),
+            operation: op.to_string(),
+        }],
+        symbol_changes,
+        repo_id: repo_id_str,
+        event_id: uuid::Uuid::new_v4().to_string(),
+    });
+
     info!(
         session_id = %req.session_id,
         path = %req.path,

@@ -1,35 +1,71 @@
+use dashmap::DashMap;
 use tokio::sync::broadcast;
 
 use crate::WatchEvent;
 
+/// Special channel key that receives a copy of every event regardless of repo.
+const ALL_CHANNEL: &str = "__all__";
+
 /// Shared event bus for broadcasting repo events to watching agents.
 ///
-/// Uses [`tokio::sync::broadcast`] so any number of subscribers can
-/// receive a copy of every published event.  Events that are not
-/// consumed before the channel capacity (256) is exhausted are
-/// silently dropped for lagged receivers.
+/// Uses per-repo [`tokio::sync::broadcast`] channels so subscribers
+/// only receive events for repos they care about.  A special "__all__"
+/// channel receives a copy of every published event (used by the
+/// platform bridge).
+///
+/// Events that are not consumed before the channel capacity (256) is
+/// exhausted are silently dropped for lagged receivers.
 #[derive(Clone)]
 pub struct EventBus {
-    tx: broadcast::Sender<WatchEvent>,
+    channels: DashMap<String, broadcast::Sender<WatchEvent>>,
 }
 
 impl EventBus {
-    /// Create a new event bus with a fixed capacity of 256 pending events.
+    /// Create a new event bus.
     pub fn new() -> Self {
+        let channels = DashMap::new();
+        // Pre-create the global "__all__" channel.
         let (tx, _) = broadcast::channel(256);
-        Self { tx }
+        channels.insert(ALL_CHANNEL.to_string(), tx);
+        Self { channels }
     }
 
-    /// Publish an event to all current subscribers.
+    /// Get or create the broadcast sender for the given key.
+    fn get_or_create_sender(&self, key: &str) -> broadcast::Sender<WatchEvent> {
+        self.channels
+            .entry(key.to_string())
+            .or_insert_with(|| {
+                let (tx, _) = broadcast::channel(256);
+                tx
+            })
+            .clone()
+    }
+
+    /// Publish an event to a specific repo channel AND the global "__all__" channel.
     ///
     /// If there are no subscribers the event is silently discarded.
     pub fn publish(&self, event: WatchEvent) {
-        let _ = self.tx.send(event);
+        let repo_id = &event.repo_id;
+
+        // Publish to repo-specific channel if repo_id is set.
+        if !repo_id.is_empty() {
+            let tx = self.get_or_create_sender(repo_id);
+            let _ = tx.send(event.clone());
+        }
+
+        // Always publish to the global "__all__" channel.
+        if let Some(tx) = self.channels.get(ALL_CHANNEL) {
+            let _ = tx.send(event);
+        }
     }
 
-    /// Create a new subscription.  The returned receiver will see all
-    /// events published *after* this call.
-    pub fn subscribe(&self) -> broadcast::Receiver<WatchEvent> {
-        self.tx.subscribe()
+    /// Subscribe to events for a specific repo.
+    pub fn subscribe(&self, repo_id: &str) -> broadcast::Receiver<WatchEvent> {
+        self.get_or_create_sender(repo_id).subscribe()
+    }
+
+    /// Subscribe to ALL events across all repos (for the platform bridge).
+    pub fn subscribe_all(&self) -> broadcast::Receiver<WatchEvent> {
+        self.get_or_create_sender(ALL_CHANNEL).subscribe()
     }
 }

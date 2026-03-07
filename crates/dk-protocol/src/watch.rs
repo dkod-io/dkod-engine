@@ -18,7 +18,7 @@ pub async fn handle_watch(
     req: WatchRequest,
     tx: mpsc::Sender<Result<WatchEvent, Status>>,
 ) {
-    let _session = match server.validate_session(&req.session_id) {
+    let session = match server.validate_session(&req.session_id) {
         Ok(s) => s,
         Err(e) => {
             let _ = tx.send(Err(e)).await;
@@ -26,13 +26,39 @@ pub async fn handle_watch(
         }
     };
 
-    let mut rx = server.event_bus().subscribe();
+    // Resolve repo_id: prefer the one from the request, fall back to
+    // resolving it from the session's codebase.
+    let repo_id = if !req.repo_id.is_empty() {
+        req.repo_id.clone()
+    } else {
+        // Try to resolve repo_id from the session's codebase name.
+        match server.engine().get_repo(&session.codebase).await {
+            Ok((rid, _git_repo)) => rid.to_string(),
+            Err(_) => {
+                // Fall back to subscribe_all if we can't resolve the repo.
+                String::new()
+            }
+        }
+    };
+
+    // Subscribe to the repo-specific channel, or all events if no repo resolved.
+    let mut rx = if repo_id.is_empty() {
+        server.event_bus().subscribe_all()
+    } else {
+        server.event_bus().subscribe(&repo_id)
+    };
 
     let filter = &req.filter;
+    let self_session_id = req.session_id.clone();
 
     loop {
         match rx.recv().await {
             Ok(event) => {
+                // Filter out events from the requesting session itself.
+                if event.session_id == self_session_id {
+                    continue;
+                }
+
                 if matches_filter(&event.event_type, filter)
                     && tx.send(Ok(event)).await.is_err()
                 {

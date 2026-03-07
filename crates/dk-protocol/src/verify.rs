@@ -47,6 +47,12 @@ pub async fn handle_verify(
             .await;
     }
 
+    // Resolve repo_id for enriched events
+    let repo_id_str = match engine.get_repo(&session.codebase).await {
+        Ok((rid, _)) => rid.to_string(),
+        Err(_) => String::new(),
+    };
+
     // Publish verify_started event
     server.event_bus().publish(crate::WatchEvent {
         event_type: "changeset.verify_started".to_string(),
@@ -54,6 +60,11 @@ pub async fn handle_verify(
         agent_id: session.agent_id.clone(),
         affected_symbols: vec![],
         details: String::new(),
+        session_id: req.session_id.clone(),
+        affected_files: vec![],
+        symbol_changes: vec![],
+        repo_id: repo_id_str.clone(),
+        event_id: Uuid::new_v4().to_string(),
     });
 
     // Create runner with process executor
@@ -120,6 +131,11 @@ pub async fn handle_verify(
             agent_id: session.agent_id.clone(),
             affected_symbols: vec![],
             details: format!("{}:{}", step_name_str, step_status_str),
+            session_id: req.session_id.clone(),
+            affected_files: vec![],
+            symbol_changes: vec![],
+            repo_id: repo_id_str.clone(),
+            event_id: Uuid::new_v4().to_string(),
         });
     }
 
@@ -148,6 +164,11 @@ pub async fn handle_verify(
         agent_id: session.agent_id.clone(),
         affected_symbols: vec![],
         details: final_status.to_string(),
+        session_id: req.session_id.clone(),
+        affected_files: vec![],
+        symbol_changes: vec![],
+        repo_id: repo_id_str.clone(),
+        event_id: Uuid::new_v4().to_string(),
     });
 }
 
