@@ -1,13 +1,29 @@
 #!/bin/bash
-# Claude hook: block edits to .env files and credential-like files.
-# Trigger: PreToolUse on Edit|Write
+# Claude hook: block access to .env files and credential-like files.
+# Trigger: PreToolUse on Edit|Write|Bash
 
 set -euo pipefail
 
 TOOL_INPUT="${CLAUDE_TOOL_INPUT:-}"
-# Extract file_path from JSON — handle both compact and pretty-printed formats
-# by collapsing all whitespace/newlines first
-FILE_PATH=$(echo "$TOOL_INPUT" | tr -d '\n' | tr -s ' ' | sed -n 's/.*"file_path" *: *"\([^"]*\)".*/\1/p' 2>/dev/null || true)
+TOOL_NAME="${CLAUDE_TOOL_NAME:-}"
+FLAT_INPUT=$(echo "$TOOL_INPUT" | tr -d '\n' | tr -s ' ')
+
+# For Bash tool: check if the command references sensitive files
+if [ "$TOOL_NAME" = "Bash" ]; then
+    COMMAND=$(echo "$FLAT_INPUT" | sed -n 's/.*"command" *: *"\([^"]*\)".*/\1/p' 2>/dev/null || true)
+    if [ -z "$COMMAND" ]; then
+        exit 0
+    fi
+    # Block commands that write to .env or credential files
+    if echo "$COMMAND" | grep -qE '(>|>>|tee|cp|mv|cat\s*>)\s*\S*\.env(\s|$|\.)|echo\s.*>\s*\S*\.env'; then
+        echo "BLOCK: refusing to write to .env file via shell command" >&2
+        exit 1
+    fi
+    exit 0
+fi
+
+# For Edit/Write tool: check the file_path
+FILE_PATH=$(echo "$FLAT_INPUT" | sed -n 's/.*"file_path" *: *"\([^"]*\)".*/\1/p' 2>/dev/null || true)
 
 if [ -z "$FILE_PATH" ]; then
     exit 0
@@ -24,9 +40,9 @@ case "$BASENAME" in
         ;;
 esac
 
-# Block credential/secret files
+# Block private key and credential files (public certs like *.crt are allowed)
 case "$BASENAME" in
-    credentials*|secrets*|*.pem|*.key|*.p12|*.pfx)
+    credentials*|secrets*|*.p12|*.pfx|*private*.pem|*private*.key|id_rsa|id_ed25519)
         echo "BLOCK: refusing to edit credential file: $BASENAME" >&2
         echo "Credential files should be edited manually." >&2
         exit 1

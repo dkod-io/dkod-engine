@@ -11,6 +11,10 @@
           {
             "type": "command",
             "command": ".claude/hooks/cargo-check-pre-commit.sh"
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/block-sensitive-files.sh"
           }
         ]
       },
@@ -26,7 +30,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Edit",
+        "matcher": "Edit|Write",
         "hooks": [
           {
             "type": "command",
