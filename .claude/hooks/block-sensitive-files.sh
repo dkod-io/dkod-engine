@@ -5,7 +5,9 @@
 set -euo pipefail
 
 TOOL_INPUT="${CLAUDE_TOOL_INPUT:-}"
-FILE_PATH=$(echo "$TOOL_INPUT" | sed -n 's/.*"file_path" *: *"\([^"]*\)".*/\1/p' 2>/dev/null || true)
+# Extract file_path from JSON — handle both compact and pretty-printed formats
+# by collapsing all whitespace/newlines first
+FILE_PATH=$(echo "$TOOL_INPUT" | tr -d '\n' | tr -s ' ' | sed -n 's/.*"file_path" *: *"\([^"]*\)".*/\1/p' 2>/dev/null || true)
 
 if [ -z "$FILE_PATH" ]; then
     exit 0

@@ -6,7 +6,8 @@ set -euo pipefail
 
 # Only act on .rs file edits
 TOOL_INPUT="${CLAUDE_TOOL_INPUT:-}"
-FILE_PATH=$(echo "$TOOL_INPUT" | sed -n 's/.*"file_path" *: *"\([^"]*\)".*/\1/p' 2>/dev/null || true)
+# Extract file_path from JSON — handle both compact and pretty-printed formats
+FILE_PATH=$(echo "$TOOL_INPUT" | tr -d '\n' | tr -s ' ' | sed -n 's/.*"file_path" *: *"\([^"]*\)".*/\1/p' 2>/dev/null || true)
 
 if [ -z "$FILE_PATH" ]; then
     exit 0
@@ -22,24 +23,32 @@ if [ ! -f "Cargo.toml" ]; then
     exit 0
 fi
 
-# Determine which crate was edited
+# Dynamically detect which crate was edited from the file path
 CRATE=""
 case "$FILE_PATH" in
-    *crates/dk-core/*) CRATE="dk-core" ;;
-    *crates/dk-engine/*) CRATE="dk-engine" ;;
-    *crates/dk-protocol/*) CRATE="dk-protocol" ;;
-    *crates/dk-server/*) CRATE="dk-server" ;;
-    *crates/dk-cli/*) CRATE="dk-cli" ;;
-    *crates/dk-agent-sdk/*) CRATE="dk-agent-sdk" ;;
-    *crates/dk-runner/*) CRATE="dk-runner" ;;
+    *crates/*/*)
+        # Extract crate directory name from path (e.g., "crates/dk-core/src/lib.rs" → "dk-core")
+        CRATE=$(echo "$FILE_PATH" | sed -n 's|.*crates/\([^/]*\)/.*|\1|p')
+        # Verify it's a real crate with a Cargo.toml
+        if [ -n "$CRATE" ] && [ ! -f "crates/$CRATE/Cargo.toml" ]; then
+            CRATE=""
+        fi
+        ;;
 esac
 
 if [ -z "$CRATE" ]; then
     exit 0
 fi
 
-echo "HOOK: running cargo test -p $CRATE"
-if ! cargo test -p "$CRATE" 2>&1; then
-    echo "WARNING: tests failed for $CRATE" >&2
-    # Don't block — just inform
+# Skip tests that require DATABASE_URL if it's not set
+if [ -z "${DATABASE_URL:-}" ]; then
+    echo "HOOK: running cargo test -p $CRATE (skipping integration tests — DATABASE_URL not set)"
+    if ! cargo test -p "$CRATE" --lib 2>&1; then
+        echo "WARNING: unit tests failed for $CRATE" >&2
+    fi
+else
+    echo "HOOK: running cargo test -p $CRATE"
+    if ! cargo test -p "$CRATE" 2>&1; then
+        echo "WARNING: tests failed for $CRATE" >&2
+    fi
 fi

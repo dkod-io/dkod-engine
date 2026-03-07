@@ -12,8 +12,12 @@ Generate release notes for the next version of dkod-engine.
    ```bash
    git tag --list 'v*' --sort=-version:refname | head -1
    ```
+   If no tags exist, use the root commit as the baseline:
+   ```bash
+   git rev-list --max-parents=0 HEAD | head -1
+   ```
 
-2. Get all commits since that tag:
+2. Get all commits since that tag (or root commit):
    ```bash
    git log <last-tag>..HEAD --pretty=format:"%h %s" --no-merges
    ```
