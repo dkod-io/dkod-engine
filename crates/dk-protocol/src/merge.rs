@@ -18,6 +18,12 @@ pub async fn handle_merge(
         .parse::<Uuid>()
         .map_err(|_| Status::invalid_argument("Invalid session ID"))?;
 
+    // Resolve repo_id for enriched events
+    let repo_id_str = match engine.get_repo(&session.codebase).await {
+        Ok((rid, _)) => rid.to_string(),
+        Err(_) => String::new(),
+    };
+
     let changeset_id = req.changeset_id.parse::<Uuid>()
         .map_err(|_| Status::invalid_argument("invalid changeset_id"))?;
 
@@ -43,6 +49,22 @@ pub async fn handle_merge(
         .map_err(|e| Status::internal(e.to_string()))?;
 
     let agent = changeset.agent_id.as_deref().unwrap_or("agent");
+
+    // Capture affected files from workspace overlay before merge/drop
+    let affected_files: Vec<crate::FileChange> = ws.overlay.list_changes()
+        .iter()
+        .map(|(path, entry)| {
+            let operation = match entry {
+                dk_engine::workspace::overlay::OverlayEntry::Added { .. } => "add",
+                dk_engine::workspace::overlay::OverlayEntry::Modified { .. } => "modify",
+                dk_engine::workspace::overlay::OverlayEntry::Deleted => "delete",
+            };
+            crate::FileChange {
+                path: path.clone(),
+                operation: operation.to_string(),
+            }
+        })
+        .collect();
 
     // Use the programmatic workspace merge instead of git add -A
     let merge_result = merge_workspace(
@@ -71,6 +93,11 @@ pub async fn handle_merge(
                 agent_id: changeset.agent_id.clone().unwrap_or_default(),
                 affected_symbols: vec![],
                 details: format!("fast-merged as {}", commit_hash),
+                session_id: req.session_id.clone(),
+                affected_files: affected_files.clone(),
+                symbol_changes: vec![],
+                repo_id: repo_id_str.clone(),
+                event_id: Uuid::new_v4().to_string(),
             });
 
             Ok(MergeResponse {
@@ -101,6 +128,11 @@ pub async fn handle_merge(
                     commit_hash,
                     auto_rebased_files.len()
                 ),
+                session_id: req.session_id.clone(),
+                affected_files,
+                symbol_changes: vec![],
+                repo_id: repo_id_str.clone(),
+                event_id: Uuid::new_v4().to_string(),
             });
 
             Ok(MergeResponse {

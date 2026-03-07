@@ -254,6 +254,75 @@ pub async fn handle_submit(
     engine.changeset_store().update_status(changeset_id, "submitted").await
         .map_err(|e| Status::internal(format!("changeset status update failed: {e}")))?;
 
+    // Build affected_files list from changes
+    let affected_files: Vec<crate::FileChange> = if !req.changes.is_empty() {
+        req.changes.iter().map(|change| {
+            let operation = match change.r#type() {
+                ChangeType::AddFunction | ChangeType::AddType | ChangeType::AddDependency => "add",
+                ChangeType::ModifyFunction | ChangeType::ModifyType => "modify",
+                ChangeType::DeleteFunction => "delete",
+            };
+            crate::FileChange {
+                path: change.file_path.clone(),
+                operation: operation.to_string(),
+            }
+        }).collect()
+    } else {
+        // MCP path: files from overlay snapshot
+        overlay_snapshot.iter().map(|(path, entry)| {
+            let operation = match entry {
+                OverlayEntry::Added { .. } => "add",
+                OverlayEntry::Modified { .. } => "modify",
+                OverlayEntry::Deleted => "delete",
+            };
+            crate::FileChange {
+                path: path.clone(),
+                operation: operation.to_string(),
+            }
+        }).collect()
+    };
+
+    // Build symbol_changes from pre/post symbol comparison
+    let mut symbol_changes: Vec<crate::SymbolChangeDetail> = Vec::new();
+    for file_path in &changed_files {
+        let rel_str = file_path.to_string_lossy().to_string();
+        if let Ok(new_symbols) = engine.symbol_store().find_by_file(repo_id, &rel_str).await {
+            for sym in &new_symbols {
+                let change_type = if pre_submit_symbols.contains_key(&sym.qualified_name) {
+                    let old_id = pre_submit_symbols[&sym.qualified_name];
+                    if old_id == sym.id { continue; } // unchanged
+                    "modified"
+                } else {
+                    "added"
+                };
+                symbol_changes.push(crate::SymbolChangeDetail {
+                    symbol_name: sym.qualified_name.clone(),
+                    file_path: rel_str.clone(),
+                    change_type: change_type.to_string(),
+                    kind: sym.kind.to_string(),
+                });
+            }
+        }
+        // Detect deleted symbols: symbols that existed before but are gone now
+        for name in pre_submit_symbols.keys() {
+            // Check if this symbol was in this file and is now missing
+            if let Ok(new_symbols) = engine.symbol_store().find_by_file(repo_id, &rel_str).await {
+                let still_exists = new_symbols.iter().any(|s| s.qualified_name == *name);
+                if !still_exists {
+                    // Only add if it's not already tracked
+                    if !symbol_changes.iter().any(|sc| sc.symbol_name == *name) {
+                        symbol_changes.push(crate::SymbolChangeDetail {
+                            symbol_name: name.clone(),
+                            file_path: rel_str.clone(),
+                            change_type: "deleted".to_string(),
+                            kind: String::new(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
     // Publish event
     server.event_bus().publish(crate::WatchEvent {
         event_type: "changeset.submitted".to_string(),
@@ -261,6 +330,11 @@ pub async fn handle_submit(
         agent_id: session.agent_id.clone(),
         affected_symbols: vec![],
         details: req.intent.clone(),
+        session_id: req.session_id.clone(),
+        affected_files,
+        symbol_changes,
+        repo_id: repo_id.to_string(),
+        event_id: uuid::Uuid::new_v4().to_string(),
     });
 
     // Read HEAD version without holding the GitRepository across awaits.
