@@ -15,8 +15,8 @@ if [ "$TOOL_NAME" = "Bash" ]; then
         exit 0
     fi
     # Block commands that write to .env or credential files
-    if echo "$COMMAND" | grep -qE '(>|>>|tee|cp|mv|cat\s*>)\s*\S*\.env(\s|$|\.)|echo\s.*>\s*\S*\.env'; then
-        echo "BLOCK: refusing to write to .env file via shell command" >&2
+    if echo "$COMMAND" | grep -qE '(>|>>|tee|cp|mv|cat\s*>)\s*\S*(\.env(\s|$|\.)|credentials|secrets|id_rsa|id_ed25519|id_ecdsa|private.*\.(pem|key)|\.p12|\.pfx)|echo\s.*>\s*\S*(\.env|credentials|secrets|id_rsa|id_ed25519)'; then
+        echo "BLOCK: refusing to write to sensitive file via shell command" >&2
         exit 1
     fi
     exit 0
