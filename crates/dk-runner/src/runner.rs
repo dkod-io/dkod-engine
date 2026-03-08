@@ -419,9 +419,9 @@ async fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
             Box::pin(copy_dir_recursive(&src_path, &dst_path)).await?;
         } else if file_type.is_symlink() {
             let target = tokio::fs::read_link(&src_path).await?;
-            // Security: only recreate relative symlinks that stay within the tree.
-            // Skip absolute symlinks and targets with traversal components to
-            // prevent sandbox escapes (e.g., docs -> /etc).
+            // Security: only recreate relative symlinks whose resolved target
+            // stays within the destination tree. This prevents sandbox escapes
+            // via crafted symlinks (e.g., link -> /etc/passwd, link -> ../../..).
             let target_str = target.to_string_lossy();
             if target_str.starts_with('/') || target_str.contains("..") {
                 tracing::warn!(
