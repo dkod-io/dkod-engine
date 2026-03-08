@@ -54,13 +54,22 @@ impl Runner {
 
         // Overlay changeset files on top of the repo copy.
         let mut changeset_paths: Vec<String> = Vec::with_capacity(changeset_data.len());
+        let canonical_work_dir = tokio::fs::canonicalize(&work_dir).await
+            .context("failed to canonicalize work_dir")?;
         for file in &changeset_data {
             changeset_paths.push(file.file_path.clone());
             if let Some(content) = &file.content {
+                // Security: reject paths with traversal components BEFORE any I/O.
+                // Lexical check catches `../` even when the target doesn't exist yet.
+                if file.file_path.contains("..") {
+                    anyhow::bail!(
+                        "changeset file path contains traversal component: '{}'",
+                        file.file_path
+                    );
+                }
                 let dest = work_dir.join(&file.file_path);
-                // Security: verify the resolved path stays within work_dir
-                // to prevent path traversal via ../  components in file_path
-                let canonical_work_dir = tokio::fs::canonicalize(&work_dir).await?;
+                // Belt-and-suspenders: after joining, verify the resolved path
+                // is still under work_dir (handles edge cases like absolute paths)
                 if let Some(parent) = dest.parent() {
                     tokio::fs::create_dir_all(parent).await?;
                 }

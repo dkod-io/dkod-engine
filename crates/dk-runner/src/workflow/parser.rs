@@ -73,6 +73,10 @@ fn resolve_step(sc: StepConfig) -> Result<Step> {
                 .unwrap_or_else(|| "Review this changeset".to_string()),
         },
         Some("human-approve") => StepType::HumanApprove,
+        Some("command") => {
+            let run = sc.run.context("step with type 'command' must have a 'run' field")?;
+            StepType::Command { run }
+        }
         Some(other) => bail!("unknown step type: '{}'", other),
         None => {
             let run = sc.run.context("step must have either 'run' or 'type'")?;
