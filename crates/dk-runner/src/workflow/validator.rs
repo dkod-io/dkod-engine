@@ -27,6 +27,9 @@ const ALWAYS_DENIED_PREFIXES: &[&str] = &[
 const DENIED_FLAG_SUBSTRINGS: &[&str] = &[
     " -exec ", " -toolexec ", " -vettool ",
     " -exec=", " -toolexec=", " -vettool=",
+    // Block -o flag to prevent writing compiled artifacts to arbitrary paths
+    // (e.g., `go build -o /tmp/payload ./cmd/exploit`)
+    " -o ", " -o=",
     // URL schemes — prevent remote code fetching via pip install, npm, etc.
     " http://", " https://", " ftp://", " file://",
     " git+", " svn+", " hg+",
@@ -312,6 +315,13 @@ mod tests {
         // Local paths should still be allowed
         assert!(validate_command("pip install -e .").is_ok());
         assert!(validate_command("pip install -r requirements.txt").is_ok());
+    }
+
+    #[test]
+    fn test_go_build_output_flag_denied() {
+        // go build -o allows writing binaries to arbitrary filesystem paths
+        assert!(validate_command("go build -o /tmp/payload ./cmd/exploit").is_err());
+        assert!(validate_command("go build -o=/tmp/payload ./...").is_err());
     }
 
     #[test]
