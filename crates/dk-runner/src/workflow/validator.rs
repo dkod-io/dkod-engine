@@ -83,6 +83,7 @@ mod tests {
             name: "bad".into(),
             timeout: Duration::from_secs(60),
             stages: vec![],
+            allowed_commands: vec![],
         };
         assert!(validate_workflow(&wf).is_err());
     }
@@ -97,6 +98,7 @@ mod tests {
                 parallel: false,
                 steps: vec![make_cmd_step("test", "cargo test")],
             }],
+            allowed_commands: vec![],
         };
         assert!(validate_workflow(&wf).is_ok());
     }
@@ -111,6 +113,7 @@ mod tests {
                 parallel: false,
                 steps: vec![make_cmd_step("evil", "rm -rf /")],
             }],
+            allowed_commands: vec![],
         };
         assert!(validate_workflow(&wf).is_err());
     }

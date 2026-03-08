@@ -170,6 +170,7 @@ fn db_pipeline_to_workflow(steps: Vec<dk_engine::pipeline::PipelineStep>) -> Wor
             parallel: false,
             steps: resolved_steps,
         }],
+        allowed_commands: vec![],
     }
 }
 
@@ -177,6 +178,7 @@ fn default_workflow() -> Workflow {
     Workflow {
         name: "default".to_string(),
         timeout: Duration::from_secs(120),
+        allowed_commands: vec![],
         stages: vec![Stage {
             name: "checks".to_string(),
             parallel: false,

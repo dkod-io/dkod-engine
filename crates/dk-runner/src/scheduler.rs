@@ -322,6 +322,7 @@ mod tests {
                     changeset_aware: false,
                 }],
             }],
+            allowed_commands: vec![],
         };
 
         let exec = ProcessExecutor::new();
@@ -354,6 +355,7 @@ mod tests {
                     changeset_aware: false,
                 }],
             }],
+            allowed_commands: vec![],
         };
 
         let exec = ProcessExecutor::new();
@@ -395,6 +397,7 @@ mod tests {
                     },
                 ],
             }],
+            allowed_commands: vec![],
         };
 
         let exec = ProcessExecutor::new();
