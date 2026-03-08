@@ -131,6 +131,15 @@ impl Runner {
             return Ok(workflow);
         }
 
+        // Check for legacy .dekode/pipeline.toml and warn about migration
+        let legacy_toml = repo_dir.join(".dekode/pipeline.toml");
+        if legacy_toml.exists() {
+            tracing::warn!(
+                path = %legacy_toml.display(),
+                "found legacy .dekode/pipeline.toml — this format is no longer loaded;                  please migrate to .dkod/pipeline.yaml"
+            );
+        }
+
         // Priority 2: DB-stored pipeline
         let db_steps = self.engine
             .pipeline_store()
@@ -204,7 +213,7 @@ fn detect_workflow(repo_dir: &Path) -> Workflow {
     if repo_dir.join("Cargo.toml").exists() {
         return Workflow {
             name: "auto-rust".to_string(),
-            timeout: Duration::from_secs(120),
+            timeout: Duration::from_secs(180),
             allowed_commands: vec![],
             stages: vec![Stage {
                 name: "checks".to_string(),
@@ -242,7 +251,7 @@ fn detect_workflow(repo_dir: &Path) -> Workflow {
         };
         return Workflow {
             name: name.to_string(),
-            timeout: Duration::from_secs(120),
+            timeout: Duration::from_secs(300),
             allowed_commands: vec![],
             stages: vec![Stage {
                 name: "checks".to_string(),
