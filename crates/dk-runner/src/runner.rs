@@ -54,37 +54,37 @@ impl Runner {
 
         // Overlay changeset files on top of the repo copy.
         let mut changeset_paths: Vec<String> = Vec::with_capacity(changeset_data.len());
-        let canonical_work_dir = tokio::fs::canonicalize(&work_dir).await
-            .context("failed to canonicalize work_dir")?;
         for file in &changeset_data {
             changeset_paths.push(file.file_path.clone());
             if let Some(content) = &file.content {
-                // Security: reject paths with traversal components BEFORE any I/O.
-                // Lexical check catches `../` even when the target doesn't exist yet.
+                // Security: reject dangerous paths BEFORE any filesystem operations.
+                // 1. Reject traversal components (../)
                 if file.file_path.contains("..") {
                     anyhow::bail!(
                         "changeset file path contains traversal component: '{}'",
                         file.file_path
                     );
                 }
-                let dest = work_dir.join(&file.file_path);
-                // Belt-and-suspenders: after joining, verify the resolved path
-                // is still under work_dir (handles edge cases like absolute paths)
-                if let Some(parent) = dest.parent() {
-                    tokio::fs::create_dir_all(parent).await?;
+                // 2. Reject absolute paths (would discard work_dir base in Path::join)
+                if file.file_path.starts_with('/') || file.file_path.starts_with('\\') {
+                    anyhow::bail!(
+                        "changeset file path is absolute: '{}'",
+                        file.file_path
+                    );
                 }
-                let canonical_dest = tokio::fs::canonicalize(
-                    dest.parent().unwrap_or(&work_dir)
-                ).await?;
-                if !canonical_dest.starts_with(&canonical_work_dir) {
+                let dest = work_dir.join(&file.file_path);
+                // 3. Lexical prefix check: verify joined path stays under work_dir.
+                //    This catches any remaining edge cases without touching the filesystem.
+                if !dest.starts_with(&work_dir) {
                     anyhow::bail!(
                         "changeset file path escapes sandbox: '{}' resolves outside work_dir",
                         file.file_path
                     );
                 }
-                let dest = canonical_dest.join(
-                    dest.file_name().context("changeset file has no filename")?
-                );
+                // Safe to create directories and write — path is validated
+                if let Some(parent) = dest.parent() {
+                    tokio::fs::create_dir_all(parent).await?;
+                }
                 tokio::fs::write(&dest, content).await?;
             }
         }
