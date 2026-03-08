@@ -315,8 +315,7 @@ fn detect_workflow(repo_dir: &Path) -> Workflow {
         };
     }
 
-    // No recognized project type — auto-approve with warning
-    tracing::warn!("no verification pipeline configured — auto-approving");
+    // No recognized project type — auto-approve (structured warning emitted by caller)
     Workflow {
         name: "auto-none".to_string(),
         timeout: Duration::from_secs(30),

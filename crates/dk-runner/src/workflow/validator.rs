@@ -9,6 +9,9 @@ const FORBIDDEN_SHELL_CHARS: &[char] = &[';', '&', '|', '`', '$', '(', ')', '{',
 const ALWAYS_DENIED_PREFIXES: &[&str] = &[
     "curl ", "wget ", "nc ", "ncat ", "netcat ",
     "bash ", "sh ", "/bin/sh", "/bin/bash",
+    "/usr/bin/curl", "/usr/bin/wget", "/usr/bin/nc", "/usr/bin/ncat",
+    "/usr/bin/bash", "/usr/bin/sh", "/usr/bin/env bash", "/usr/bin/env sh",
+    "/usr/bin/python", "/usr/bin/python3", "/usr/bin/perl", "/usr/bin/ruby",
     "python -c", "python3 -c", "perl -e", "ruby -e",
     "eval ", "exec ",
 ];

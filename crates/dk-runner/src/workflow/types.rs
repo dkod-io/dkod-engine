@@ -23,6 +23,7 @@ fn default_timeout() -> String {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StageConfig {
     pub name: String,
     #[serde(default)]
@@ -32,6 +33,7 @@ pub struct StageConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StepConfig {
     pub name: String,
     #[serde(default)]
