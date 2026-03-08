@@ -36,10 +36,8 @@ impl Runner {
     ) -> Result<bool> {
         let (repo_id, repo_dir) = {
             let (repo_id, git_repo) = self.engine.get_repo(repo_name).await?;
-            // git_repo.path() returns the .git dir; we want the working tree
-            let git_path = git_repo.path().to_path_buf();
-            let work_tree = git_path.parent().unwrap_or(&git_path).to_path_buf();
-            (repo_id, work_tree)
+            // GitRepository::path() already returns the working tree directory
+            (repo_id, git_repo.path().to_path_buf())
         };
 
         // Create a temp directory with the full repo content, then overlay
@@ -239,6 +237,32 @@ mod tests {
         assert_eq!(wf.stages.len(), 1);
         assert!(!wf.stages[0].parallel);
         assert_eq!(wf.stages[0].steps.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_copy_dir_recursive_copies_files() {
+        let src = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+
+        tokio::fs::write(src.path().join("Cargo.toml"), b"[package]\nname = \"test\"")
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(src.path().join("src")).await.unwrap();
+        tokio::fs::write(src.path().join("src/main.rs"), b"fn main() {}")
+            .await
+            .unwrap();
+
+        // .git dir should be skipped
+        tokio::fs::create_dir_all(src.path().join(".git/objects")).await.unwrap();
+        tokio::fs::write(src.path().join(".git/HEAD"), b"ref: refs/heads/main")
+            .await
+            .unwrap();
+
+        copy_dir_recursive(src.path(), dst.path()).await.unwrap();
+
+        assert!(dst.path().join("Cargo.toml").exists(), "Cargo.toml must be at dst root");
+        assert!(dst.path().join("src/main.rs").exists(), "src/main.rs must exist");
+        assert!(!dst.path().join(".git").exists(), ".git must be skipped");
     }
 
     #[test]
