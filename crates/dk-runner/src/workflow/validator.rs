@@ -27,7 +27,7 @@ const ALWAYS_DENIED_PREFIXES: &[&str] = &[
 const DENIED_FLAG_SUBSTRINGS: &[&str] = &[
     " -exec ", " -toolexec ", " -vettool ",
     " -exec=", " -toolexec=", " -vettool=",
-    // Block -o flag to prevent writing compiled artifacts to arbitrary paths
+    // Output path flags — prevent writing compiled artifacts to arbitrary paths
     // (e.g., `go build -o /tmp/payload ./cmd/exploit`)
     " -o ", " -o=",
     // URL schemes — prevent remote code fetching via pip install, npm, etc.
