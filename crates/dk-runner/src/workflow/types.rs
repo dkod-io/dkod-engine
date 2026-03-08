@@ -4,6 +4,7 @@ use std::time::Duration;
 // --- TOML deserialization types ---
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct WorkflowFile {
     pub pipeline: PipelineConfig,
     #[serde(default)]
@@ -11,6 +12,7 @@ pub struct WorkflowFile {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PipelineConfig {
     pub name: String,
     #[serde(default = "default_timeout")]
@@ -22,6 +24,7 @@ fn default_timeout() -> String {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StageConfig {
     pub name: String,
     #[serde(default)]
@@ -31,6 +34,7 @@ pub struct StageConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StepConfig {
     pub name: String,
     #[serde(default)]
@@ -53,6 +57,56 @@ fn default_required() -> bool {
     true
 }
 
+// --- YAML deserialization types ---
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct YamlWorkflowFile {
+    pub pipeline: YamlPipelineConfig,
+    #[serde(default)]
+    pub stages: Vec<YamlStageConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct YamlPipelineConfig {
+    pub name: String,
+    #[serde(default = "default_timeout")]
+    pub timeout: String,
+    #[serde(default)]
+    pub allowed_commands: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct YamlStageConfig {
+    pub name: String,
+    #[serde(default)]
+    pub parallel: bool,
+    #[serde(default)]
+    pub steps: Vec<YamlStepConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct YamlStepConfig {
+    pub name: String,
+    #[serde(default)]
+    pub run: Option<String>,
+    #[serde(default, rename = "type")]
+    pub step_type: Option<String>,
+    #[serde(default)]
+    pub timeout: Option<String>,
+    #[serde(default)]
+    pub changeset_aware: bool,
+    #[serde(default = "default_required")]
+    pub required: bool,
+    #[serde(default)]
+    pub check: Vec<String>,
+    #[serde(default)]
+    pub prompt: Option<String>,
+}
+
 // --- Resolved types (post-parsing) ---
 
 #[derive(Debug, Clone)]
@@ -60,6 +114,8 @@ pub struct Workflow {
     pub name: String,
     pub timeout: Duration,
     pub stages: Vec<Stage>,
+    /// Per-repo command allowlist. Empty means "use default allowlist".
+    pub allowed_commands: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

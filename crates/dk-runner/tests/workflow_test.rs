@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use dk_runner::executor::process::ProcessExecutor;
 use dk_runner::executor::StepStatus;
 use dk_runner::scheduler::run_workflow;
-use dk_runner::workflow::parser::parse_workflow_str;
+use dk_runner::workflow::parser::{parse_workflow_str, parse_yaml_workflow_str};
 use dk_runner::workflow::validator::validate_workflow;
 use tokio::sync::mpsc;
 
@@ -111,4 +111,49 @@ name = "bad"
 "#;
     let workflow = parse_workflow_str(toml).unwrap();
     assert!(validate_workflow(&workflow).is_err());
+}
+
+#[tokio::test]
+async fn test_yaml_workflow_execution() {
+    let yaml = r#"
+pipeline:
+  name: yaml-test
+  timeout: 1m
+  allowed_commands:
+    - echo
+
+stages:
+  - name: checks
+    parallel: true
+    steps:
+      - name: echo-a
+        run: echo step-a
+        timeout: 5s
+
+      - name: echo-b
+        run: echo step-b
+        timeout: 5s
+"#;
+
+    let workflow = parse_yaml_workflow_str(yaml).unwrap();
+    validate_workflow(&workflow).unwrap();
+
+    let exec = ProcessExecutor::new();
+    let (tx, mut rx) = mpsc::channel(32);
+    let dir = std::env::temp_dir();
+
+    let passed = run_workflow(
+        &workflow, &exec, &dir, &[], &HashMap::new(), &tx, None, None, None,
+    )
+    .await;
+    drop(tx);
+
+    assert!(passed, "YAML workflow should pass");
+
+    let mut results = Vec::new();
+    while let Some(r) = rx.recv().await {
+        results.push(r);
+    }
+    assert_eq!(results.len(), 2);
+    assert!(results.iter().all(|r| r.status == StepStatus::Pass));
 }
