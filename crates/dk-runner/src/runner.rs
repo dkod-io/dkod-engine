@@ -245,7 +245,7 @@ fn detect_workflow(repo_dir: &Path) -> Workflow {
     if repo_dir.join("package.json").exists() {
         let is_bun = repo_dir.join("bun.lock").exists() || repo_dir.join("bun.lockb").exists();
         let (name, install_cmd, test_cmd) = if is_bun {
-            ("auto-bun", "bun install", "bun test")
+            ("auto-bun", "bun install --frozen-lockfile", "bun test")
         } else {
             ("auto-node", "npm ci", "npm test")
         };
@@ -294,9 +294,11 @@ fn detect_workflow(repo_dir: &Path) -> Workflow {
                 required: true,
                 changeset_aware: false,
             });
-        } else if has_requirements {
+        }
+        // Also install requirements.txt when both files exist (common dual-file layout)
+        if has_requirements {
             steps.push(Step {
-                name: "install".to_string(),
+                name: "install-deps".to_string(),
                 step_type: StepType::Command {
                     run: "pip install -r requirements.txt".to_string(),
                 },
@@ -391,6 +393,11 @@ async fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
         let file_type = entry.file_type().await?;
         if file_type.is_dir() {
             Box::pin(copy_dir_recursive(&src_path, &dst_path)).await?;
+        } else if file_type.is_symlink() {
+            // Recreate symlinks so relative references remain valid in temp dir
+            let target = tokio::fs::read_link(&src_path).await?;
+            #[cfg(unix)]
+            tokio::fs::symlink(target, &dst_path).await?;
         } else {
             tokio::fs::copy(&src_path, &dst_path).await?;
         }
@@ -424,7 +431,7 @@ mod tests {
         let cmds: Vec<_> = wf.stages[0].steps.iter().filter_map(|s| {
             if let StepType::Command { run } = &s.step_type { Some(run.as_str()) } else { None }
         }).collect();
-        assert!(cmds.contains(&"bun install"));
+        assert!(cmds.contains(&"bun install --frozen-lockfile"));
         assert!(cmds.contains(&"bun test"));
     }
 
@@ -439,7 +446,7 @@ mod tests {
         let cmds: Vec<_> = wf.stages[0].steps.iter().filter_map(|s| {
             if let StepType::Command { run } = &s.step_type { Some(run.as_str()) } else { None }
         }).collect();
-        assert!(cmds.contains(&"bun install"));
+        assert!(cmds.contains(&"bun install --frozen-lockfile"));
         assert!(cmds.contains(&"bun test"));
     }
 
@@ -463,12 +470,29 @@ mod tests {
         tokio::fs::write(dir.path().join("pyproject.toml"), b"[project]").await.unwrap();
         let wf = detect_workflow(dir.path());
         assert_eq!(wf.name, "auto-python");
-        // pyproject.toml — install via pip install -e . plus test
+        // pyproject.toml only — install via pip install -e . plus test
         assert_eq!(wf.stages[0].steps.len(), 2);
         let cmds: Vec<_> = wf.stages[0].steps.iter().filter_map(|s| {
             if let StepType::Command { run } = &s.step_type { Some(run.as_str()) } else { None }
         }).collect();
         assert!(cmds.contains(&"pip install -e ."));
+        assert!(cmds.contains(&"pytest"));
+    }
+
+    #[tokio::test]
+    async fn test_detect_workflow_python_dual_file() {
+        let dir = tempfile::tempdir().unwrap();
+        tokio::fs::write(dir.path().join("pyproject.toml"), b"[project]").await.unwrap();
+        tokio::fs::write(dir.path().join("requirements.txt"), b"pytest\nrequests").await.unwrap();
+        let wf = detect_workflow(dir.path());
+        assert_eq!(wf.name, "auto-python");
+        // Both files present — install pyproject + requirements + test
+        assert_eq!(wf.stages[0].steps.len(), 3);
+        let cmds: Vec<_> = wf.stages[0].steps.iter().filter_map(|s| {
+            if let StepType::Command { run } = &s.step_type { Some(run.as_str()) } else { None }
+        }).collect();
+        assert!(cmds.contains(&"pip install -e ."));
+        assert!(cmds.contains(&"pip install -r requirements.txt"));
         assert!(cmds.contains(&"pytest"));
     }
 

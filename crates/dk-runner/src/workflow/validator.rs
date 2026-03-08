@@ -34,7 +34,7 @@ const DENIED_FLAG_SUBSTRINGS: &[&str] = &[
 const ALLOWED_COMMAND_PREFIXES: &[&str] = &[
     "cargo check", "cargo test", "cargo clippy", "cargo fmt", "cargo build",
     "npm ci", "npm test", "npm run lint", "npm run check",
-    "bun install", "bun test", "bun run lint", "bun run check",
+    "bun install --frozen-lockfile", "bun test", "bun run lint", "bun run check",
     "npx tsc", "bunx tsc",
     "pip install -e .", "pip install -r requirements", "pytest", "python -m pytest",
     "go build", "go test", "go vet",
@@ -272,7 +272,7 @@ mod tests {
     #[test]
     fn test_install_commands_allowed_by_default() {
         assert!(validate_command("npm ci").is_ok());
-        assert!(validate_command("bun install").is_ok());
+        assert!(validate_command("bun install --frozen-lockfile").is_ok());
         assert!(validate_command("pip install -r requirements.txt").is_ok());
         assert!(validate_command("pip install -e .").is_ok());
     }
