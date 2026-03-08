@@ -269,6 +269,15 @@ message FileWriteRequest {
 message FileWriteResponse {
   string new_hash = 1;
   repeated SymbolChange detected_changes = 2;
+  repeated ConflictWarning conflict_warnings = 3;
+}
+
+message ConflictWarning {
+  string file_path = 1;
+  string symbol_name = 2;
+  string conflicting_agent = 3;
+  string conflicting_session_id = 4;
+  string message = 5;
 }
 
 message FileListRequest {
