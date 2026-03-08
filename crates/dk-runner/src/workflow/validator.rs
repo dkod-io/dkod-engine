@@ -14,6 +14,7 @@ const ALWAYS_DENIED_PREFIXES: &[&str] = &[
     "/usr/bin/python", "/usr/bin/python3", "/usr/bin/perl", "/usr/bin/ruby",
     "python -c", "python3 -c", "perl -e", "ruby -e",
     "eval ", "exec ",
+    "go run ",
     // Go execution-delegation flags that allow running arbitrary binaries
     "go test -exec ", "go build -toolexec ", "go vet -vettool ",
 ];
@@ -267,6 +268,14 @@ mod tests {
         assert!(validate_command("go build ./...").is_ok());
         assert!(validate_command("go test ./...").is_ok());
         assert!(validate_command("go vet ./...").is_ok());
+    }
+
+    #[test]
+    fn test_go_run_denied() {
+        // go run directly executes arbitrary Go programs
+        assert!(validate_command("go run ./cmd/exploit").is_err());
+        let custom = vec!["go run".to_string()];
+        assert!(validate_command_with_allowlist("go run ./cmd/exploit", &custom).is_err());
     }
 
     #[test]
