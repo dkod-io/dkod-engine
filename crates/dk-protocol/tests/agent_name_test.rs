@@ -76,13 +76,25 @@ async fn test_agent_name_on_session_workspace() {
 }
 
 #[test]
-fn test_source_branch_uses_agent_name() {
-    // Verify the branch naming convention uses agent_name, not agent_id
-    let agent_name = "feature-bot";
-    let source_branch = format!("agent/{}", agent_name);
-    assert_eq!(source_branch, "agent/feature-bot");
+fn test_source_branch_uses_intent_and_agent_name() {
+    // Branch naming: {intent_slug}/{agent_name}
+    fn slugify(intent: &str) -> String {
+        let s: String = intent
+            .to_lowercase()
+            .chars()
+            .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '-' })
+            .collect::<String>()
+            .trim_matches('-')
+            .to_string();
+        if s.len() > 50 { s[..50].trim_end_matches('-').to_string() } else { s }
+    }
 
-    let agent_name = "agent-3";
-    let source_branch = format!("agent/{}", agent_name);
-    assert_eq!(source_branch, "agent/agent-3");
+    assert_eq!(
+        format!("{}/{}", slugify("Fix UI bugs"), "feature-bot"),
+        "fix-ui-bugs/feature-bot"
+    );
+    assert_eq!(
+        format!("{}/{}", slugify("Add comments endpoint"), "agent-3"),
+        "add-comments-endpoint/agent-3"
+    );
 }

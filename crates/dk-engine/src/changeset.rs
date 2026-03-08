@@ -63,7 +63,19 @@ impl ChangesetStore {
         base_version: Option<&str>,
         agent_name: &str,
     ) -> dk_core::Result<Changeset> {
-        let source_branch = format!("agent/{}", agent_name);
+        let intent_slug: String = intent
+            .to_lowercase()
+            .chars()
+            .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '-' })
+            .collect::<String>()
+            .trim_matches('-')
+            .to_string();
+        let slug = if intent_slug.len() > 50 {
+            intent_slug[..50].trim_end_matches('-').to_string()
+        } else {
+            intent_slug
+        };
+        let source_branch = format!("{}/{}", slug, agent_name);
         let target_branch = "main";
 
         let mut tx = self.db.begin().await?;
@@ -311,21 +323,36 @@ mod tests {
     use super::*;
 
     /// Verify the source_branch format produced by `create()`.
-    /// The method builds `format!("agent/{}", agent_name)` and sets
-    /// `target_branch` to `"main"`.  We test the format logic directly
-    /// since `create()` itself requires a live PgPool.
+    /// Branch format: `{intent_slug}/{agent_name}`.
+    fn slugify_intent(intent: &str) -> String {
+        let slug: String = intent
+            .to_lowercase()
+            .chars()
+            .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '-' })
+            .collect::<String>()
+            .trim_matches('-')
+            .to_string();
+        if slug.len() > 50 {
+            slug[..50].trim_end_matches('-').to_string()
+        } else {
+            slug
+        }
+    }
+
     #[test]
-    fn source_branch_format_uses_agent_prefix() {
+    fn source_branch_format_uses_intent_slug() {
+        let intent = "Fix UI bugs";
         let agent_name = "agent-1";
-        let source_branch = format!("agent/{}", agent_name);
-        assert_eq!(source_branch, "agent/agent-1");
+        let source_branch = format!("{}/{}", slugify_intent(intent), agent_name);
+        assert_eq!(source_branch, "fix-ui-bugs/agent-1");
     }
 
     #[test]
     fn source_branch_format_with_custom_name() {
+        let intent = "Add comments endpoint";
         let agent_name = "feature-bot";
-        let source_branch = format!("agent/{}", agent_name);
-        assert_eq!(source_branch, "agent/feature-bot");
+        let source_branch = format!("{}/{}", slugify_intent(intent), agent_name);
+        assert_eq!(source_branch, "add-comments-endpoint/feature-bot");
     }
 
     #[test]
