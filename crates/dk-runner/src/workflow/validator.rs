@@ -14,6 +14,8 @@ const ALWAYS_DENIED_PREFIXES: &[&str] = &[
     "/usr/bin/python", "/usr/bin/python3", "/usr/bin/perl", "/usr/bin/ruby",
     "python -c", "python3 -c", "perl -e", "ruby -e",
     "eval ", "exec ",
+    // Go execution-delegation flags that allow running arbitrary binaries
+    "go test -exec ", "go build -toolexec ", "go vet -vettool ",
 ];
 
 const ALLOWED_COMMAND_PREFIXES: &[&str] = &[
@@ -250,4 +252,15 @@ mod tests {
         assert!(validate_command("go test ./...").is_ok());
         assert!(validate_command("go vet ./...").is_ok());
     }
+
+    #[test]
+    fn test_go_exec_delegation_flags_denied() {
+        // go test -exec allows running arbitrary binaries
+        assert!(validate_command("go test -exec /usr/bin/sh ./...").is_err());
+        // go build -toolexec replaces the compiler toolchain
+        assert!(validate_command("go build -toolexec ./evil ./...").is_err());
+        // go vet -vettool replaces the vet analysis tool
+        assert!(validate_command("go vet -vettool ./evil ./...").is_err());
+    }
 }
+

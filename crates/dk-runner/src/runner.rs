@@ -290,7 +290,7 @@ fn detect_workflow(repo_dir: &Path) -> Workflow {
                         },
                         timeout: Duration::from_secs(60),
                         required: true,
-                        changeset_aware: false,
+                        changeset_aware: true,
                     },
                     Step {
                         name: "vet".to_string(),
@@ -299,7 +299,7 @@ fn detect_workflow(repo_dir: &Path) -> Workflow {
                         },
                         timeout: Duration::from_secs(60),
                         required: true,
-                        changeset_aware: false,
+                        changeset_aware: true,
                     },
                     Step {
                         name: "test".to_string(),
@@ -308,7 +308,7 @@ fn detect_workflow(repo_dir: &Path) -> Workflow {
                         },
                         timeout: Duration::from_secs(60),
                         required: true,
-                        changeset_aware: false,
+                        changeset_aware: true,
                     },
                 ],
             }],
