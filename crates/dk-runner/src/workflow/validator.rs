@@ -16,7 +16,7 @@ const ALWAYS_DENIED_PREFIXES: &[&str] = &[
     "/usr/bin/env ruby", "/usr/bin/env node",
     "python -c", "python3 -c", "perl -e", "ruby -e",
     "eval ", "exec ",
-    "go run ",
+    "go run",
     "cargo run", "cargo install",
     // Go execution-delegation flags that allow running arbitrary binaries
     "go test -exec ", "go build -toolexec ", "go vet -vettool ",
@@ -30,10 +30,13 @@ const DENIED_FLAG_SUBSTRINGS: &[&str] = &[
     " -exec=", " -toolexec=", " -vettool=",
     // Output path flags — prevent writing compiled artifacts to arbitrary paths
     // (e.g., `go build -o /tmp/payload ./cmd/exploit`)
-    " -o ", " -o=",
+    " -o ", " -o=", " -o/",  // catch concatenated form: go build -o/path " -o/",
     " --target-dir ", " --target-dir=",
     " --out-dir ", " --out-dir=",
     " --manifest-path ", " --manifest-path=",
+    " --outDir ", " --outDir=", " --declarationDir ", " --declarationDir=",
+    // TypeScript compiler output-path flags
+    " --outDir ", " --outDir=", " --declarationDir ", " --declarationDir=",
     // Reject parent-dir traversal in install targets
     " ..",
     // URL schemes — prevent remote code fetching via pip install, npm, etc.
@@ -174,6 +177,27 @@ mod tests {
         assert!(validate_command("cargo build --target-dir /tmp/evil").is_err());
         assert!(validate_command("cargo build --target-dir=/tmp/evil").is_err());
         assert!(validate_command("cargo build --out-dir /tmp/evil").is_err());
+    }
+
+    #[test]
+    fn test_go_build_concatenated_output_denied() {
+        // go build -o/path (no space) should be blocked
+        assert!(validate_command("go build -o/tmp/evil ./...").is_err());
+    }
+
+    #[test]
+    fn test_tsc_output_dir_denied() {
+        assert!(validate_command("npx tsc --outDir /tmp/evil").is_err());
+        assert!(validate_command("npx tsc --outDir=/tmp/evil").is_err());
+        assert!(validate_command("npx tsc --declarationDir /tmp/evil").is_err());
+    }
+
+    #[test]
+    fn test_go_run_bare_denied() {
+        // "go run" without trailing space should also be caught
+        let custom = vec!["go run".to_string()];
+        assert!(validate_command_with_allowlist("go run", &custom).is_err());
+        assert!(validate_command_with_allowlist("go run ./cmd", &custom).is_err());
     }
 
     #[test]
@@ -392,5 +416,27 @@ mod tests {
         // go vet -vettool replaces the vet analysis tool
         assert!(validate_command("go vet -vettool ./evil ./...").is_err());
     }
+    #[test]
+    fn test_go_build_concatenated_output_flag_denied() {
+        // go build -o/tmp/evil bypasses " -o " and " -o=" but is caught by " -o/"
+        assert!(validate_command("go build -o/tmp/evil ./...").is_err());
+    }
+
+    #[test]
+    fn test_go_run_bare_denied() {
+        // "go run" with no arguments should also be blocked
+        let custom = vec!["go run".to_string()];
+        assert!(validate_command_with_allowlist("go run", &custom).is_err());
+    }
+
+    #[test]
+    fn test_tsc_outdir_denied() {
+        // npx tsc --outDir should be blocked to prevent file-write escape
+        assert!(validate_command("npx tsc --outDir /tmp/evil").is_err());
+        assert!(validate_command("npx tsc --outDir=/tmp/evil").is_err());
+        assert!(validate_command("bunx tsc --declarationDir /tmp/evil").is_err());
+        assert!(validate_command("bunx tsc --declarationDir=/tmp/evil").is_err());
+    }
+
 }
 
