@@ -3,6 +3,16 @@ use super::types::{Workflow, StepType};
 
 const FORBIDDEN_SHELL_CHARS: &[char] = &[';', '&', '|', '`', '$', '(', ')', '{', '}', '<', '>', '\n', '\r', '*', '?', '[', ']'];
 
+/// Hardcoded denylist of dangerous command prefixes that cannot be overridden
+/// by per-repo custom allowlists.  Even if a `.dkod/pipeline.yaml` explicitly
+/// allows one of these, the validator will reject it.
+const ALWAYS_DENIED_PREFIXES: &[&str] = &[
+    "curl ", "wget ", "nc ", "ncat ", "netcat ",
+    "bash ", "sh ", "/bin/sh", "/bin/bash",
+    "python -c", "python3 -c", "perl -e", "ruby -e",
+    "eval ", "exec ",
+];
+
 const ALLOWED_COMMAND_PREFIXES: &[&str] = &[
     "cargo check", "cargo test", "cargo clippy", "cargo fmt", "cargo build",
     "npm test", "npm run lint", "npm run check",
@@ -42,6 +52,13 @@ pub fn validate_command_with_allowlist(command: &str, custom_allowlist: &[String
     }
     if let Some(ch) = trimmed.chars().find(|c| FORBIDDEN_SHELL_CHARS.contains(c)) {
         bail!("command contains forbidden shell metacharacter: {:?}", ch);
+    }
+    // Always-denied prefixes override any allowlist (defense-in-depth)
+    if ALWAYS_DENIED_PREFIXES.iter().any(|p| trimmed.starts_with(p)) {
+        bail!(
+            "command uses a permanently-denied prefix: '{}'",
+            trimmed
+        );
     }
     if custom_allowlist.is_empty() {
         let is_allowed = ALLOWED_COMMAND_PREFIXES
@@ -205,6 +222,23 @@ mod tests {
             allowed_commands: vec!["eslint".to_string()],
         };
         assert!(validate_workflow(&wf).is_err());
+    }
+
+    #[test]
+    fn test_always_denied_prefixes_block_even_with_custom_allowlist() {
+        let custom = vec!["curl ".to_string(), "wget ".to_string()];
+        assert!(validate_command_with_allowlist("curl http://example.com", &custom).is_err());
+        assert!(validate_command_with_allowlist("wget http://example.com", &custom).is_err());
+        assert!(validate_command_with_allowlist("bash -c whoami", &custom).is_err());
+        assert!(validate_command_with_allowlist("nc -l 1234", &custom).is_err());
+        assert!(validate_command_with_allowlist("python -c 'import os'", &custom).is_err());
+    }
+
+    #[test]
+    fn test_always_denied_prefixes_block_with_default_allowlist() {
+        assert!(validate_command("curl http://example.com").is_err());
+        assert!(validate_command("wget http://example.com").is_err());
+        assert!(validate_command("bash -c whoami").is_err());
     }
 
     #[test]

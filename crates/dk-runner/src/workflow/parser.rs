@@ -97,7 +97,7 @@ pub fn parse_yaml_workflow_file(path: &Path) -> Result<Workflow> {
 
 pub fn parse_yaml_workflow_str(content: &str) -> Result<Workflow> {
     let file: YamlWorkflowFile =
-        serde_yaml::from_str(content).context("failed to parse pipeline YAML")?;
+        serde_yml::from_str(content).context("failed to parse pipeline YAML")?;
     let timeout = parse_duration(&file.pipeline.timeout)?;
     let stages = file
         .stages

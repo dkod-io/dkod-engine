@@ -71,11 +71,18 @@ impl Runner {
             work_dir.display()
         );
 
+        // Intentionally load the pipeline from the canonical repo directory, not from
+        // work_dir (the changeset overlay). This prevents a submitted changeset from
+        // hijacking its own verification pipeline for security.
         let workflow = self.load_workflow(&repo_dir, repo_id).await?;
 
-        // Auto-none: no pipeline configured, auto-approve
+        // Auto-none: no pipeline configured, auto-approve with audit trail
         if workflow.stages.is_empty() {
-            info!("no verification pipeline configured — auto-approving changeset");
+            tracing::warn!(
+                changeset_id = %changeset_id,
+                repo = %repo_name,
+                "auto-approving changeset: no verification pipeline and no recognized project type"
+            );
             return Ok(true);
         }
 
@@ -220,7 +227,7 @@ fn detect_workflow(repo_dir: &Path) -> Workflow {
     }
 
     if repo_dir.join("package.json").exists() {
-        let is_bun = repo_dir.join("bun.lock").exists();
+        let is_bun = repo_dir.join("bun.lock").exists() || repo_dir.join("bun.lockb").exists();
         let (name, cmd) = if is_bun {
             ("auto-bun", "bun test")
         } else {
@@ -351,6 +358,19 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         tokio::fs::write(dir.path().join("package.json"), b"{}").await.unwrap();
         tokio::fs::write(dir.path().join("bun.lock"), b"").await.unwrap();
+        let wf = detect_workflow(dir.path());
+        assert_eq!(wf.name, "auto-bun");
+        let cmds: Vec<_> = wf.stages[0].steps.iter().filter_map(|s| {
+            if let StepType::Command { run } = &s.step_type { Some(run.as_str()) } else { None }
+        }).collect();
+        assert!(cmds.contains(&"bun test"));
+    }
+
+    #[tokio::test]
+    async fn test_detect_workflow_bun_lockb() {
+        let dir = tempfile::tempdir().unwrap();
+        tokio::fs::write(dir.path().join("package.json"), b"{}").await.unwrap();
+        tokio::fs::write(dir.path().join("bun.lockb"), b"\x00").await.unwrap();
         let wf = detect_workflow(dir.path());
         assert_eq!(wf.name, "auto-bun");
         let cmds: Vec<_> = wf.stages[0].steps.iter().filter_map(|s| {
