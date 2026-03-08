@@ -31,6 +31,8 @@ const DENIED_FLAG_SUBSTRINGS: &[&str] = &[
     // Output path flags — prevent writing compiled artifacts to arbitrary paths
     // (e.g., `go build -o /tmp/payload ./cmd/exploit`)
     " -o ", " -o=",
+    " --target-dir ", " --target-dir=",
+    " --out-dir ", " --out-dir=",
     // Reject parent-dir traversal in install targets
     " ..",
     // URL schemes — prevent remote code fetching via pip install, npm, etc.
@@ -50,6 +52,16 @@ const ALLOWED_COMMAND_PREFIXES: &[&str] = &[
     // can execute arbitrary shell commands, bypassing command security controls.
     // Use allowed_commands in pipeline.yaml to explicitly opt-in to make.
 ];
+
+/// Check if a command matches an allowlist prefix with word-boundary awareness.
+/// A prefix matches if the command equals the prefix exactly, or if the command
+/// starts with the prefix followed by a space. This prevents "pytest" from
+/// matching "pytest-exploit" while still allowing "pytest -v".
+fn command_matches_prefix(command: &str, prefix: &str) -> bool {
+    command == prefix
+        || command.starts_with(&format!("{} ", prefix))
+        || prefix.ends_with(' ') && command.starts_with(prefix)
+}
 
 pub fn validate_workflow(workflow: &Workflow) -> Result<()> {
     if workflow.stages.is_empty() {
@@ -98,7 +110,7 @@ pub fn validate_command_with_allowlist(command: &str, custom_allowlist: &[String
     if custom_allowlist.is_empty() {
         let is_allowed = ALLOWED_COMMAND_PREFIXES
             .iter()
-            .any(|prefix| trimmed.starts_with(prefix));
+            .any(|prefix| command_matches_prefix(trimmed, prefix));
         if !is_allowed {
             bail!(
                 "command not in allowlist: '{}'. Allowed prefixes: {:?}",
@@ -109,7 +121,7 @@ pub fn validate_command_with_allowlist(command: &str, custom_allowlist: &[String
     } else {
         let is_allowed = custom_allowlist
             .iter()
-            .any(|prefix| trimmed.starts_with(prefix.as_str()));
+            .any(|prefix| command_matches_prefix(trimmed, prefix.as_str()));
         if !is_allowed {
             bail!(
                 "command not in repo allowlist: '{}'. Allowed prefixes: {:?}",
@@ -143,6 +155,24 @@ mod tests {
         assert!(validate_command("cargo test --release").is_ok());
         assert!(validate_command("bun test").is_ok());
         assert!(validate_command("pytest -v").is_ok());
+        assert!(validate_command("pytest").is_ok());
+    }
+
+    #[test]
+    fn test_pytest_word_boundary() {
+        // "pytest" should not match "pytest-exploit" (word boundary check)
+        assert!(validate_command("pytest-exploit").is_err());
+        assert!(validate_command("pytest_exploit").is_err());
+        // But "pytest" and "pytest -v" should still work
+        assert!(validate_command("pytest").is_ok());
+        assert!(validate_command("pytest -v --tb=short").is_ok());
+    }
+
+    #[test]
+    fn test_cargo_target_dir_denied() {
+        assert!(validate_command("cargo build --target-dir /tmp/evil").is_err());
+        assert!(validate_command("cargo build --target-dir=/tmp/evil").is_err());
+        assert!(validate_command("cargo build --out-dir /tmp/evil").is_err());
     }
 
     #[test]
