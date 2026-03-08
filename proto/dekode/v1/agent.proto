@@ -142,6 +142,29 @@ message SubmitResponse {
   string changeset_id = 2;
   optional string new_version = 3;
   repeated SubmitError errors = 4;
+  optional SubmitConflictBlock conflict_block = 5;
+}
+
+message SubmitSymbolVersion {
+  string description = 1;
+  string signature = 2;
+  string body = 3;
+  string change_type = 4;
+}
+
+message SubmitSymbolConflictDetail {
+  string file_path = 1;
+  string qualified_name = 2;
+  string kind = 3;
+  string conflicting_agent = 4;
+  SubmitSymbolVersion their_change = 5;
+  SubmitSymbolVersion your_change = 6;
+  SubmitSymbolVersion base_version = 7;
+}
+
+message SubmitConflictBlock {
+  repeated SubmitSymbolConflictDetail conflicting_symbols = 1;
+  string message = 2;
 }
 
 enum SubmitStatus {

@@ -101,6 +101,54 @@ impl SymbolClaimTracker {
         conflicts
     }
 
+    /// Return all conflicts for a given session across ALL file paths.
+    ///
+    /// This checks every tracked file to find symbols where `session_id` has
+    /// a claim AND another session also claims the same symbol.
+    pub fn get_all_conflicts_for_session(
+        &self,
+        repo_id: Uuid,
+        session_id: Uuid,
+    ) -> Vec<(String, ConflictInfo)> {
+        let mut results = Vec::new();
+        for entry in self.claims.iter() {
+            let (entry_repo_id, file_path) = entry.key();
+            if *entry_repo_id != repo_id {
+                continue;
+            }
+            let claims = entry.value();
+
+            // Find symbols claimed by this session
+            let my_symbols: Vec<&SymbolClaim> = claims
+                .iter()
+                .filter(|c| c.session_id == session_id)
+                .collect();
+
+            for my_claim in &my_symbols {
+                // Check if any OTHER session also claims this symbol
+                for other_claim in claims {
+                    if other_claim.session_id != session_id
+                        && other_claim.qualified_name == my_claim.qualified_name
+                    {
+                        results.push((
+                            file_path.clone(),
+                            ConflictInfo {
+                                qualified_name: my_claim.qualified_name.clone(),
+                                kind: my_claim.kind.clone(),
+                                conflicting_session: other_claim.session_id,
+                                conflicting_agent: other_claim.agent_name.clone(),
+                                first_touched_at: other_claim.first_touched_at,
+                            },
+                        ));
+                        // Only report the first conflicting session per symbol
+                        break;
+                    }
+                }
+            }
+        }
+        results
+    }
+
     /// Remove all claims belonging to a session (e.g. on disconnect or GC).
     pub fn clear_session(&self, session_id: Uuid) {
         // Iterate all entries and remove claims for the given session.

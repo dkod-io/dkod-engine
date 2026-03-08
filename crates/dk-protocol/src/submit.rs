@@ -211,6 +211,7 @@ pub async fn handle_submit(
             changeset_id: String::new(),
             new_version: None,
             errors,
+            conflict_block: None,
         }));
     }
 
@@ -230,6 +231,7 @@ pub async fn handle_submit(
                 symbol_id: None,
                 file_path: None,
             }],
+            conflict_block: None,
         }));
     }
 
@@ -350,5 +352,6 @@ pub async fn handle_submit(
         changeset_id: changeset_id.to_string(),
         new_version: Some(new_version),
         errors: vec![],
+        conflict_block: None,
     }))
 }
