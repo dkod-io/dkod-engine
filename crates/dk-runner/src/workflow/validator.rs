@@ -1,7 +1,7 @@
 use anyhow::{bail, Result};
 use super::types::{Workflow, StepType};
 
-const FORBIDDEN_SHELL_CHARS: &[char] = &[';', '&', '|', '`', '$', '(', ')', '{', '}', '<', '>', '\n', '\r', '*', '?', '[', ']'];
+const FORBIDDEN_SHELL_CHARS: &[char] = &[';', '&', '|', '`', '$', '(', ')', '{', '}', '<', '>', '\n', '\r', '\t', '*', '?', '[', ']'];
 
 /// Hardcoded denylist of dangerous command prefixes that cannot be overridden
 /// by per-repo custom allowlists.  Even if a `.dkod/pipeline.yaml` explicitly

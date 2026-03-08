@@ -57,6 +57,7 @@ fn default_required() -> bool {
 // --- YAML deserialization types ---
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct YamlWorkflowFile {
     pub pipeline: YamlPipelineConfig,
     #[serde(default)]
@@ -64,6 +65,7 @@ pub struct YamlWorkflowFile {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct YamlPipelineConfig {
     pub name: String,
     #[serde(default = "default_timeout")]
@@ -73,6 +75,7 @@ pub struct YamlPipelineConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct YamlStageConfig {
     pub name: String,
     #[serde(default)]
@@ -82,6 +85,7 @@ pub struct YamlStageConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct YamlStepConfig {
     pub name: String,
     #[serde(default)]
