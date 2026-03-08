@@ -124,7 +124,8 @@ impl Runner {
             let workflow = parse_yaml_workflow_file(&yaml_path).await?;
             if workflow.stages.is_empty() {
                 anyhow::bail!(
-                    "pipeline.yaml exists but defines no stages — refusing to auto-approve;                      add at least one stage or remove the file to use auto-detection"
+                    "pipeline.yaml exists but defines no stages — refusing to auto-approve; \
+                     add at least one stage or remove the file to use auto-detection"
                 );
             }
             return Ok(workflow);
@@ -234,10 +235,10 @@ fn detect_workflow(repo_dir: &Path) -> Workflow {
 
     if repo_dir.join("package.json").exists() {
         let is_bun = repo_dir.join("bun.lock").exists() || repo_dir.join("bun.lockb").exists();
-        let (name, cmd) = if is_bun {
-            ("auto-bun", "bun test")
+        let (name, install_cmd, test_cmd) = if is_bun {
+            ("auto-bun", "bun install", "bun test")
         } else {
-            ("auto-node", "npm test")
+            ("auto-node", "npm ci", "npm test")
         };
         return Workflow {
             name: name.to_string(),
@@ -246,20 +247,36 @@ fn detect_workflow(repo_dir: &Path) -> Workflow {
             stages: vec![Stage {
                 name: "checks".to_string(),
                 parallel: false,
-                steps: vec![Step {
-                    name: "test".to_string(),
-                    step_type: StepType::Command {
-                        run: cmd.to_string(),
+                steps: vec![
+                    Step {
+                        name: "install".to_string(),
+                        step_type: StepType::Command {
+                            run: install_cmd.to_string(),
+                        },
+                        timeout: Duration::from_secs(120),
+                        required: true,
+                        changeset_aware: false,
                     },
-                    timeout: Duration::from_secs(60),
-                    required: true,
-                    changeset_aware: true,
-                }],
+                    Step {
+                        name: "test".to_string(),
+                        step_type: StepType::Command {
+                            run: test_cmd.to_string(),
+                        },
+                        timeout: Duration::from_secs(60),
+                        required: true,
+                        changeset_aware: true,
+                    },
+                ],
             }],
         };
     }
 
     if repo_dir.join("pyproject.toml").exists() || repo_dir.join("requirements.txt").exists() {
+        let install_cmd = if repo_dir.join("pyproject.toml").exists() {
+            "pip install -e ."
+        } else {
+            "pip install -r requirements.txt"
+        };
         return Workflow {
             name: "auto-python".to_string(),
             timeout: Duration::from_secs(120),
@@ -267,15 +284,26 @@ fn detect_workflow(repo_dir: &Path) -> Workflow {
             stages: vec![Stage {
                 name: "checks".to_string(),
                 parallel: false,
-                steps: vec![Step {
-                    name: "test".to_string(),
-                    step_type: StepType::Command {
-                        run: "pytest".to_string(),
+                steps: vec![
+                    Step {
+                        name: "install".to_string(),
+                        step_type: StepType::Command {
+                            run: install_cmd.to_string(),
+                        },
+                        timeout: Duration::from_secs(120),
+                        required: true,
+                        changeset_aware: false,
                     },
-                    timeout: Duration::from_secs(60),
-                    required: true,
-                    changeset_aware: true,
-                }],
+                    Step {
+                        name: "test".to_string(),
+                        step_type: StepType::Command {
+                            run: "pytest".to_string(),
+                        },
+                        timeout: Duration::from_secs(60),
+                        required: true,
+                        changeset_aware: true,
+                    },
+                ],
             }],
         };
     }

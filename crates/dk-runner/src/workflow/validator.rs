@@ -29,10 +29,10 @@ const DENIED_FLAG_SUBSTRINGS: &[&str] = &[
 
 const ALLOWED_COMMAND_PREFIXES: &[&str] = &[
     "cargo check", "cargo test", "cargo clippy", "cargo fmt", "cargo build",
-    "npm test", "npm run lint", "npm run check",
-    "bun test", "bun run lint", "bun run check",
+    "npm ci", "npm install", "npm test", "npm run lint", "npm run check",
+    "bun install", "bun test", "bun run lint", "bun run check",
     "npx tsc", "bunx tsc",
-    "pytest", "python -m pytest",
+    "pip install", "pytest", "python -m pytest",
     "go build", "go test", "go vet",
     "echo ", // Permitted for CI logging and test pipelines
     // NOTE: make targets removed from default allowlist because Makefile targets
