@@ -9,6 +9,7 @@ const ALLOWED_COMMAND_PREFIXES: &[&str] = &[
     "bun test", "bun run lint", "bun run check",
     "npx tsc", "bunx tsc",
     "pytest", "python -m pytest",
+    "go build", "go test", "go vet",
     "make check", "make test", "make lint",
     "echo ", // Permitted for CI logging and test pipelines
 ];
@@ -23,7 +24,7 @@ pub fn validate_workflow(workflow: &Workflow) -> Result<()> {
         }
         for step in &stage.steps {
             if let StepType::Command { run } = &step.step_type {
-                validate_command(run)?;
+                validate_command_with_allowlist(run, &workflow.allowed_commands)?;
             }
         }
     }
@@ -31,6 +32,10 @@ pub fn validate_workflow(workflow: &Workflow) -> Result<()> {
 }
 
 pub fn validate_command(command: &str) -> Result<()> {
+    validate_command_with_allowlist(command, &[])
+}
+
+pub fn validate_command_with_allowlist(command: &str, custom_allowlist: &[String]) -> Result<()> {
     let trimmed = command.trim();
     if trimmed.is_empty() {
         bail!("empty command");
@@ -38,9 +43,28 @@ pub fn validate_command(command: &str) -> Result<()> {
     if let Some(ch) = trimmed.chars().find(|c| FORBIDDEN_SHELL_CHARS.contains(c)) {
         bail!("command contains forbidden shell metacharacter: {:?}", ch);
     }
-    let is_allowed = ALLOWED_COMMAND_PREFIXES.iter().any(|prefix| trimmed.starts_with(prefix));
-    if !is_allowed {
-        bail!("command not in allowlist: '{}'. Allowed prefixes: {:?}", trimmed, ALLOWED_COMMAND_PREFIXES);
+    if custom_allowlist.is_empty() {
+        let is_allowed = ALLOWED_COMMAND_PREFIXES
+            .iter()
+            .any(|prefix| trimmed.starts_with(prefix));
+        if !is_allowed {
+            bail!(
+                "command not in allowlist: '{}'. Allowed prefixes: {:?}",
+                trimmed,
+                ALLOWED_COMMAND_PREFIXES
+            );
+        }
+    } else {
+        let is_allowed = custom_allowlist
+            .iter()
+            .any(|prefix| trimmed.starts_with(prefix.as_str()));
+        if !is_allowed {
+            bail!(
+                "command not in repo allowlist: '{}'. Allowed prefixes: {:?}",
+                trimmed,
+                custom_allowlist
+            );
+        }
     }
     Ok(())
 }
@@ -125,5 +149,68 @@ mod tests {
         assert!(validate_command("cargo test src/[a-z].rs").is_err());
         assert!(validate_command("echo /etc/*").is_err());
         assert!(validate_command("echo ../../*").is_err());
+    }
+
+    #[test]
+    fn test_custom_allowlist_permits_custom_command() {
+        let custom = vec!["eslint".to_string(), "prettier --check".to_string()];
+        assert!(validate_command_with_allowlist("eslint src/", &custom).is_ok());
+        assert!(validate_command_with_allowlist("prettier --check .", &custom).is_ok());
+    }
+
+    #[test]
+    fn test_custom_allowlist_rejects_unlisted_command() {
+        let custom = vec!["eslint".to_string()];
+        assert!(validate_command_with_allowlist("rm -rf /", &custom).is_err());
+        assert!(validate_command_with_allowlist("cargo test", &custom).is_err());
+    }
+
+    #[test]
+    fn test_custom_allowlist_still_blocks_shell_chars() {
+        let custom = vec!["eslint".to_string()];
+        assert!(validate_command_with_allowlist("eslint; rm -rf /", &custom).is_err());
+    }
+
+    #[test]
+    fn test_empty_allowlist_uses_default() {
+        assert!(validate_command_with_allowlist("cargo test", &[]).is_ok());
+        assert!(validate_command_with_allowlist("rm -rf /", &[]).is_err());
+    }
+
+    #[test]
+    fn test_validate_workflow_uses_custom_allowlist() {
+        let wf = Workflow {
+            name: "custom".into(),
+            timeout: Duration::from_secs(60),
+            stages: vec![Stage {
+                name: "lint".into(),
+                parallel: false,
+                steps: vec![make_cmd_step("lint", "eslint src/")],
+            }],
+            allowed_commands: vec!["eslint".to_string()],
+        };
+        assert!(validate_workflow(&wf).is_ok());
+    }
+
+    #[test]
+    fn test_validate_workflow_rejects_unlisted_with_custom_allowlist() {
+        let wf = Workflow {
+            name: "custom".into(),
+            timeout: Duration::from_secs(60),
+            stages: vec![Stage {
+                name: "checks".into(),
+                parallel: false,
+                steps: vec![make_cmd_step("test", "cargo test")],
+            }],
+            allowed_commands: vec!["eslint".to_string()],
+        };
+        assert!(validate_workflow(&wf).is_err());
+    }
+
+    #[test]
+    fn test_go_commands_allowed_by_default() {
+        assert!(validate_command("go build ./...").is_ok());
+        assert!(validate_command("go test ./...").is_ok());
+        assert!(validate_command("go vet ./...").is_ok());
     }
 }
