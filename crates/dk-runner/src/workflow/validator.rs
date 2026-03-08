@@ -17,6 +17,7 @@ const ALWAYS_DENIED_PREFIXES: &[&str] = &[
     "python -c", "python3 -c", "perl -e", "ruby -e",
     "eval ", "exec ",
     "go run ",
+    "cargo run", "cargo install",
     // Go execution-delegation flags that allow running arbitrary binaries
     "go test -exec ", "go build -toolexec ", "go vet -vettool ",
 ];
@@ -30,6 +31,8 @@ const DENIED_FLAG_SUBSTRINGS: &[&str] = &[
     // Output path flags — prevent writing compiled artifacts to arbitrary paths
     // (e.g., `go build -o /tmp/payload ./cmd/exploit`)
     " -o ", " -o=",
+    // Reject parent-dir traversal in install targets
+    " ..",
     // URL schemes — prevent remote code fetching via pip install, npm, etc.
     " http://", " https://", " ftp://", " file://",
     " git+", " svn+", " hg+",
@@ -315,6 +318,23 @@ mod tests {
         // Local paths should still be allowed
         assert!(validate_command("pip install -e .").is_ok());
         assert!(validate_command("pip install -r requirements.txt").is_ok());
+    }
+
+    #[test]
+    fn test_cargo_run_and_install_denied() {
+        assert!(validate_command("cargo run --bin exploit").is_err());
+        let custom = vec!["cargo run".to_string()];
+        assert!(validate_command_with_allowlist("cargo run ./cmd", &custom).is_err());
+        assert!(validate_command("cargo install malicious-crate").is_err());
+    }
+
+    #[test]
+    fn test_pip_install_parent_dir_denied() {
+        // pip install -e .. would install from parent directory (sandbox escape)
+        assert!(validate_command("pip install -e ..").is_err());
+        assert!(validate_command("pip install -e ../other-pkg").is_err());
+        // pip install -e . should still work
+        assert!(validate_command("pip install -e .").is_ok());
     }
 
     #[test]

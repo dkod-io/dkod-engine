@@ -418,8 +418,19 @@ async fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
         if file_type.is_dir() {
             Box::pin(copy_dir_recursive(&src_path, &dst_path)).await?;
         } else if file_type.is_symlink() {
-            // Recreate symlinks so relative references remain valid in temp dir
             let target = tokio::fs::read_link(&src_path).await?;
+            // Security: only recreate relative symlinks that stay within the tree.
+            // Skip absolute symlinks and targets with traversal components to
+            // prevent sandbox escapes (e.g., docs -> /etc).
+            let target_str = target.to_string_lossy();
+            if target_str.starts_with('/') || target_str.contains("..") {
+                tracing::warn!(
+                    src = %src_path.display(),
+                    target = %target.display(),
+                    "skipping symlink that points outside sandbox"
+                );
+                continue;
+            }
             #[cfg(unix)]
             tokio::fs::symlink(target, &dst_path).await?;
         } else {
