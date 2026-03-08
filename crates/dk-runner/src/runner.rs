@@ -58,9 +58,24 @@ impl Runner {
             changeset_paths.push(file.file_path.clone());
             if let Some(content) = &file.content {
                 let dest = work_dir.join(&file.file_path);
+                // Security: verify the resolved path stays within work_dir
+                // to prevent path traversal via ../  components in file_path
+                let canonical_work_dir = tokio::fs::canonicalize(&work_dir).await?;
                 if let Some(parent) = dest.parent() {
                     tokio::fs::create_dir_all(parent).await?;
                 }
+                let canonical_dest = tokio::fs::canonicalize(
+                    dest.parent().unwrap_or(&work_dir)
+                ).await?;
+                if !canonical_dest.starts_with(&canonical_work_dir) {
+                    anyhow::bail!(
+                        "changeset file path escapes sandbox: '{}' resolves outside work_dir",
+                        file.file_path
+                    );
+                }
+                let dest = canonical_dest.join(
+                    dest.file_name().context("changeset file has no filename")?
+                );
                 tokio::fs::write(&dest, content).await?;
             }
         }
@@ -318,7 +333,7 @@ fn detect_workflow(repo_dir: &Path) -> Workflow {
         });
         return Workflow {
             name: "auto-python".to_string(),
-            timeout: Duration::from_secs(300),
+            timeout: Duration::from_secs(420),
             allowed_commands: vec![],
             stages: vec![Stage {
                 name: "checks".to_string(),

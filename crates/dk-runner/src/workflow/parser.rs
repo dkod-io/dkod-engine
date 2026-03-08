@@ -139,7 +139,7 @@ fn resolve_yaml_step(sc: YamlStepConfig) -> Result<Step> {
         },
         Some("human-approve") => StepType::HumanApprove,
         Some("command") | None => {
-            let run = sc.run.context("step must have either 'run' or 'type'")?;
+            let run = sc.run.context("command step must have a 'run' field")?;
             StepType::Command { run }
         }
         Some(other) => bail!("unknown step type: '{}'", other),
