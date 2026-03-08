@@ -29,12 +29,11 @@ const DENIED_FLAG_SUBSTRINGS: &[&str] = &[
     " -exec ", " -toolexec ", " -vettool ",
     " -exec=", " -toolexec=", " -vettool=",
     // Output path flags — prevent writing compiled artifacts to arbitrary paths
-    // (e.g., `go build -o /tmp/payload ./cmd/exploit`)
-    " -o ", " -o=", " -o/",  // catch concatenated form: go build -o/path " -o/",
+    // (e.g., `go build -o /tmp/payload ./cmd/exploit`, `go build -o/path`)
+    " -o ", " -o=", " -o/",
     " --target-dir ", " --target-dir=",
     " --out-dir ", " --out-dir=",
     " --manifest-path ", " --manifest-path=",
-    " --outDir ", " --outDir=", " --declarationDir ", " --declarationDir=",
     // TypeScript compiler output-path flags
     " --outDir ", " --outDir=", " --declarationDir ", " --declarationDir=",
     // Reject parent-dir traversal in install targets
