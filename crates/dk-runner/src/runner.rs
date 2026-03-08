@@ -272,11 +272,39 @@ fn detect_workflow(repo_dir: &Path) -> Workflow {
     }
 
     if repo_dir.join("pyproject.toml").exists() || repo_dir.join("requirements.txt").exists() {
-        let install_cmd = if repo_dir.join("pyproject.toml").exists() {
-            "pip install -e ."
-        } else {
-            "pip install -r requirements.txt"
-        };
+        let has_requirements = repo_dir.join("requirements.txt").exists();
+        let has_pyproject = repo_dir.join("pyproject.toml").exists();
+        let mut steps = Vec::new();
+        if has_pyproject {
+            steps.push(Step {
+                name: "install".to_string(),
+                step_type: StepType::Command {
+                    run: "pip install -e .".to_string(),
+                },
+                timeout: Duration::from_secs(120),
+                required: true,
+                changeset_aware: false,
+            });
+        } else if has_requirements {
+            steps.push(Step {
+                name: "install".to_string(),
+                step_type: StepType::Command {
+                    run: "pip install -r requirements.txt".to_string(),
+                },
+                timeout: Duration::from_secs(120),
+                required: true,
+                changeset_aware: false,
+            });
+        }
+        steps.push(Step {
+            name: "test".to_string(),
+            step_type: StepType::Command {
+                run: "pytest".to_string(),
+            },
+            timeout: Duration::from_secs(60),
+            required: true,
+            changeset_aware: true,
+        });
         return Workflow {
             name: "auto-python".to_string(),
             timeout: Duration::from_secs(120),
@@ -284,26 +312,7 @@ fn detect_workflow(repo_dir: &Path) -> Workflow {
             stages: vec![Stage {
                 name: "checks".to_string(),
                 parallel: false,
-                steps: vec![
-                    Step {
-                        name: "install".to_string(),
-                        step_type: StepType::Command {
-                            run: install_cmd.to_string(),
-                        },
-                        timeout: Duration::from_secs(120),
-                        required: true,
-                        changeset_aware: false,
-                    },
-                    Step {
-                        name: "test".to_string(),
-                        step_type: StepType::Command {
-                            run: "pytest".to_string(),
-                        },
-                        timeout: Duration::from_secs(60),
-                        required: true,
-                        changeset_aware: true,
-                    },
-                ],
+                steps,
             }],
         };
     }
@@ -402,9 +411,11 @@ mod tests {
         tokio::fs::write(dir.path().join("bun.lock"), b"").await.unwrap();
         let wf = detect_workflow(dir.path());
         assert_eq!(wf.name, "auto-bun");
+        assert_eq!(wf.stages[0].steps.len(), 2);
         let cmds: Vec<_> = wf.stages[0].steps.iter().filter_map(|s| {
             if let StepType::Command { run } = &s.step_type { Some(run.as_str()) } else { None }
         }).collect();
+        assert!(cmds.contains(&"bun install"));
         assert!(cmds.contains(&"bun test"));
     }
 
@@ -415,9 +426,11 @@ mod tests {
         tokio::fs::write(dir.path().join("bun.lockb"), b"\x00").await.unwrap();
         let wf = detect_workflow(dir.path());
         assert_eq!(wf.name, "auto-bun");
+        assert_eq!(wf.stages[0].steps.len(), 2);
         let cmds: Vec<_> = wf.stages[0].steps.iter().filter_map(|s| {
             if let StepType::Command { run } = &s.step_type { Some(run.as_str()) } else { None }
         }).collect();
+        assert!(cmds.contains(&"bun install"));
         assert!(cmds.contains(&"bun test"));
     }
 
@@ -427,14 +440,42 @@ mod tests {
         tokio::fs::write(dir.path().join("package.json"), b"{}").await.unwrap();
         let wf = detect_workflow(dir.path());
         assert_eq!(wf.name, "auto-node");
+        assert_eq!(wf.stages[0].steps.len(), 2);
+        let cmds: Vec<_> = wf.stages[0].steps.iter().filter_map(|s| {
+            if let StepType::Command { run } = &s.step_type { Some(run.as_str()) } else { None }
+        }).collect();
+        assert!(cmds.contains(&"npm ci"));
+        assert!(cmds.contains(&"npm test"));
     }
 
     #[tokio::test]
-    async fn test_detect_workflow_python() {
+    async fn test_detect_workflow_python_pyproject() {
         let dir = tempfile::tempdir().unwrap();
         tokio::fs::write(dir.path().join("pyproject.toml"), b"[project]").await.unwrap();
         let wf = detect_workflow(dir.path());
         assert_eq!(wf.name, "auto-python");
+        // pyproject.toml — install via pip install -e . plus test
+        assert_eq!(wf.stages[0].steps.len(), 2);
+        let cmds: Vec<_> = wf.stages[0].steps.iter().filter_map(|s| {
+            if let StepType::Command { run } = &s.step_type { Some(run.as_str()) } else { None }
+        }).collect();
+        assert!(cmds.contains(&"pip install -e ."));
+        assert!(cmds.contains(&"pytest"));
+    }
+
+    #[tokio::test]
+    async fn test_detect_workflow_python_requirements() {
+        let dir = tempfile::tempdir().unwrap();
+        tokio::fs::write(dir.path().join("requirements.txt"), b"pytest\nrequests").await.unwrap();
+        let wf = detect_workflow(dir.path());
+        assert_eq!(wf.name, "auto-python");
+        // requirements.txt present — install + test steps
+        assert_eq!(wf.stages[0].steps.len(), 2);
+        let cmds: Vec<_> = wf.stages[0].steps.iter().filter_map(|s| {
+            if let StepType::Command { run } = &s.step_type { Some(run.as_str()) } else { None }
+        }).collect();
+        assert!(cmds.contains(&"pip install -r requirements.txt"));
+        assert!(cmds.contains(&"pytest"));
     }
 
     #[tokio::test]

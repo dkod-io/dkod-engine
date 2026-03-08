@@ -32,7 +32,7 @@ const ALLOWED_COMMAND_PREFIXES: &[&str] = &[
     "npm ci", "npm install", "npm test", "npm run lint", "npm run check",
     "bun install", "bun test", "bun run lint", "bun run check",
     "npx tsc", "bunx tsc",
-    "pip install", "pytest", "python -m pytest",
+    "pip install -e", "pip install -r", "pytest", "python -m pytest",
     "go build", "go test", "go vet",
     "echo ", // Permitted for CI logging and test pipelines
     // NOTE: make targets removed from default allowlist because Makefile targets
@@ -263,6 +263,13 @@ mod tests {
         assert!(validate_command("curl http://example.com").is_err());
         assert!(validate_command("wget http://example.com").is_err());
         assert!(validate_command("bash -c whoami").is_err());
+    }
+
+    #[test]
+    fn test_install_commands_allowed_by_default() {
+        assert!(validate_command("npm ci").is_ok());
+        assert!(validate_command("bun install").is_ok());
+        assert!(validate_command("pip install -r requirements.txt").is_ok());
     }
 
     #[test]
