@@ -34,8 +34,10 @@ const ALLOWED_COMMAND_PREFIXES: &[&str] = &[
     "npx tsc", "bunx tsc",
     "pytest", "python -m pytest",
     "go build", "go test", "go vet",
-    "make check", "make test", "make lint",
     "echo ", // Permitted for CI logging and test pipelines
+    // NOTE: make targets removed from default allowlist because Makefile targets
+    // can execute arbitrary shell commands, bypassing command security controls.
+    // Use allowed_commands in pipeline.yaml to explicitly opt-in to make.
 ];
 
 pub fn validate_workflow(workflow: &Workflow) -> Result<()> {

@@ -121,7 +121,13 @@ impl Runner {
         let yaml_path = repo_dir.join(".dkod/pipeline.yaml");
         if yaml_path.exists() {
             info!("loading workflow from {}", yaml_path.display());
-            return parse_yaml_workflow_file(&yaml_path);
+            let workflow = parse_yaml_workflow_file(&yaml_path).await?;
+            if workflow.stages.is_empty() {
+                anyhow::bail!(
+                    "pipeline.yaml exists but defines no stages — refusing to auto-approve;                      add at least one stage or remove the file to use auto-detection"
+                );
+            }
+            return Ok(workflow);
         }
 
         // Priority 2: DB-stored pipeline

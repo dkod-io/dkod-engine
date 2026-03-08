@@ -88,8 +88,9 @@ fn resolve_step(sc: StepConfig) -> Result<Step> {
     })
 }
 
-pub fn parse_yaml_workflow_file(path: &Path) -> Result<Workflow> {
-    let content = std::fs::read_to_string(path)
+pub async fn parse_yaml_workflow_file(path: &Path) -> Result<Workflow> {
+    let content = tokio::fs::read_to_string(path)
+        .await
         .with_context(|| format!("failed to read workflow file: {}", path.display()))?;
     parse_yaml_workflow_str(&content)
 }
