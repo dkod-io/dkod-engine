@@ -33,6 +33,7 @@ const DENIED_FLAG_SUBSTRINGS: &[&str] = &[
     " -o ", " -o=",
     " --target-dir ", " --target-dir=",
     " --out-dir ", " --out-dir=",
+    " --manifest-path ", " --manifest-path=",
     // Reject parent-dir traversal in install targets
     " ..",
     // URL schemes — prevent remote code fetching via pip install, npm, etc.
@@ -173,6 +174,14 @@ mod tests {
         assert!(validate_command("cargo build --target-dir /tmp/evil").is_err());
         assert!(validate_command("cargo build --target-dir=/tmp/evil").is_err());
         assert!(validate_command("cargo build --out-dir /tmp/evil").is_err());
+    }
+
+    #[test]
+    fn test_cargo_manifest_path_denied() {
+        // --manifest-path allows compiling from outside the sandbox
+        assert!(validate_command("cargo build --manifest-path /outside/Cargo.toml").is_err());
+        assert!(validate_command("cargo test --manifest-path=/outside/Cargo.toml").is_err());
+        assert!(validate_command("cargo check --manifest-path /etc/Cargo.toml").is_err());
     }
 
     #[test]
