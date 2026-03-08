@@ -316,6 +316,10 @@ message FileListResponse {
 message FileEntry {
   string path = 1;
   bool modified_in_session = 2;
+  // If another session has modified this file, describes who and what.
+  // Format: "fn create_task modified by agent-2" or "modified by agent-2"
+  // Empty string if no other session has touched this file.
+  string modified_by_other = 3;
 }
 
 // --- PRE-SUBMIT CHECK ---

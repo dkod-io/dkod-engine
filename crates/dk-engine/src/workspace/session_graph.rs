@@ -220,6 +220,27 @@ impl SessionGraph {
         }
     }
 
+    /// Return the names of symbols changed in this session that belong
+    /// to the given file path. Useful for cross-session file awareness.
+    pub fn changed_symbols_for_file(&self, file_path: &str) -> Vec<String> {
+        let target = std::path::Path::new(file_path);
+        let mut names = Vec::new();
+
+        for entry in self.added_symbols.iter() {
+            if entry.value().file_path == target {
+                names.push(entry.value().name.clone());
+            }
+        }
+
+        for entry in self.modified_symbols.iter() {
+            if entry.value().file_path == target {
+                names.push(entry.value().name.clone());
+            }
+        }
+
+        names
+    }
+
     /// Number of symbols changed (added + modified + removed).
     pub fn change_count(&self) -> usize {
         self.added_symbols.len() + self.modified_symbols.len() + self.removed_symbols.len()
@@ -354,5 +375,34 @@ mod tests {
 
         g.add_symbol(make_symbol("a"));
         assert_eq!(g.change_count(), 1);
+    }
+
+    #[test]
+    fn changed_symbols_for_file_filters_by_path() {
+        let g = SessionGraph::empty();
+
+        let mut sym1 = make_symbol("create_task");
+        sym1.file_path = PathBuf::from("src/tasks.rs");
+        g.add_symbol(sym1);
+
+        let mut sym2 = make_symbol("delete_task");
+        sym2.file_path = PathBuf::from("src/tasks.rs");
+        g.add_symbol(sym2);
+
+        let mut sym3 = make_symbol("run_server");
+        sym3.file_path = PathBuf::from("src/main.rs");
+        g.add_symbol(sym3);
+
+        let task_syms = g.changed_symbols_for_file("src/tasks.rs");
+        assert_eq!(task_syms.len(), 2);
+        assert!(task_syms.contains(&"create_task".to_string()));
+        assert!(task_syms.contains(&"delete_task".to_string()));
+
+        let main_syms = g.changed_symbols_for_file("src/main.rs");
+        assert_eq!(main_syms.len(), 1);
+        assert!(main_syms.contains(&"run_server".to_string()));
+
+        let empty = g.changed_symbols_for_file("src/nonexistent.rs");
+        assert!(empty.is_empty());
     }
 }
