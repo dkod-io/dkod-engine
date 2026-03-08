@@ -12,6 +12,8 @@ const ALWAYS_DENIED_PREFIXES: &[&str] = &[
     "/usr/bin/curl", "/usr/bin/wget", "/usr/bin/nc", "/usr/bin/ncat",
     "/usr/bin/bash", "/usr/bin/sh", "/usr/bin/env bash", "/usr/bin/env sh",
     "/usr/bin/python", "/usr/bin/python3", "/usr/bin/perl", "/usr/bin/ruby",
+    "/usr/bin/env python", "/usr/bin/env python3", "/usr/bin/env perl",
+    "/usr/bin/env ruby", "/usr/bin/env node",
     "python -c", "python3 -c", "perl -e", "ruby -e",
     "eval ", "exec ",
     "go run ",
@@ -29,7 +31,7 @@ const DENIED_FLAG_SUBSTRINGS: &[&str] = &[
 
 const ALLOWED_COMMAND_PREFIXES: &[&str] = &[
     "cargo check", "cargo test", "cargo clippy", "cargo fmt", "cargo build",
-    "npm ci", "npm install", "npm test", "npm run lint", "npm run check",
+    "npm ci", "npm test", "npm run lint", "npm run check",
     "bun install", "bun test", "bun run lint", "bun run check",
     "npx tsc", "bunx tsc",
     "pip install -e", "pip install -r", "pytest", "python -m pytest",
@@ -270,6 +272,16 @@ mod tests {
         assert!(validate_command("npm ci").is_ok());
         assert!(validate_command("bun install").is_ok());
         assert!(validate_command("pip install -r requirements.txt").is_ok());
+    }
+
+    #[test]
+    fn test_env_interpreter_variants_denied() {
+        let custom = vec!["/usr/bin/env python3".to_string()];
+        assert!(validate_command_with_allowlist("/usr/bin/env python3 script.py", &custom).is_err());
+        assert!(validate_command_with_allowlist("/usr/bin/env python script.py", &custom).is_err());
+        assert!(validate_command_with_allowlist("/usr/bin/env perl script.pl", &custom).is_err());
+        assert!(validate_command_with_allowlist("/usr/bin/env ruby script.rb", &custom).is_err());
+        assert!(validate_command_with_allowlist("/usr/bin/env node script.js", &custom).is_err());
     }
 
     #[test]

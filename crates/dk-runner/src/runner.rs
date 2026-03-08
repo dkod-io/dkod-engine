@@ -307,7 +307,7 @@ fn detect_workflow(repo_dir: &Path) -> Workflow {
         });
         return Workflow {
             name: "auto-python".to_string(),
-            timeout: Duration::from_secs(120),
+            timeout: Duration::from_secs(300),
             allowed_commands: vec![],
             stages: vec![Stage {
                 name: "checks".to_string(),
@@ -320,7 +320,7 @@ fn detect_workflow(repo_dir: &Path) -> Workflow {
     if repo_dir.join("go.mod").exists() {
         return Workflow {
             name: "auto-go".to_string(),
-            timeout: Duration::from_secs(120),
+            timeout: Duration::from_secs(300),
             allowed_commands: vec![],
             stages: vec![Stage {
                 name: "checks".to_string(),
