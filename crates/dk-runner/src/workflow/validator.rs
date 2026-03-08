@@ -18,6 +18,14 @@ const ALWAYS_DENIED_PREFIXES: &[&str] = &[
     "go test -exec ", "go build -toolexec ", "go vet -vettool ",
 ];
 
+/// Substrings that are denied anywhere in a command, preventing flag-injection
+/// attacks where execution-delegation flags appear mid-command (e.g.,
+/// `go test -exec /bin/sh`).
+const DENIED_FLAG_SUBSTRINGS: &[&str] = &[
+    " -exec ", " -toolexec ", " -vettool ",
+    " -exec=", " -toolexec=", " -vettool=",
+];
+
 const ALLOWED_COMMAND_PREFIXES: &[&str] = &[
     "cargo check", "cargo test", "cargo clippy", "cargo fmt", "cargo build",
     "npm test", "npm run lint", "npm run check",
@@ -62,6 +70,14 @@ pub fn validate_command_with_allowlist(command: &str, custom_allowlist: &[String
     if ALWAYS_DENIED_PREFIXES.iter().any(|p| trimmed.starts_with(p)) {
         bail!(
             "command uses a permanently-denied prefix: '{}'",
+            trimmed
+        );
+    }
+    // Denied flag substrings prevent execution-delegation flag injection
+    // (e.g., `go test -exec /bin/sh ./...`)
+    if DENIED_FLAG_SUBSTRINGS.iter().any(|s| trimmed.contains(s)) {
+        bail!(
+            "command contains a denied execution-delegation flag: '{}'",
             trimmed
         );
     }
