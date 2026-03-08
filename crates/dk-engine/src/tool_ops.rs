@@ -146,6 +146,10 @@ pub struct ToolStatusResult {
 pub struct ToolFileListEntry {
     pub path: String,
     pub modified_in_session: bool,
+    /// Describes which other sessions modified this file and what symbols.
+    /// Empty if no other session has touched the file.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub modified_by_other: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -530,14 +534,18 @@ impl Engine {
         };
         drop(git_repo);
 
+        let wm = self.workspace_manager();
         let total = all_files.len();
         let files = all_files
             .into_iter()
             .map(|path| {
                 let modified_in_session = modified_paths.contains(&path);
+                let modified_by_other =
+                    wm.describe_other_modifiers(&path, repo_id, session_id);
                 ToolFileListEntry {
                     path,
                     modified_in_session,
+                    modified_by_other,
                 }
             })
             .collect();
@@ -794,6 +802,7 @@ mod tests {
         let entry = ToolFileListEntry {
             path: "src/lib.rs".into(),
             modified_in_session: true,
+            modified_by_other: String::new(),
         };
         assert!(entry.modified_in_session);
         assert_eq!(entry.path, "src/lib.rs");
@@ -801,8 +810,34 @@ mod tests {
         let unmodified = ToolFileListEntry {
             path: "Cargo.toml".into(),
             modified_in_session: false,
+            modified_by_other: String::new(),
         };
         assert!(!unmodified.modified_in_session);
+    }
+
+    #[test]
+    fn file_list_entry_modified_by_other() {
+        let entry = ToolFileListEntry {
+            path: "src/tasks.rs".into(),
+            modified_in_session: false,
+            modified_by_other: "create_task modified by agent-2".to_string(),
+        };
+        assert_eq!(entry.modified_by_other, "create_task modified by agent-2");
+
+        // skip_serializing_if: empty string is omitted from JSON
+        let json = serde_json::to_value(&entry).unwrap();
+        assert_eq!(
+            json["modified_by_other"],
+            "create_task modified by agent-2"
+        );
+
+        let empty_entry = ToolFileListEntry {
+            path: "src/lib.rs".into(),
+            modified_in_session: false,
+            modified_by_other: String::new(),
+        };
+        let json2 = serde_json::to_value(&empty_entry).unwrap();
+        assert!(json2.get("modified_by_other").is_none());
     }
 
     #[test]
@@ -811,14 +846,17 @@ mod tests {
             ToolFileListEntry {
                 path: "a.rs".into(),
                 modified_in_session: false,
+                modified_by_other: String::new(),
             },
             ToolFileListEntry {
                 path: "b.rs".into(),
                 modified_in_session: true,
+                modified_by_other: String::new(),
             },
             ToolFileListEntry {
                 path: "c.rs".into(),
                 modified_in_session: false,
+                modified_by_other: String::new(),
             },
         ];
         let result = ToolFileListResult {
@@ -848,6 +886,7 @@ mod tests {
                 ToolFileListEntry {
                     path,
                     modified_in_session,
+                    modified_by_other: String::new(),
                 }
             })
             .collect();
@@ -990,6 +1029,7 @@ mod tests {
             files: vec![ToolFileListEntry {
                 path: "src/lib.rs".into(),
                 modified_in_session: true,
+                modified_by_other: String::new(),
             }],
         };
         let json = serde_json::to_value(&result).unwrap();

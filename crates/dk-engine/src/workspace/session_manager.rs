@@ -225,6 +225,51 @@ impl WorkspaceManager {
         self.workspaces.len()
     }
 
+    /// Describe which other sessions have modified a given file.
+    ///
+    /// Returns a formatted string like `"fn create_task modified by agent-2"`
+    /// or `"modified by agent-2, agent-3"`. Returns an empty string if no
+    /// other session has touched the file.
+    pub fn describe_other_modifiers(
+        &self,
+        file_path: &str,
+        repo_id: RepoId,
+        exclude_session: SessionId,
+    ) -> String {
+        let mut parts: Vec<String> = Vec::new();
+
+        for entry in self.workspaces.iter() {
+            let ws = entry.value();
+            if ws.repo_id != repo_id || ws.session_id == exclude_session {
+                continue;
+            }
+
+            // Check if this other session has the file in its overlay
+            if !ws.overlay.list_paths().contains(&file_path.to_string()) {
+                continue;
+            }
+
+            // Get changed symbols for this file from the session graph
+            let symbols = ws.graph.changed_symbols_for_file(file_path);
+            let agent = &ws.agent_name;
+
+            if symbols.is_empty() {
+                parts.push(format!("modified by {agent}"));
+            } else {
+                // Take up to 3 symbol names to keep it concise
+                let sym_list: Vec<&str> = symbols.iter().take(3).map(|s| s.as_str()).collect();
+                let sym_str = sym_list.join(", ");
+                if symbols.len() > 3 {
+                    parts.push(format!("{sym_str},... modified by {agent}"));
+                } else {
+                    parts.push(format!("{sym_str} modified by {agent}"));
+                }
+            }
+        }
+
+        parts.join("; ")
+    }
+
     /// List all active sessions for a given repository.
     pub fn list_sessions(&self, repo_id: RepoId) -> Vec<SessionInfo> {
         let now = Instant::now();
@@ -362,5 +407,98 @@ mod tests {
     fn list_sessions_returns_empty_for_unknown_repo() {
         // This test would require a PgPool. The structural tests above
         // validate SessionInfo independently.
+    }
+
+    #[tokio::test]
+    async fn describe_other_modifiers_empty_when_no_other_sessions() {
+        let db = PgPool::connect_lazy("postgres://localhost/nonexistent").unwrap();
+        let mgr = WorkspaceManager::new(db);
+        let repo_id = Uuid::new_v4();
+        let session_id = Uuid::new_v4();
+
+        let result = mgr.describe_other_modifiers("src/lib.rs", repo_id, session_id);
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn describe_other_modifiers_shows_agent_name() {
+        use crate::workspace::session_workspace::{SessionWorkspace, WorkspaceMode};
+
+        let db = PgPool::connect_lazy("postgres://localhost/nonexistent").unwrap();
+        let mgr = WorkspaceManager::new(db);
+        let repo_id = Uuid::new_v4();
+
+        let session1 = Uuid::new_v4();
+        let session2 = Uuid::new_v4();
+
+        let mut ws2 = SessionWorkspace::new_test(
+            session2,
+            repo_id,
+            "agent-2-id".to_string(),
+            "fix bug".to_string(),
+            "abc123".to_string(),
+            WorkspaceMode::Ephemeral,
+        );
+        ws2.agent_name = "agent-2".to_string();
+        ws2.overlay.write_local("src/lib.rs", b"content".to_vec(), false);
+
+        mgr.insert_test_workspace(ws2);
+
+        let result = mgr.describe_other_modifiers("src/lib.rs", repo_id, session1);
+        assert_eq!(result, "modified by agent-2");
+
+        let result2 = mgr.describe_other_modifiers("src/other.rs", repo_id, session1);
+        assert!(result2.is_empty());
+
+        let result3 = mgr.describe_other_modifiers("src/lib.rs", repo_id, session2);
+        assert!(result3.is_empty());
+    }
+
+    #[tokio::test]
+    async fn describe_other_modifiers_includes_symbols() {
+        use crate::workspace::session_workspace::{SessionWorkspace, WorkspaceMode};
+        use dk_core::{Span, Symbol, SymbolKind, Visibility};
+        use std::path::PathBuf;
+
+        let db = PgPool::connect_lazy("postgres://localhost/nonexistent").unwrap();
+        let mgr = WorkspaceManager::new(db);
+        let repo_id = Uuid::new_v4();
+
+        let session1 = Uuid::new_v4();
+        let session2 = Uuid::new_v4();
+
+        let mut ws2 = SessionWorkspace::new_test(
+            session2,
+            repo_id,
+            "agent-2-id".to_string(),
+            "add feature".to_string(),
+            "abc123".to_string(),
+            WorkspaceMode::Ephemeral,
+        );
+        ws2.agent_name = "agent-2".to_string();
+        ws2.overlay
+            .write_local("src/tasks.rs", b"fn create_task() {}".to_vec(), true);
+        ws2.graph.add_symbol(Symbol {
+            id: Uuid::new_v4(),
+            name: "create_task".to_string(),
+            qualified_name: "create_task".to_string(),
+            kind: SymbolKind::Function,
+            visibility: Visibility::Public,
+            file_path: PathBuf::from("src/tasks.rs"),
+            span: Span {
+                start_byte: 0,
+                end_byte: 20,
+            },
+            signature: None,
+            doc_comment: None,
+            parent: None,
+            last_modified_by: None,
+            last_modified_intent: None,
+        });
+
+        mgr.insert_test_workspace(ws2);
+
+        let result = mgr.describe_other_modifiers("src/tasks.rs", repo_id, session1);
+        assert_eq!(result, "create_task modified by agent-2");
     }
 }

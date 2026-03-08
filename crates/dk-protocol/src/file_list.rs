@@ -54,13 +54,19 @@ pub async fn handle_file_list(
     let modified_paths: std::collections::HashSet<String> =
         ws.overlay.list_paths().into_iter().collect();
 
+    // Look up the repo_id from the workspace so we can query cross-session info.
+    let repo_id = ws.repo_id;
+    let wm = engine.workspace_manager();
+
     let files: Vec<FileEntry> = all_files
         .into_iter()
         .map(|path| {
             let modified = modified_paths.contains(&path);
+            let modified_by_other = wm.describe_other_modifiers(&path, repo_id, sid);
             FileEntry {
                 path,
                 modified_in_session: modified,
+                modified_by_other,
             }
         })
         .collect();
