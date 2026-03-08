@@ -502,11 +502,28 @@ mod tests {
         tokio::fs::write(dir.path().join("requirements.txt"), b"pytest\nrequests").await.unwrap();
         let wf = detect_workflow(dir.path());
         assert_eq!(wf.name, "auto-python");
-        // requirements.txt present — install + test steps
+        // requirements.txt only — install-deps + test
         assert_eq!(wf.stages[0].steps.len(), 2);
         let cmds: Vec<_> = wf.stages[0].steps.iter().filter_map(|s| {
             if let StepType::Command { run } = &s.step_type { Some(run.as_str()) } else { None }
         }).collect();
+        assert!(cmds.contains(&"pip install -r requirements.txt"));
+        assert!(cmds.contains(&"pytest"));
+    }
+
+    #[tokio::test]
+    async fn test_detect_workflow_python_both_files() {
+        let dir = tempfile::tempdir().unwrap();
+        tokio::fs::write(dir.path().join("pyproject.toml"), b"[project]").await.unwrap();
+        tokio::fs::write(dir.path().join("requirements.txt"), b"pytest\nrequests").await.unwrap();
+        let wf = detect_workflow(dir.path());
+        assert_eq!(wf.name, "auto-python");
+        // Both files — install-package + install-deps + test
+        assert_eq!(wf.stages[0].steps.len(), 3);
+        let cmds: Vec<_> = wf.stages[0].steps.iter().filter_map(|s| {
+            if let StepType::Command { run } = &s.step_type { Some(run.as_str()) } else { None }
+        }).collect();
+        assert!(cmds.contains(&"pip install -e ."));
         assert!(cmds.contains(&"pip install -r requirements.txt"));
         assert!(cmds.contains(&"pytest"));
     }
@@ -552,6 +569,51 @@ mod tests {
         assert!(dst.path().join("Cargo.toml").exists(), "Cargo.toml must be at dst root");
         assert!(dst.path().join("src/main.rs").exists(), "src/main.rs must exist");
         assert!(!dst.path().join(".git").exists(), ".git must be skipped");
+    }
+
+    #[tokio::test]
+    async fn test_copy_dir_recursive_handles_symlinks() {
+        let src = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+
+        // Create a regular file and a symlink to it
+        tokio::fs::write(src.path().join("real.txt"), b"hello").await.unwrap();
+        #[cfg(unix)]
+        tokio::fs::symlink("real.txt", src.path().join("link.txt")).await.unwrap();
+
+        copy_dir_recursive(src.path(), dst.path()).await.unwrap();
+
+        assert!(dst.path().join("real.txt").exists());
+        #[cfg(unix)]
+        {
+            let meta = tokio::fs::symlink_metadata(dst.path().join("link.txt")).await.unwrap();
+            assert!(meta.file_type().is_symlink(), "symlink should be preserved");
+            let target = tokio::fs::read_link(dst.path().join("link.txt")).await.unwrap();
+            assert_eq!(target.to_str().unwrap(), "real.txt");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_copy_dir_recursive_handles_dir_symlinks() {
+        let src = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+
+        // Create a real directory and a symlink to it
+        tokio::fs::create_dir_all(src.path().join("real_dir")).await.unwrap();
+        tokio::fs::write(src.path().join("real_dir/file.txt"), b"content").await.unwrap();
+        #[cfg(unix)]
+        tokio::fs::symlink("real_dir", src.path().join("linked_dir")).await.unwrap();
+
+        copy_dir_recursive(src.path(), dst.path()).await.unwrap();
+
+        assert!(dst.path().join("real_dir/file.txt").exists());
+        #[cfg(unix)]
+        {
+            let meta = tokio::fs::symlink_metadata(dst.path().join("linked_dir")).await.unwrap();
+            assert!(meta.file_type().is_symlink(), "dir symlink should be preserved");
+            let target = tokio::fs::read_link(dst.path().join("linked_dir")).await.unwrap();
+            assert_eq!(target.to_str().unwrap(), "real_dir");
+        }
     }
 
     #[test]
