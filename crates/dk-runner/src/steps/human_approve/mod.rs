@@ -22,8 +22,8 @@ pub async fn run_human_approve_step_with_engine(
     let timeout = timeout.unwrap_or(DEFAULT_TIMEOUT);
 
     // Set changeset to awaiting_approval using optimistic locking:
-    // only transition if the changeset is currently in 'open' state.
-    if let Err(e) = engine.changeset_store().update_status_if(changeset_id, "awaiting_approval", &["open"]).await {
+    // only transition if the changeset is currently in 'draft' state.
+    if let Err(e) = engine.changeset_store().update_status_if(changeset_id, "awaiting_approval", &["draft"]).await {
         return (
             StepOutput {
                 status: StepStatus::Fail,
