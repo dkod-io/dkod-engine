@@ -37,6 +37,7 @@ message ConnectRequest {
   string codebase = 3;
   string intent = 4;
   WorkspaceConfig workspace_config = 5;
+  string agent_name = 6;  // Human-readable agent name (auto-assigned if empty)
 }
 
 message ConnectResponse {

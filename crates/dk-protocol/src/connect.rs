@@ -132,10 +132,17 @@ pub async fn handle_connect(
         version.clone(),
     );
 
+    // 5a. Resolve agent name: use provided name or auto-assign.
+    let agent_name = if req.agent_name.is_empty() {
+        engine.workspace_manager().next_agent_name(&repo_id)
+    } else {
+        req.agent_name.clone()
+    };
+
     // 5b. Create a changeset (staging area for file changes).
     let changeset = engine
         .changeset_store()
-        .create(repo_id, Some(session_id), &req.agent_id, &req.intent, Some(&version))
+        .create(repo_id, Some(session_id), &req.agent_id, &req.intent, Some(&version), &agent_name)
         .await
         .map_err(|e| Status::internal(format!("failed to create changeset: {e}")))?;
 
@@ -159,6 +166,7 @@ pub async fn handle_connect(
             req.intent.clone(),
             base_commit,
             ws_mode,
+            agent_name.clone(),
         )
         .await
         .map_err(|e| Status::internal(format!("failed to create workspace: {e}")))?;
@@ -192,6 +200,7 @@ pub async fn handle_connect(
         changeset_id = %changeset.id,
         workspace_id = %workspace_id,
         agent_id = %req.agent_id,
+        agent_name = %agent_name,
         codebase = %req.codebase,
         active_sessions = concurrency.active_sessions,
         "CONNECT: session, changeset, and workspace created"

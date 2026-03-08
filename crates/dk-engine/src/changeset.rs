@@ -51,9 +51,9 @@ impl ChangesetStore {
 
     /// Create a changeset via the Agent Protocol path.
     /// Auto-increments the number per repo using an advisory lock.
-    /// Sets `source_branch` to `agent/<agent_id>` and `target_branch` to `main`
+    /// Sets `source_branch` to `agent/<agent_name>` and `target_branch` to `main`
     /// so platform queries that read these NOT NULL columns always succeed.
-    /// Also populates `agent_name` (same value as `agent_id`) for platform compatibility.
+    /// `agent_name` is the human-readable name (e.g. "agent-1" or "feature-bot").
     pub async fn create(
         &self,
         repo_id: RepoId,
@@ -61,8 +61,21 @@ impl ChangesetStore {
         agent_id: &str,
         intent: &str,
         base_version: Option<&str>,
+        agent_name: &str,
     ) -> dk_core::Result<Changeset> {
-        let source_branch = format!("agent/{}", agent_id);
+        let intent_slug: String = intent
+            .to_lowercase()
+            .chars()
+            .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '-' })
+            .collect::<String>()
+            .trim_matches('-')
+            .to_string();
+        let slug = if intent_slug.len() > 50 {
+            intent_slug[..50].trim_end_matches('-').to_string()
+        } else {
+            intent_slug
+        };
+        let source_branch = format!("{}/{}", slug, agent_name);
         let target_branch = "main";
 
         let mut tx = self.db.begin().await?;
@@ -76,7 +89,7 @@ impl ChangesetStore {
             r#"INSERT INTO changesets
                    (repo_id, number, title, intent_summary, source_branch, target_branch,
                     session_id, agent_id, agent_name, base_version)
-               SELECT $1, COALESCE(MAX(number), 0) + 1, $2, $2, $3, $4, $5, $6, $6, $7
+               SELECT $1, COALESCE(MAX(number), 0) + 1, $2, $2, $3, $4, $5, $6, $7, $8
                FROM changesets WHERE repo_id = $1
                RETURNING id, number, state, created_at, updated_at"#,
         )
@@ -86,6 +99,7 @@ impl ChangesetStore {
         .bind(target_branch)
         .bind(session_id)
         .bind(agent_id)
+        .bind(agent_name)
         .bind(base_version)
         .fetch_one(&mut *tx)
         .await?;
@@ -103,7 +117,7 @@ impl ChangesetStore {
             state: row.2,
             session_id,
             agent_id: Some(agent_id.to_string()),
-            agent_name: Some(agent_id.to_string()),
+            agent_name: Some(agent_name.to_string()),
             author_id: None,
             base_version: base_version.map(String::from),
             merged_version: None,
@@ -309,21 +323,36 @@ mod tests {
     use super::*;
 
     /// Verify the source_branch format produced by `create()`.
-    /// The method builds `format!("agent/{}", agent_id)` and sets
-    /// `target_branch` to `"main"`.  We test the format logic directly
-    /// since `create()` itself requires a live PgPool.
-    #[test]
-    fn source_branch_format_uses_agent_prefix() {
-        let agent_id = "claude-42";
-        let source_branch = format!("agent/{}", agent_id);
-        assert_eq!(source_branch, "agent/claude-42");
+    /// Branch format: `{intent_slug}/{agent_name}`.
+    fn slugify_intent(intent: &str) -> String {
+        let slug: String = intent
+            .to_lowercase()
+            .chars()
+            .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '-' })
+            .collect::<String>()
+            .trim_matches('-')
+            .to_string();
+        if slug.len() > 50 {
+            slug[..50].trim_end_matches('-').to_string()
+        } else {
+            slug
+        }
     }
 
     #[test]
-    fn source_branch_format_with_special_chars() {
-        let agent_id = "agent/with-slash";
-        let source_branch = format!("agent/{}", agent_id);
-        assert_eq!(source_branch, "agent/agent/with-slash");
+    fn source_branch_format_uses_intent_slug() {
+        let intent = "Fix UI bugs";
+        let agent_name = "agent-1";
+        let source_branch = format!("{}/{}", slugify_intent(intent), agent_name);
+        assert_eq!(source_branch, "fix-ui-bugs/agent-1");
+    }
+
+    #[test]
+    fn source_branch_format_with_custom_name() {
+        let intent = "Add comments endpoint";
+        let agent_name = "feature-bot";
+        let source_branch = format!("{}/{}", slugify_intent(intent), agent_name);
+        assert_eq!(source_branch, "add-comments-endpoint/feature-bot");
     }
 
     #[test]

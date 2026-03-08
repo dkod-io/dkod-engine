@@ -50,6 +50,7 @@ impl AgentClient {
                 codebase: repo.to_string(),
                 intent: intent.to_string(),
                 workspace_config: None,
+                agent_name: String::new(),
             })
             .await?
             .into_inner();

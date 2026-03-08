@@ -78,6 +78,7 @@ pub fn validate_token(token: &str) -> Result<String, String> {
             codebase: repo_name.clone(),
             intent: "Testing agent flow".into(),
             workspace_config: None,
+            agent_name: String::new(),
         }))
         .await
         .unwrap()
@@ -212,6 +213,7 @@ async fn test_connect_invalid_auth() {
             codebase: "test/repo".into(),
             intent: "test".into(),
             workspace_config: None,
+            agent_name: String::new(),
         }))
         .await;
 
@@ -290,6 +292,7 @@ async fn test_submit_modify_nonexistent_file() {
             codebase: repo_name.clone(),
             intent: "test submit error".into(),
             workspace_config: None,
+            agent_name: String::new(),
         }))
         .await
         .unwrap()

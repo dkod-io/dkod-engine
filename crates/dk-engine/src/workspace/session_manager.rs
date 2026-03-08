@@ -4,6 +4,8 @@
 //! workspaces. Uses `DashMap` for lock-free concurrent access from
 //! multiple agent sessions.
 
+use std::sync::atomic::{AtomicU32, Ordering};
+
 use dashmap::DashMap;
 use dk_core::{AgentId, RepoId, Result};
 use serde::Serialize;
@@ -22,6 +24,7 @@ use crate::workspace::session_workspace::{
 pub struct SessionInfo {
     pub session_id: Uuid,
     pub agent_id: String,
+    pub agent_name: String,
     pub intent: String,
     pub repo_id: Uuid,
     pub changeset_id: Uuid,
@@ -37,6 +40,7 @@ pub struct SessionInfo {
 /// returns a scoped reference guard.
 pub struct WorkspaceManager {
     workspaces: DashMap<SessionId, SessionWorkspace>,
+    agent_counters: DashMap<Uuid, AtomicU32>,
     db: PgPool,
 }
 
@@ -45,8 +49,21 @@ impl WorkspaceManager {
     pub fn new(db: PgPool) -> Self {
         Self {
             workspaces: DashMap::new(),
+            agent_counters: DashMap::new(),
             db,
         }
+    }
+
+    /// Auto-assign the next agent name for a repository.
+    ///
+    /// Returns "agent-1", "agent-2", etc. incrementing per repo.
+    pub fn next_agent_name(&self, repo_id: &Uuid) -> String {
+        let counter = self
+            .agent_counters
+            .entry(*repo_id)
+            .or_insert_with(|| AtomicU32::new(0));
+        let n = counter.value().fetch_add(1, Ordering::Relaxed) + 1;
+        format!("agent-{n}")
     }
 
     /// Create a new workspace for a session and register it.
@@ -60,6 +77,7 @@ impl WorkspaceManager {
         intent: String,
         base_commit: String,
         mode: WorkspaceMode,
+        agent_name: String,
     ) -> Result<SessionId> {
         let ws = SessionWorkspace::new(
             session_id,
@@ -69,6 +87,7 @@ impl WorkspaceManager {
             intent,
             base_commit,
             mode,
+            agent_name,
             self.db.clone(),
         )
         .await?;
@@ -163,6 +182,44 @@ impl WorkspaceManager {
         }
     }
 
+    /// Remove workspaces that are idle beyond `idle_ttl` or alive beyond `max_ttl`.
+    ///
+    /// Returns the list of expired session IDs. This complements [`gc_expired`]
+    /// (which handles persistent workspace deadlines) by enforcing activity-based
+    /// and hard-maximum lifetime limits on **all** workspaces.
+    pub fn gc_expired_sessions(
+        &self,
+        idle_ttl: std::time::Duration,
+        max_ttl: std::time::Duration,
+    ) -> Vec<SessionId> {
+        let now = Instant::now();
+        let mut expired = Vec::new();
+
+        self.workspaces.retain(|_session_id, ws| {
+            let idle = now.duration_since(ws.last_active);
+            let total = now.duration_since(ws.created_at);
+
+            if idle > idle_ttl || total > max_ttl {
+                expired.push(ws.session_id);
+                false // remove
+            } else {
+                true // keep
+            }
+        });
+
+        expired
+    }
+
+    /// Insert a pre-built workspace (test-only).
+    ///
+    /// Allows unit tests to insert workspaces with manipulated timestamps
+    /// without requiring a live database connection.
+    #[doc(hidden)]
+    pub fn insert_test_workspace(&self, ws: SessionWorkspace) {
+        let sid = ws.session_id;
+        self.workspaces.insert(sid, ws);
+    }
+
     /// Total number of active workspaces across all repos.
     pub fn total_active(&self) -> usize {
         self.workspaces.len()
@@ -179,6 +236,7 @@ impl WorkspaceManager {
                 SessionInfo {
                     session_id: ws.session_id,
                     agent_id: ws.agent_id.clone(),
+                    agent_name: ws.agent_name.clone(),
                     intent: ws.intent.clone(),
                     repo_id: ws.repo_id,
                     changeset_id: ws.changeset_id,
@@ -199,6 +257,7 @@ mod tests {
         let info = SessionInfo {
             session_id: Uuid::nil(),
             agent_id: "test-agent".to_string(),
+            agent_name: "agent-1".to_string(),
             intent: "fix bug".to_string(),
             repo_id: Uuid::nil(),
             changeset_id: Uuid::nil(),
@@ -209,6 +268,7 @@ mod tests {
         let json = serde_json::to_value(&info).expect("SessionInfo should serialize to JSON");
 
         assert_eq!(json["agent_id"], "test-agent");
+        assert_eq!(json["agent_name"], "agent-1");
         assert_eq!(json["intent"], "fix bug");
         assert_eq!(json["state"], "active");
         assert_eq!(json["elapsed_secs"], 42);
@@ -223,6 +283,7 @@ mod tests {
         let info = SessionInfo {
             session_id: Uuid::new_v4(),
             agent_id: "claude".to_string(),
+            agent_name: "agent-1".to_string(),
             intent: "refactor".to_string(),
             repo_id: Uuid::new_v4(),
             changeset_id: Uuid::new_v4(),
@@ -236,6 +297,7 @@ mod tests {
         let expected_keys = [
             "session_id",
             "agent_id",
+            "agent_name",
             "intent",
             "repo_id",
             "changeset_id",
@@ -253,6 +315,7 @@ mod tests {
         let info = SessionInfo {
             session_id: Uuid::new_v4(),
             agent_id: "agent-1".to_string(),
+            agent_name: "feature-bot".to_string(),
             intent: "deploy".to_string(),
             repo_id: Uuid::new_v4(),
             changeset_id: Uuid::new_v4(),
@@ -263,11 +326,31 @@ mod tests {
         let cloned = info.clone();
         assert_eq!(info.session_id, cloned.session_id);
         assert_eq!(info.agent_id, cloned.agent_id);
+        assert_eq!(info.agent_name, cloned.agent_name);
         assert_eq!(info.intent, cloned.intent);
         assert_eq!(info.repo_id, cloned.repo_id);
         assert_eq!(info.changeset_id, cloned.changeset_id);
         assert_eq!(info.state, cloned.state);
         assert_eq!(info.elapsed_secs, cloned.elapsed_secs);
+    }
+
+    #[tokio::test]
+    async fn next_agent_name_increments_per_repo() {
+        let db = PgPool::connect_lazy("postgres://localhost/nonexistent").unwrap();
+        let mgr = WorkspaceManager::new(db);
+        let repo1 = Uuid::new_v4();
+        let repo2 = Uuid::new_v4();
+
+        assert_eq!(mgr.next_agent_name(&repo1), "agent-1");
+        assert_eq!(mgr.next_agent_name(&repo1), "agent-2");
+        assert_eq!(mgr.next_agent_name(&repo1), "agent-3");
+
+        // Different repo starts at 1
+        assert_eq!(mgr.next_agent_name(&repo2), "agent-1");
+        assert_eq!(mgr.next_agent_name(&repo2), "agent-2");
+
+        // Original repo continues
+        assert_eq!(mgr.next_agent_name(&repo1), "agent-4");
     }
 
     /// Integration-level test for list_sessions and WorkspaceManager.
