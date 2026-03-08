@@ -86,6 +86,7 @@ pub struct SessionWorkspace {
     pub session_id: SessionId,
     pub repo_id: RepoId,
     pub agent_id: AgentId,
+    pub agent_name: String,
     pub changeset_id: uuid::Uuid,
     pub intent: String,
     pub base_commit: String,
@@ -122,6 +123,7 @@ impl SessionWorkspace {
             session_id,
             repo_id,
             agent_id,
+            agent_name: String::new(),
             changeset_id: Uuid::new_v4(),
             intent,
             base_commit,
@@ -144,6 +146,7 @@ impl SessionWorkspace {
         intent: String,
         base_commit: String,
         mode: WorkspaceMode,
+        agent_name: String,
         db: PgPool,
     ) -> Result<Self> {
         let id = Uuid::new_v4();
@@ -153,8 +156,8 @@ impl SessionWorkspace {
         sqlx::query(
             r#"
             INSERT INTO session_workspaces
-                (id, session_id, repo_id, base_commit_hash, state, mode, agent_id, intent)
-            VALUES ($1, $2, $3, $4, 'active', $5, $6, $7)
+                (id, session_id, repo_id, base_commit_hash, state, mode, agent_id, intent, agent_name)
+            VALUES ($1, $2, $3, $4, 'active', $5, $6, $7, $8)
             "#,
         )
         .bind(id)
@@ -164,6 +167,7 @@ impl SessionWorkspace {
         .bind(mode.as_str())
         .bind(&agent_id)
         .bind(&intent)
+        .bind(&agent_name)
         .execute(&db)
         .await?;
 
@@ -175,6 +179,7 @@ impl SessionWorkspace {
             session_id,
             repo_id,
             agent_id,
+            agent_name,
             changeset_id,
             intent,
             base_commit,

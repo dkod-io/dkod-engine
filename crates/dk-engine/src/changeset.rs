@@ -51,9 +51,9 @@ impl ChangesetStore {
 
     /// Create a changeset via the Agent Protocol path.
     /// Auto-increments the number per repo using an advisory lock.
-    /// Sets `source_branch` to `agent/<agent_id>` and `target_branch` to `main`
+    /// Sets `source_branch` to `agent/<agent_name>` and `target_branch` to `main`
     /// so platform queries that read these NOT NULL columns always succeed.
-    /// Also populates `agent_name` (same value as `agent_id`) for platform compatibility.
+    /// `agent_name` is the human-readable name (e.g. "agent-1" or "feature-bot").
     pub async fn create(
         &self,
         repo_id: RepoId,
@@ -61,8 +61,9 @@ impl ChangesetStore {
         agent_id: &str,
         intent: &str,
         base_version: Option<&str>,
+        agent_name: &str,
     ) -> dk_core::Result<Changeset> {
-        let source_branch = format!("agent/{}", agent_id);
+        let source_branch = format!("agent/{}", agent_name);
         let target_branch = "main";
 
         let mut tx = self.db.begin().await?;
@@ -76,7 +77,7 @@ impl ChangesetStore {
             r#"INSERT INTO changesets
                    (repo_id, number, title, intent_summary, source_branch, target_branch,
                     session_id, agent_id, agent_name, base_version)
-               SELECT $1, COALESCE(MAX(number), 0) + 1, $2, $2, $3, $4, $5, $6, $6, $7
+               SELECT $1, COALESCE(MAX(number), 0) + 1, $2, $2, $3, $4, $5, $6, $7, $8
                FROM changesets WHERE repo_id = $1
                RETURNING id, number, state, created_at, updated_at"#,
         )
@@ -86,6 +87,7 @@ impl ChangesetStore {
         .bind(target_branch)
         .bind(session_id)
         .bind(agent_id)
+        .bind(agent_name)
         .bind(base_version)
         .fetch_one(&mut *tx)
         .await?;
@@ -103,7 +105,7 @@ impl ChangesetStore {
             state: row.2,
             session_id,
             agent_id: Some(agent_id.to_string()),
-            agent_name: Some(agent_id.to_string()),
+            agent_name: Some(agent_name.to_string()),
             author_id: None,
             base_version: base_version.map(String::from),
             merged_version: None,
@@ -309,21 +311,21 @@ mod tests {
     use super::*;
 
     /// Verify the source_branch format produced by `create()`.
-    /// The method builds `format!("agent/{}", agent_id)` and sets
+    /// The method builds `format!("agent/{}", agent_name)` and sets
     /// `target_branch` to `"main"`.  We test the format logic directly
     /// since `create()` itself requires a live PgPool.
     #[test]
     fn source_branch_format_uses_agent_prefix() {
-        let agent_id = "claude-42";
-        let source_branch = format!("agent/{}", agent_id);
-        assert_eq!(source_branch, "agent/claude-42");
+        let agent_name = "agent-1";
+        let source_branch = format!("agent/{}", agent_name);
+        assert_eq!(source_branch, "agent/agent-1");
     }
 
     #[test]
-    fn source_branch_format_with_special_chars() {
-        let agent_id = "agent/with-slash";
-        let source_branch = format!("agent/{}", agent_id);
-        assert_eq!(source_branch, "agent/agent/with-slash");
+    fn source_branch_format_with_custom_name() {
+        let agent_name = "feature-bot";
+        let source_branch = format!("agent/{}", agent_name);
+        assert_eq!(source_branch, "agent/feature-bot");
     }
 
     #[test]

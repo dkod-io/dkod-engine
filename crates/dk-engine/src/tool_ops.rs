@@ -196,9 +196,12 @@ impl Engine {
             .unwrap_or_else(|| "initial".to_string());
         drop(git_repo);
 
+        // Auto-assign agent name for tool_connect path
+        let agent_name = self.workspace_manager().next_agent_name(&repo_id);
+
         // Create changeset
         self.changeset_store()
-            .create(repo_id, Some(session_id), agent_id, intent, Some(&head))
+            .create(repo_id, Some(session_id), agent_id, intent, Some(&head), &agent_name)
             .await?;
 
         // Create workspace (agent_id is AgentId = String)
@@ -211,6 +214,7 @@ impl Engine {
                 intent.to_string(),
                 head.clone(),
                 WorkspaceMode::Ephemeral,
+                agent_name,
             )
             .await?;
 

@@ -22,6 +22,7 @@ pub async fn run(out: Output, server: &str, repo: &str, intent: &str) -> Result<
             codebase: repo.to_string(),
             intent: intent.to_string(),
             workspace_config: None,
+            agent_name: String::new(),
         })
         .await
         .context("CONNECT handshake failed")?
