@@ -12,7 +12,7 @@ use dk_engine::repo::Engine;
 
 use crate::executor::Executor;
 use crate::scheduler::{self, StepResult};
-use crate::workflow::parser::parse_workflow_file;
+use crate::workflow::parser::parse_yaml_workflow_file;
 use crate::workflow::types::{Stage, Step, StepType, Workflow};
 use crate::workflow::validator::validate_workflow;
 
@@ -72,6 +72,13 @@ impl Runner {
         );
 
         let workflow = self.load_workflow(&repo_dir, repo_id).await?;
+
+        // Auto-none: no pipeline configured, auto-approve
+        if workflow.stages.is_empty() {
+            info!("no verification pipeline configured — auto-approving changeset");
+            return Ok(true);
+        }
+
         validate_workflow(&workflow).context("workflow validation failed")?;
 
         let mut env = HashMap::new();
@@ -102,13 +109,15 @@ impl Runner {
         Ok(passed)
     }
 
-    async fn load_workflow(&self, work_dir: &Path, repo_id: Uuid) -> Result<Workflow> {
-        let pipeline_path = work_dir.join(".dekode/pipeline.toml");
-        if pipeline_path.exists() {
-            info!("loading workflow from {}", pipeline_path.display());
-            return parse_workflow_file(&pipeline_path);
+    async fn load_workflow(&self, repo_dir: &Path, repo_id: Uuid) -> Result<Workflow> {
+        // Priority 1: .dkod/pipeline.yaml in repo
+        let yaml_path = repo_dir.join(".dkod/pipeline.yaml");
+        if yaml_path.exists() {
+            info!("loading workflow from {}", yaml_path.display());
+            return parse_yaml_workflow_file(&yaml_path);
         }
 
+        // Priority 2: DB-stored pipeline
         let db_steps = self.engine
             .pipeline_store()
             .get_pipeline(repo_id)
@@ -123,8 +132,9 @@ impl Runner {
             return Ok(db_pipeline_to_workflow(db_steps));
         }
 
-        info!("using default verification workflow");
-        Ok(default_workflow())
+        // Priority 3: Auto-detect from project files
+        info!("auto-detecting verification workflow from project files");
+        Ok(detect_workflow(repo_dir))
     }
 }
 
@@ -174,35 +184,128 @@ fn db_pipeline_to_workflow(steps: Vec<dk_engine::pipeline::PipelineStep>) -> Wor
     }
 }
 
-fn default_workflow() -> Workflow {
-    Workflow {
-        name: "default".to_string(),
-        timeout: Duration::from_secs(120),
-        allowed_commands: vec![],
-        stages: vec![Stage {
-            name: "checks".to_string(),
-            parallel: false,
-            steps: vec![
-                Step {
-                    name: "typecheck".to_string(),
-                    step_type: StepType::Command {
-                        run: "cargo check".to_string(),
+/// Auto-detect verification workflow from project files in the repo.
+/// Returns a no-stage workflow (auto-approve) if no known project type found.
+fn detect_workflow(repo_dir: &Path) -> Workflow {
+    if repo_dir.join("Cargo.toml").exists() {
+        return Workflow {
+            name: "auto-rust".to_string(),
+            timeout: Duration::from_secs(120),
+            allowed_commands: vec![],
+            stages: vec![Stage {
+                name: "checks".to_string(),
+                parallel: false,
+                steps: vec![
+                    Step {
+                        name: "typecheck".to_string(),
+                        step_type: StepType::Command {
+                            run: "cargo check".to_string(),
+                        },
+                        timeout: Duration::from_secs(60),
+                        required: true,
+                        changeset_aware: true,
                     },
-                    timeout: Duration::from_secs(60),
-                    required: true,
-                    changeset_aware: true,
-                },
-                Step {
+                    Step {
+                        name: "test".to_string(),
+                        step_type: StepType::Command {
+                            run: "cargo test".to_string(),
+                        },
+                        timeout: Duration::from_secs(60),
+                        required: true,
+                        changeset_aware: true,
+                    },
+                ],
+            }],
+        };
+    }
+
+    if repo_dir.join("package.json").exists() {
+        let is_bun = repo_dir.join("bun.lock").exists();
+        let (name, cmd) = if is_bun {
+            ("auto-bun", "bun test")
+        } else {
+            ("auto-node", "npm test")
+        };
+        return Workflow {
+            name: name.to_string(),
+            timeout: Duration::from_secs(120),
+            allowed_commands: vec![],
+            stages: vec![Stage {
+                name: "checks".to_string(),
+                parallel: false,
+                steps: vec![Step {
                     name: "test".to_string(),
                     step_type: StepType::Command {
-                        run: "cargo test".to_string(),
+                        run: cmd.to_string(),
                     },
                     timeout: Duration::from_secs(60),
                     required: true,
                     changeset_aware: true,
-                },
-            ],
-        }],
+                }],
+            }],
+        };
+    }
+
+    if repo_dir.join("pyproject.toml").exists() || repo_dir.join("requirements.txt").exists() {
+        return Workflow {
+            name: "auto-python".to_string(),
+            timeout: Duration::from_secs(120),
+            allowed_commands: vec![],
+            stages: vec![Stage {
+                name: "checks".to_string(),
+                parallel: false,
+                steps: vec![Step {
+                    name: "test".to_string(),
+                    step_type: StepType::Command {
+                        run: "pytest".to_string(),
+                    },
+                    timeout: Duration::from_secs(60),
+                    required: true,
+                    changeset_aware: true,
+                }],
+            }],
+        };
+    }
+
+    if repo_dir.join("go.mod").exists() {
+        return Workflow {
+            name: "auto-go".to_string(),
+            timeout: Duration::from_secs(120),
+            allowed_commands: vec![],
+            stages: vec![Stage {
+                name: "checks".to_string(),
+                parallel: false,
+                steps: vec![
+                    Step {
+                        name: "build".to_string(),
+                        step_type: StepType::Command {
+                            run: "go build ./...".to_string(),
+                        },
+                        timeout: Duration::from_secs(60),
+                        required: true,
+                        changeset_aware: false,
+                    },
+                    Step {
+                        name: "test".to_string(),
+                        step_type: StepType::Command {
+                            run: "go test ./...".to_string(),
+                        },
+                        timeout: Duration::from_secs(60),
+                        required: true,
+                        changeset_aware: false,
+                    },
+                ],
+            }],
+        };
+    }
+
+    // No recognized project type — auto-approve with warning
+    tracing::warn!("no verification pipeline configured — auto-approving");
+    Workflow {
+        name: "auto-none".to_string(),
+        timeout: Duration::from_secs(30),
+        allowed_commands: vec![],
+        stages: vec![],
     }
 }
 
@@ -232,13 +335,60 @@ async fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_default_workflow_structure() {
-        let wf = default_workflow();
-        assert_eq!(wf.name, "default");
+    #[tokio::test]
+    async fn test_detect_workflow_rust() {
+        let dir = tempfile::tempdir().unwrap();
+        tokio::fs::write(dir.path().join("Cargo.toml"), b"[package]\nname = \"test\"")
+            .await.unwrap();
+        let wf = detect_workflow(dir.path());
+        assert_eq!(wf.name, "auto-rust");
         assert_eq!(wf.stages.len(), 1);
-        assert!(!wf.stages[0].parallel);
         assert_eq!(wf.stages[0].steps.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_detect_workflow_bun() {
+        let dir = tempfile::tempdir().unwrap();
+        tokio::fs::write(dir.path().join("package.json"), b"{}").await.unwrap();
+        tokio::fs::write(dir.path().join("bun.lock"), b"").await.unwrap();
+        let wf = detect_workflow(dir.path());
+        assert_eq!(wf.name, "auto-bun");
+        let cmds: Vec<_> = wf.stages[0].steps.iter().filter_map(|s| {
+            if let StepType::Command { run } = &s.step_type { Some(run.as_str()) } else { None }
+        }).collect();
+        assert!(cmds.contains(&"bun test"));
+    }
+
+    #[tokio::test]
+    async fn test_detect_workflow_npm() {
+        let dir = tempfile::tempdir().unwrap();
+        tokio::fs::write(dir.path().join("package.json"), b"{}").await.unwrap();
+        let wf = detect_workflow(dir.path());
+        assert_eq!(wf.name, "auto-node");
+    }
+
+    #[tokio::test]
+    async fn test_detect_workflow_python() {
+        let dir = tempfile::tempdir().unwrap();
+        tokio::fs::write(dir.path().join("pyproject.toml"), b"[project]").await.unwrap();
+        let wf = detect_workflow(dir.path());
+        assert_eq!(wf.name, "auto-python");
+    }
+
+    #[tokio::test]
+    async fn test_detect_workflow_go() {
+        let dir = tempfile::tempdir().unwrap();
+        tokio::fs::write(dir.path().join("go.mod"), b"module example.com/test").await.unwrap();
+        let wf = detect_workflow(dir.path());
+        assert_eq!(wf.name, "auto-go");
+    }
+
+    #[tokio::test]
+    async fn test_detect_workflow_unknown() {
+        let dir = tempfile::tempdir().unwrap();
+        let wf = detect_workflow(dir.path());
+        assert_eq!(wf.name, "auto-none");
+        assert!(wf.stages.is_empty());
     }
 
     #[tokio::test]
