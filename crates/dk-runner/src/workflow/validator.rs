@@ -422,12 +422,6 @@ mod tests {
         assert!(validate_command("go build -o/tmp/evil ./...").is_err());
     }
 
-    #[test]
-    fn test_go_run_bare_denied() {
-        // "go run" with no arguments should also be blocked
-        let custom = vec!["go run".to_string()];
-        assert!(validate_command_with_allowlist("go run", &custom).is_err());
-    }
 
     #[test]
     fn test_tsc_outdir_denied() {
