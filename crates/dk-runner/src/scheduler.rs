@@ -117,7 +117,18 @@ async fn run_stage_sequential(
             changeset_id,
         )
         .await;
+        let failed_required = step.required && result.status != StepStatus::Pass;
         results.push(result);
+        // Abort early if a required step failed — no point running subsequent
+        // steps (e.g., cargo test after cargo check fails with compile errors)
+        if failed_required {
+            tracing::warn!(
+                stage = %stage.name,
+                step = %step.name,
+                "required step failed — aborting remaining steps in sequential stage"
+            );
+            break;
+        }
     }
     results
 }

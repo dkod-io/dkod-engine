@@ -28,7 +28,8 @@ const DENIED_FLAG_SUBSTRINGS: &[&str] = &[
     " -exec ", " -toolexec ", " -vettool ",
     " -exec=", " -toolexec=", " -vettool=",
     // URL schemes — prevent remote code fetching via pip install, npm, etc.
-    " http://", " https://", " git+", " svn+", " hg+",
+    " http://", " https://", " ftp://", " file://",
+    " git+", " svn+", " hg+",
 ];
 
 const ALLOWED_COMMAND_PREFIXES: &[&str] = &[
@@ -36,7 +37,7 @@ const ALLOWED_COMMAND_PREFIXES: &[&str] = &[
     "npm ci", "npm test", "npm run lint", "npm run check",
     "bun install --frozen-lockfile", "bun test", "bun run lint", "bun run check",
     "npx tsc", "bunx tsc",
-    "pip install -e .", "pip install -r requirements", "pytest", "python -m pytest",
+    "pip install -e .", "pip install -r requirements.txt", "pytest", "python -m pytest",
     "go build", "go test", "go vet",
     "echo ", // Permitted for CI logging and test pipelines
     // NOTE: make targets removed from default allowlist because Makefile targets
