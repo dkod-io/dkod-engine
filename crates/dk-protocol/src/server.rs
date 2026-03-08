@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use dk_engine::conflict::SymbolClaimTracker;
 use dk_engine::repo::Engine;
 use tonic::{Request, Response, Status};
 
@@ -17,6 +18,7 @@ pub struct ProtocolServer {
     pub(crate) session_mgr: Arc<SessionManager>,
     pub(crate) auth_config: AuthConfig,
     pub(crate) event_bus: Arc<EventBus>,
+    pub(crate) claim_tracker: Arc<SymbolClaimTracker>,
 }
 
 impl ProtocolServer {
@@ -32,6 +34,7 @@ impl ProtocolServer {
             ))),
             auth_config,
             event_bus: Arc::new(EventBus::new()),
+            claim_tracker: Arc::new(SymbolClaimTracker::new()),
         }
     }
 
@@ -48,6 +51,11 @@ impl ProtocolServer {
     /// Borrow the shared event bus.
     pub fn event_bus(&self) -> &EventBus {
         &self.event_bus
+    }
+
+    /// Borrow the shared symbol claim tracker.
+    pub fn claim_tracker(&self) -> &SymbolClaimTracker {
+        &self.claim_tracker
     }
 
     /// Validate an auth token against the configured secret.
@@ -106,6 +114,7 @@ impl crate::agent_service_server::AgentService for ProtocolServer {
             session_mgr: self.session_mgr.clone(),
             auth_config: self.auth_config.clone(),
             event_bus: self.event_bus.clone(),
+            claim_tracker: self.claim_tracker.clone(),
         };
 
         tokio::spawn(async move {
@@ -136,6 +145,7 @@ impl crate::agent_service_server::AgentService for ProtocolServer {
             session_mgr: self.session_mgr.clone(),
             auth_config: self.auth_config.clone(),
             event_bus: self.event_bus.clone(),
+            claim_tracker: self.claim_tracker.clone(),
         };
         tokio::spawn(async move {
             crate::watch::handle_watch(&server_clone, req, tx).await;

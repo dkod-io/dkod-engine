@@ -1,9 +1,12 @@
-use tonic::{Response, Status};
-use tracing::info;
+use std::time::Instant;
 
+use tonic::{Response, Status};
+use tracing::{info, warn};
+
+use dk_engine::conflict::SymbolClaim;
 use crate::server::ProtocolServer;
 use crate::validation::{validate_file_path, MAX_FILE_SIZE};
-use crate::{FileWriteRequest, FileWriteResponse, SymbolChange};
+use crate::{ConflictWarning, FileWriteRequest, FileWriteResponse, SymbolChange};
 
 /// Handle a FileWrite RPC.
 ///
@@ -68,6 +71,7 @@ pub async fn handle_file_write(
         .map_err(|e| Status::internal(format!("Write failed: {e}")))?;
 
     let changeset_id = ws.changeset_id;
+    let agent_name = ws.agent_name.clone();
 
     // Drop workspace guard before further work
     drop(ws);
@@ -124,6 +128,68 @@ pub async fn handle_file_write(
         }
     }
 
+    // ── Symbol claim tracking ──
+    // Build claims from "added" and "modified" symbol changes and check for
+    // cross-session conflicts. Two sessions modifying DIFFERENT symbols in the
+    // same file is NOT a conflict — only same-symbol is a true conflict.
+    let conflict_warnings = {
+        let claimable: Vec<&crate::SymbolChangeDetail> = all_symbol_changes
+            .iter()
+            .filter(|sc| sc.change_type == "added" || sc.change_type == "modified")
+            .collect();
+
+        // Check for conflicts before recording our claims
+        let qualified_names: Vec<String> = claimable.iter().map(|sc| sc.symbol_name.clone()).collect();
+        let conflicts = server.claim_tracker().check_conflicts(
+            repo_id,
+            &req.path,
+            sid,
+            &qualified_names,
+        );
+
+        // Record claims (even if conflicts exist — warning only at write time)
+        for sc in &claimable {
+            let kind = sc.kind.parse::<dk_core::SymbolKind>().unwrap_or(dk_core::SymbolKind::Function);
+            server.claim_tracker().record_claim(
+                repo_id,
+                &req.path,
+                SymbolClaim {
+                    session_id: sid,
+                    agent_name: agent_name.clone(),
+                    qualified_name: sc.symbol_name.clone(),
+                    kind,
+                    first_touched_at: Instant::now(),
+                },
+            );
+        }
+
+        // Build ConflictWarning proto messages
+        let warnings: Vec<ConflictWarning> = conflicts
+            .into_iter()
+            .map(|c| {
+                let msg = format!(
+                    "Symbol '{}' was already modified by agent '{}' (session {})",
+                    c.qualified_name, c.conflicting_agent, c.conflicting_session,
+                );
+                warn!(
+                    session_id = %sid,
+                    path = %req.path,
+                    symbol = %c.qualified_name,
+                    conflicting_agent = %c.conflicting_agent,
+                    "CONFLICT_WARNING: {msg}"
+                );
+                ConflictWarning {
+                    file_path: req.path.clone(),
+                    symbol_name: c.qualified_name,
+                    conflicting_agent: c.conflicting_agent,
+                    conflicting_session_id: c.conflicting_session.to_string(),
+                    message: msg,
+                }
+            })
+            .collect();
+        warnings
+    };
+
     // Emit a file.modified (or file.added) event
     let event_type = if is_new { "file.added" } else { "file.modified" };
     server.event_bus().publish(crate::WatchEvent {
@@ -147,12 +213,14 @@ pub async fn handle_file_write(
         path = %req.path,
         hash = %new_hash,
         changes = detected_changes.len(),
+        conflicts = conflict_warnings.len(),
         "FILE_WRITE: completed"
     );
 
     Ok(Response::new(FileWriteResponse {
         new_hash,
         detected_changes,
+        conflict_warnings,
     }))
 }
 

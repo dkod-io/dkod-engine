@@ -1,4 +1,5 @@
 pub mod changeset;
+pub mod conflict;
 pub mod git;
 pub mod graph;
 pub mod parser;
