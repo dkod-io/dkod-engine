@@ -182,6 +182,44 @@ impl WorkspaceManager {
         }
     }
 
+    /// Remove workspaces that are idle beyond `idle_ttl` or alive beyond `max_ttl`.
+    ///
+    /// Returns the list of expired session IDs. This complements [`gc_expired`]
+    /// (which handles persistent workspace deadlines) by enforcing activity-based
+    /// and hard-maximum lifetime limits on **all** workspaces.
+    pub fn gc_expired_sessions(
+        &self,
+        idle_ttl: std::time::Duration,
+        max_ttl: std::time::Duration,
+    ) -> Vec<SessionId> {
+        let now = Instant::now();
+        let mut expired = Vec::new();
+
+        self.workspaces.retain(|_session_id, ws| {
+            let idle = now.duration_since(ws.last_active);
+            let total = now.duration_since(ws.created_at);
+
+            if idle > idle_ttl || total > max_ttl {
+                expired.push(ws.session_id);
+                false // remove
+            } else {
+                true // keep
+            }
+        });
+
+        expired
+    }
+
+    /// Insert a pre-built workspace (test-only).
+    ///
+    /// Allows unit tests to insert workspaces with manipulated timestamps
+    /// without requiring a live database connection.
+    #[doc(hidden)]
+    pub fn insert_test_workspace(&self, ws: SessionWorkspace) {
+        let sid = ws.session_id;
+        self.workspaces.insert(sid, ws);
+    }
+
     /// Total number of active workspaces across all repos.
     pub fn total_active(&self) -> usize {
         self.workspaces.len()
