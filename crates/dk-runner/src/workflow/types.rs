@@ -4,6 +4,7 @@ use std::time::Duration;
 // --- TOML deserialization types ---
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct WorkflowFile {
     pub pipeline: PipelineConfig,
     #[serde(default)]

@@ -160,7 +160,7 @@ impl Runner {
         if legacy_toml.exists() {
             tracing::warn!(
                 path = %legacy_toml.display(),
-                "found legacy .dekode/pipeline.toml — this format is no longer loaded;                  please migrate to .dkod/pipeline.yaml"
+                "found legacy .dekode/pipeline.toml — this format is no longer loaded; please migrate to .dkod/pipeline.yaml"
             );
         }
 
