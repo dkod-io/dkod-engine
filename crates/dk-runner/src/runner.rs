@@ -293,6 +293,15 @@ fn detect_workflow(repo_dir: &Path) -> Workflow {
                         changeset_aware: false,
                     },
                     Step {
+                        name: "vet".to_string(),
+                        step_type: StepType::Command {
+                            run: "go vet ./...".to_string(),
+                        },
+                        timeout: Duration::from_secs(60),
+                        required: true,
+                        changeset_aware: false,
+                    },
+                    Step {
                         name: "test".to_string(),
                         step_type: StepType::Command {
                             run: "go test ./...".to_string(),
@@ -401,6 +410,7 @@ mod tests {
         tokio::fs::write(dir.path().join("go.mod"), b"module example.com/test").await.unwrap();
         let wf = detect_workflow(dir.path());
         assert_eq!(wf.name, "auto-go");
+        assert_eq!(wf.stages[0].steps.len(), 3);
     }
 
     #[tokio::test]

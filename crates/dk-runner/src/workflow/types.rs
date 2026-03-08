@@ -11,6 +11,7 @@ pub struct WorkflowFile {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PipelineConfig {
     pub name: String,
     #[serde(default = "default_timeout")]
