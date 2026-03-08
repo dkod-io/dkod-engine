@@ -20,7 +20,14 @@ pub async fn run(out: Output, prefix: Option<&str>, only_modified: bool) -> Resu
     if out.is_json() {
         out.print_json(&serde_json::json!({
             "files": resp.files.iter().map(|f| {
-                serde_json::json!({"path": f.path, "modified": f.modified_in_session})
+                let mut obj = serde_json::json!({
+                    "path": f.path,
+                    "modified": f.modified_in_session,
+                });
+                if !f.modified_by_other.is_empty() {
+                    obj["modified_by_other"] = serde_json::json!(f.modified_by_other);
+                }
+                obj
             }).collect::<Vec<_>>(),
             "total": resp.files.len(),
         }));
@@ -35,7 +42,12 @@ pub async fn run(out: Output, prefix: Option<&str>, only_modified: bool) -> Resu
             } else {
                 "  ".to_string()
             };
-            println!("{}{}", marker, entry.path);
+            if entry.modified_by_other.is_empty() {
+                println!("{}{}", marker, entry.path);
+            } else {
+                let tag = format!(" [{}]", entry.modified_by_other).dimmed();
+                println!("{}{}{}", marker, entry.path, tag);
+            }
         }
         println!("\n{} file(s)", resp.files.len());
     }

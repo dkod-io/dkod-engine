@@ -4,6 +4,75 @@ use uuid::Uuid;
 
 use dk_core::{RepoId, SymbolId};
 
+/// Explicit changeset states. Replaces the former ambiguous "open" state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChangesetState {
+    Draft,
+    Submitted,
+    Verifying,
+    Approved,
+    Rejected,
+    Merged,
+    Closed,
+}
+
+impl ChangesetState {
+    /// Parse a state string from the database into a `ChangesetState`.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "draft" => Some(Self::Draft),
+            "submitted" => Some(Self::Submitted),
+            "verifying" => Some(Self::Verifying),
+            "approved" => Some(Self::Approved),
+            "rejected" => Some(Self::Rejected),
+            "merged" => Some(Self::Merged),
+            "closed" => Some(Self::Closed),
+            _ => None,
+        }
+    }
+
+    /// Return the database string representation.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Draft => "draft",
+            Self::Submitted => "submitted",
+            Self::Verifying => "verifying",
+            Self::Approved => "approved",
+            Self::Rejected => "rejected",
+            Self::Merged => "merged",
+            Self::Closed => "closed",
+        }
+    }
+
+    /// Check whether transitioning from `self` to `target` is valid.
+    ///
+    /// Valid transitions:
+    /// - draft      -> submitted
+    /// - submitted  -> verifying
+    /// - verifying  -> approved | rejected
+    /// - approved   -> merged
+    /// - any        -> closed
+    pub fn can_transition_to(&self, target: Self) -> bool {
+        if target == Self::Closed {
+            return true;
+        }
+        matches!(
+            (self, target),
+            (Self::Draft, Self::Submitted)
+                | (Self::Submitted, Self::Verifying)
+                | (Self::Verifying, Self::Approved)
+                | (Self::Verifying, Self::Rejected)
+                | (Self::Approved, Self::Merged)
+        )
+    }
+}
+
+impl std::fmt::Display for ChangesetState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct Changeset {
     pub id: Uuid,
@@ -14,6 +83,7 @@ pub struct Changeset {
     pub source_branch: String,
     pub target_branch: String,
     pub state: String,
+    pub reason: String,
     pub session_id: Option<Uuid>,
     pub agent_id: Option<String>,
     pub agent_name: Option<String>,
@@ -23,6 +93,36 @@ pub struct Changeset {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub merged_at: Option<DateTime<Utc>>,
+}
+
+impl Changeset {
+    /// Parse the current state string into a typed `ChangesetState`.
+    pub fn parsed_state(&self) -> Option<ChangesetState> {
+        ChangesetState::parse(&self.state)
+    }
+
+    /// Validate and perform a state transition, recording the reason.
+    /// Returns an error if the transition is not allowed.
+    pub fn transition(
+        &mut self,
+        target: ChangesetState,
+        reason: impl Into<String>,
+    ) -> dk_core::Result<()> {
+        let current = self.parsed_state().ok_or_else(|| {
+            dk_core::Error::Internal(format!("unknown current state: '{}'", self.state))
+        })?;
+
+        if !current.can_transition_to(target) {
+            return Err(dk_core::Error::InvalidInput(format!(
+                "invalid state transition: '{}' -> '{}'",
+                current, target,
+            )));
+        }
+
+        self.state = target.as_str().to_string();
+        self.reason = reason.into();
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -85,13 +185,14 @@ impl ChangesetStore {
             .execute(&mut *tx)
             .await?;
 
-        let row: (Uuid, i32, String, DateTime<Utc>, DateTime<Utc>) = sqlx::query_as(
+        let row: (Uuid, i32, String, String, DateTime<Utc>, DateTime<Utc>) = sqlx::query_as(
             r#"INSERT INTO changesets
                    (repo_id, number, title, intent_summary, source_branch, target_branch,
-                    session_id, agent_id, agent_name, base_version)
-               SELECT $1, COALESCE(MAX(number), 0) + 1, $2, $2, $3, $4, $5, $6, $7, $8
+                    state, reason, session_id, agent_id, agent_name, base_version)
+               SELECT $1, COALESCE(MAX(number), 0) + 1, $2, $2, $3, $4,
+                    'draft', 'created via agent connect', $5, $6, $7, $8
                FROM changesets WHERE repo_id = $1
-               RETURNING id, number, state, created_at, updated_at"#,
+               RETURNING id, number, state, reason, created_at, updated_at"#,
         )
         .bind(repo_id)
         .bind(intent)
@@ -115,14 +216,15 @@ impl ChangesetStore {
             source_branch,
             target_branch: target_branch.to_string(),
             state: row.2,
+            reason: row.3,
             session_id,
             agent_id: Some(agent_id.to_string()),
             agent_name: Some(agent_name.to_string()),
             author_id: None,
             base_version: base_version.map(String::from),
             merged_version: None,
-            created_at: row.3,
-            updated_at: row.4,
+            created_at: row.4,
+            updated_at: row.5,
             merged_at: None,
         })
     }
@@ -130,7 +232,7 @@ impl ChangesetStore {
     pub async fn get(&self, id: Uuid) -> dk_core::Result<Changeset> {
         sqlx::query_as::<_, Changeset>(
             r#"SELECT id, repo_id, number, title, intent_summary,
-                      source_branch, target_branch, state,
+                      source_branch, target_branch, state, reason,
                       session_id, agent_id, agent_name, author_id,
                       base_version, merged_version,
                       created_at, updated_at, merged_at
@@ -143,11 +245,24 @@ impl ChangesetStore {
     }
 
     pub async fn update_status(&self, id: Uuid, status: &str) -> dk_core::Result<()> {
-        sqlx::query("UPDATE changesets SET state = $1, updated_at = now() WHERE id = $2")
-            .bind(status)
-            .bind(id)
-            .execute(&self.db)
-            .await?;
+        self.update_status_with_reason(id, status, "").await
+    }
+
+    /// Update changeset status and record the reason for the transition.
+    pub async fn update_status_with_reason(
+        &self,
+        id: Uuid,
+        status: &str,
+        reason: &str,
+    ) -> dk_core::Result<()> {
+        sqlx::query(
+            "UPDATE changesets SET state = $1, reason = $2, updated_at = now() WHERE id = $3",
+        )
+        .bind(status)
+        .bind(reason)
+        .bind(id)
+        .execute(&self.db)
+        .await?;
         Ok(())
     }
 
@@ -160,12 +275,23 @@ impl ChangesetStore {
         new_status: &str,
         expected_states: &[&str],
     ) -> dk_core::Result<()> {
-        // Build a comma-separated list of expected states for the ANY($3) clause.
+        self.update_status_if_with_reason(id, new_status, expected_states, "").await
+    }
+
+    /// Like `update_status_if` but also records a reason for the transition.
+    pub async fn update_status_if_with_reason(
+        &self,
+        id: Uuid,
+        new_status: &str,
+        expected_states: &[&str],
+        reason: &str,
+    ) -> dk_core::Result<()> {
         let states: Vec<String> = expected_states.iter().map(|s| s.to_string()).collect();
         let result = sqlx::query(
-            "UPDATE changesets SET state = $1, updated_at = now() WHERE id = $2 AND state = ANY($3)",
+            "UPDATE changesets SET state = $1, reason = $2, updated_at = now() WHERE id = $3 AND state = ANY($4)",
         )
         .bind(new_status)
+        .bind(reason)
         .bind(id)
         .bind(&states)
         .execute(&self.db)
@@ -182,7 +308,7 @@ impl ChangesetStore {
 
     pub async fn set_merged(&self, id: Uuid, commit_hash: &str) -> dk_core::Result<()> {
         sqlx::query(
-            "UPDATE changesets SET state = 'merged', merged_version = $1, merged_at = now(), updated_at = now() WHERE id = $2",
+            "UPDATE changesets SET state = 'merged', reason = 'merge completed', merged_version = $1, merged_at = now(), updated_at = now() WHERE id = $2",
         )
         .bind(commit_hash)
         .bind(id)
@@ -382,7 +508,8 @@ mod tests {
             intent_summary: Some(intent.to_string()),
             source_branch: source_branch.clone(),
             target_branch: "main".to_string(),
-            state: "open".to_string(),
+            state: "draft".to_string(),
+            reason: String::new(),
             session_id: Some(session_id),
             agent_id: Some(agent_id.to_string()),
             agent_name: Some(agent_id.to_string()),
@@ -418,7 +545,8 @@ mod tests {
             intent_summary: None,
             source_branch: "agent/a".to_string(),
             target_branch: "main".to_string(),
-            state: "open".to_string(),
+            state: "draft".to_string(),
+            reason: String::new(),
             session_id: None,
             agent_id: None,
             agent_name: None,
@@ -480,7 +608,8 @@ mod tests {
             intent_summary: Some("intent".to_string()),
             source_branch: "agent/x".to_string(),
             target_branch: "main".to_string(),
-            state: "open".to_string(),
+            state: "draft".to_string(),
+            reason: String::new(),
             session_id: None,
             agent_id: Some("x".to_string()),
             agent_name: Some("x".to_string()),
