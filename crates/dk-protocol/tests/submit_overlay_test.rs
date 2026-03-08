@@ -1,15 +1,16 @@
 //! Tests for the submit handler's overlay materialization logic.
 //!
-//! The Phase 1 bug fix ensures that when agents use the MCP path
-//! (dk_file_write -> dk_submit), files in the workspace overlay are
-//! correctly materialized into `changeset_files` even though
-//! `req.changes` is empty.
+//! The submit handler uses the overlay as the single source of truth
+//! for changeset files. Each session has its own overlay (scoped by
+//! workspace_id), so submit only captures files from the calling
+//! session.
 //!
 //! These tests verify:
 //! 1. Overlay entry -> operation mapping (add/modify/delete)
 //! 2. Overlay snapshot captures content before workspace drop
-//! 3. MCP path vs standard path branch selection
-//! 4. Empty overlay + empty changes produces no file records
+//! 3. Unified path always uses overlay as source of truth
+//! 4. Empty overlay produces no file records
+//! 5. Two sessions writing to the same path only see their own files
 
 use dk_engine::workspace::overlay::{FileOverlay, OverlayEntry};
 use dk_engine::workspace::session_workspace::{SessionWorkspace, WorkspaceMode};
@@ -17,13 +18,12 @@ use uuid::Uuid;
 
 // ── Helper: simulate the overlay-to-changeset operation mapping ─────
 //
-// This mirrors the logic in submit.rs lines 178-195:
+// This mirrors the unified path in submit.rs that always uses the
+// overlay as the source of truth for changeset files:
 //
-//   if req.changes.is_empty() && !overlay_snapshot.is_empty() {
-//       for (path, entry) in &overlay_snapshot {
-//           let (op, content) = match entry { ... };
-//           engine.changeset_store().upsert_file(changeset_id, path, op, content.as_deref()) ...
-//       }
+//   for (path, entry) in &overlay_snapshot {
+//       let (op, content) = match entry { ... };
+//       engine.changeset_store().upsert_file(changeset_id, path, op, content.as_deref()) ...
 //   }
 
 fn overlay_entry_to_op_and_content(entry: &OverlayEntry) -> (&str, Option<String>) {
@@ -371,4 +371,116 @@ async fn overlay_write_overwrites_previous_entry() {
     let (op, content) = overlay_entry_to_op_and_content(entry);
     assert_eq!(op, "modify");
     assert_eq!(content.as_deref(), Some("version 2"));
+}
+
+// ── Submit isolation test ───────────────────────────────────────────
+//
+// Simulates two sessions writing to overlapping files, then each
+// "submitting". Each session's overlay snapshot must only contain that
+// session's files — never files from the other session.
+
+#[tokio::test]
+async fn submit_overlay_isolation_two_sessions_same_file() {
+    // Session A writes "src/shared.rs" and "src/a_only.rs"
+    let ws_a = SessionWorkspace::new_test(
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        "agent-a".into(),
+        "intent A".into(),
+        "base_commit".into(),
+        WorkspaceMode::Ephemeral,
+    );
+    ws_a.overlay.write_local("src/shared.rs", b"content from A".to_vec(), true);
+    ws_a.overlay.write_local("src/a_only.rs", b"only in A".to_vec(), true);
+
+    // Session B writes "src/shared.rs" and "src/b_only.rs"
+    let ws_b = SessionWorkspace::new_test(
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        "agent-b".into(),
+        "intent B".into(),
+        "base_commit".into(),
+        WorkspaceMode::Ephemeral,
+    );
+    ws_b.overlay.write_local("src/shared.rs", b"content from B".to_vec(), true);
+    ws_b.overlay.write_local("src/b_only.rs", b"only in B".to_vec(), true);
+
+    // Simulate submit for session A: snapshot its overlay
+    let snap_a = ws_a.overlay.list_changes();
+    // Simulate submit for session B: snapshot its overlay
+    let snap_b = ws_b.overlay.list_changes();
+
+    // Session A should see exactly 2 files (its own)
+    assert_eq!(snap_a.len(), 2, "Session A should see exactly its own 2 files");
+    let paths_a: std::collections::HashSet<String> =
+        snap_a.iter().map(|(p, _)| p.clone()).collect();
+    assert!(paths_a.contains("src/shared.rs"));
+    assert!(paths_a.contains("src/a_only.rs"));
+    assert!(!paths_a.contains("src/b_only.rs"), "Session A must not see B's files");
+
+    // Session B should see exactly 2 files (its own)
+    assert_eq!(snap_b.len(), 2, "Session B should see exactly its own 2 files");
+    let paths_b: std::collections::HashSet<String> =
+        snap_b.iter().map(|(p, _)| p.clone()).collect();
+    assert!(paths_b.contains("src/shared.rs"));
+    assert!(paths_b.contains("src/b_only.rs"));
+    assert!(!paths_b.contains("src/a_only.rs"), "Session B must not see A's files");
+
+    // Verify content isolation: "src/shared.rs" has different content per session
+    let a_shared = snap_a.iter().find(|(p, _)| p == "src/shared.rs").unwrap();
+    let b_shared = snap_b.iter().find(|(p, _)| p == "src/shared.rs").unwrap();
+
+    match &a_shared.1 {
+        OverlayEntry::Added { content, .. } => {
+            assert_eq!(content, b"content from A");
+        }
+        other => panic!("Expected Added for A, got {:?}", other),
+    }
+    match &b_shared.1 {
+        OverlayEntry::Added { content, .. } => {
+            assert_eq!(content, b"content from B");
+        }
+        other => panic!("Expected Added for B, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn submit_unified_path_records_all_overlay_entries() {
+    // Verifies the unified path: regardless of whether req.changes is
+    // empty or not, the overlay snapshot is always used for changeset files.
+    let ws = SessionWorkspace::new_test(
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        "agent".into(),
+        "intent".into(),
+        "commit".into(),
+        WorkspaceMode::Ephemeral,
+    );
+
+    // Simulate MCP writes (no req.changes)
+    ws.overlay.write_local("src/new.rs", b"new file".to_vec(), true);
+    ws.overlay.write_local("src/existing.rs", b"modified".to_vec(), false);
+    ws.overlay.delete_local("src/removed.rs");
+
+    let overlay_snapshot = ws.overlay.list_changes();
+    drop(ws);
+
+    // Simulate the unified path: iterate overlay snapshot and collect ops
+    let mut recorded: Vec<(String, &str, Option<String>)> = Vec::new();
+    for (path, entry) in &overlay_snapshot {
+        let (op, content) = overlay_entry_to_op_and_content(entry);
+        recorded.push((path.clone(), op, content));
+    }
+
+    assert_eq!(recorded.len(), 3);
+
+    let map: std::collections::HashMap<String, (&str, Option<String>)> =
+        recorded.into_iter().map(|(p, op, c)| (p, (op, c))).collect();
+
+    assert_eq!(map["src/new.rs"].0, "add");
+    assert_eq!(map["src/new.rs"].1.as_deref(), Some("new file"));
+    assert_eq!(map["src/existing.rs"].0, "modify");
+    assert_eq!(map["src/existing.rs"].1.as_deref(), Some("modified"));
+    assert_eq!(map["src/removed.rs"].0, "delete");
+    assert!(map["src/removed.rs"].1.is_none());
 }

@@ -174,38 +174,27 @@ pub async fn handle_submit(
     // Drop the workspace guard before further async work
     drop(ws);
 
-    // Record file changes in changeset
-    for change in &req.changes {
-        let op = match change.r#type() {
-            ChangeType::AddFunction | ChangeType::AddType | ChangeType::AddDependency => "add",
-            ChangeType::ModifyFunction | ChangeType::ModifyType => "modify",
-            ChangeType::DeleteFunction => "delete",
+    // Record file changes in changeset — always use the overlay as the
+    // single source of truth.  This unifies the "standard" path (changes
+    // sent inline via req.changes) and the "MCP" path (files written
+    // earlier via dk_file_write).  The overlay is session-scoped, so we
+    // only capture files belonging to this session.
+    for (path, entry) in &overlay_snapshot {
+        let (op, content) = match entry {
+            OverlayEntry::Added { content, .. } => {
+                ("add", Some(String::from_utf8_lossy(content).into_owned()))
+            }
+            OverlayEntry::Modified { content, .. } => {
+                ("modify", Some(String::from_utf8_lossy(content).into_owned()))
+            }
+            OverlayEntry::Deleted => ("delete", None),
         };
-        let content = if op == "delete" { None } else { Some(change.new_source.as_str()) };
         engine.changeset_store()
-            .upsert_file(changeset_id, &change.file_path, op, content)
+            .upsert_file(changeset_id, path, op, content.as_deref())
             .await
             .map_err(|e| Status::internal(format!("changeset file record failed: {e}")))?;
-    }
-
-    // MCP path: when req.changes is empty, files live in the workspace
-    // overlay (written via dk_file_write). Record them into changeset_files
-    // and populate changed_files for re-indexing.
-    if req.changes.is_empty() && !overlay_snapshot.is_empty() {
-        for (path, entry) in &overlay_snapshot {
-            let (op, content) = match entry {
-                OverlayEntry::Added { content, .. } => {
-                    ("add", Some(String::from_utf8_lossy(content).into_owned()))
-                }
-                OverlayEntry::Modified { content, .. } => {
-                    ("modify", Some(String::from_utf8_lossy(content).into_owned()))
-                }
-                OverlayEntry::Deleted => ("delete", None),
-            };
-            engine.changeset_store()
-                .upsert_file(changeset_id, path, op, content.as_deref())
-                .await
-                .map_err(|e| Status::internal(format!("changeset file record failed: {e}")))?;
+        // Ensure MCP-path files end up in changed_files for re-indexing
+        if !changed_files.iter().any(|p| p.to_string_lossy() == *path) {
             changed_files.push(PathBuf::from(path));
         }
     }
@@ -271,33 +260,18 @@ pub async fn handle_submit(
     engine.changeset_store().update_status(changeset_id, "submitted").await
         .map_err(|e| Status::internal(format!("changeset status update failed: {e}")))?;
 
-    // Build affected_files list from changes
-    let affected_files: Vec<crate::FileChange> = if !req.changes.is_empty() {
-        req.changes.iter().map(|change| {
-            let operation = match change.r#type() {
-                ChangeType::AddFunction | ChangeType::AddType | ChangeType::AddDependency => "add",
-                ChangeType::ModifyFunction | ChangeType::ModifyType => "modify",
-                ChangeType::DeleteFunction => "delete",
-            };
-            crate::FileChange {
-                path: change.file_path.clone(),
-                operation: operation.to_string(),
-            }
-        }).collect()
-    } else {
-        // MCP path: files from overlay snapshot
-        overlay_snapshot.iter().map(|(path, entry)| {
-            let operation = match entry {
-                OverlayEntry::Added { .. } => "add",
-                OverlayEntry::Modified { .. } => "modify",
-                OverlayEntry::Deleted => "delete",
-            };
-            crate::FileChange {
-                path: path.clone(),
-                operation: operation.to_string(),
-            }
-        }).collect()
-    };
+    // Build affected_files list from overlay (unified source of truth)
+    let affected_files: Vec<crate::FileChange> = overlay_snapshot.iter().map(|(path, entry)| {
+        let operation = match entry {
+            OverlayEntry::Added { .. } => "add",
+            OverlayEntry::Modified { .. } => "modify",
+            OverlayEntry::Deleted => "delete",
+        };
+        crate::FileChange {
+            path: path.clone(),
+            operation: operation.to_string(),
+        }
+    }).collect();
 
     // Build symbol_changes from pre/post symbol comparison
     let mut symbol_changes: Vec<crate::SymbolChangeDetail> = Vec::new();
