@@ -16,7 +16,7 @@ const ALWAYS_DENIED_PREFIXES: &[&str] = &[
     "/usr/bin/env ruby", "/usr/bin/env node",
     "python -c", "python3 -c", "perl -e", "ruby -e",
     "eval ", "exec ",
-    "go run",
+    "go run", "go get",
     "cargo run", "cargo install",
     // Go execution-delegation flags that allow running arbitrary binaries
     "go test -exec ", "go build -toolexec ", "go vet -vettool ",
@@ -47,6 +47,9 @@ const ALLOWED_COMMAND_PREFIXES: &[&str] = &[
     "cargo check", "cargo test", "cargo clippy", "cargo fmt", "cargo build",
     "npm ci", "npm test", "npm run lint", "npm run check",
     "bun install --frozen-lockfile", "bun test", "bun run lint", "bun run check",
+    // NOTE: npm/bun run entries are intentionally scoped to specific script names
+    // (lint, check). Word-boundary matching prevents "npm run exploit" from matching
+    // "npm run lint". Open-ended "npm run" or "bun run" are NOT in this list.
     "npx tsc", "bunx tsc",
     "pip install -e .", "pip install -r requirements.txt", "pytest", "python -m pytest",
     "go build", "go test", "go vet",
@@ -369,6 +372,28 @@ mod tests {
         assert!(validate_command("go run ./cmd/exploit").is_err());
         let custom = vec!["go run".to_string()];
         assert!(validate_command_with_allowlist("go run ./cmd/exploit", &custom).is_err());
+    }
+
+    #[test]
+    fn test_go_get_denied() {
+        // go get downloads and compiles arbitrary remote packages
+        assert!(validate_command("go get github.com/evil/pkg").is_err());
+        let custom = vec!["go get".to_string()];
+        assert!(validate_command_with_allowlist("go get ./...", &custom).is_err());
+    }
+
+    #[test]
+    fn test_npm_bun_run_only_specific_scripts() {
+        // Only specific script names (lint, check) are allowed, not open-ended run
+        assert!(validate_command("npm run lint").is_ok());
+        assert!(validate_command("npm run check").is_ok());
+        assert!(validate_command("bun run lint").is_ok());
+        assert!(validate_command("bun run check").is_ok());
+        // Arbitrary script names must be rejected
+        assert!(validate_command("npm run exploit").is_err());
+        assert!(validate_command("bun run exploit").is_err());
+        assert!(validate_command("npm run build").is_err());
+        assert!(validate_command("bun run build").is_err());
     }
 
     #[test]
