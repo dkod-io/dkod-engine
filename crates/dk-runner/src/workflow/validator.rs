@@ -118,6 +118,18 @@ pub fn validate_command_with_allowlist(command: &str, custom_allowlist: &[String
             trimmed
         );
     }
+    // Exact-match-only commands must not receive additional arguments,
+    // regardless of which allowlist path is used.  Applied unconditionally
+    // (like ALWAYS_DENIED_PREFIXES) so that custom pipeline.yaml allowlists
+    // cannot re-enable argument injection for these commands.
+    if ALLOWED_EXACT_COMMANDS.iter().any(|cmd| {
+        trimmed.starts_with(&format!("{} ", cmd))
+    }) {
+        bail!(
+            "command '{}' is only permitted as an exact match with no additional arguments",
+            trimmed
+        );
+    }
     if custom_allowlist.is_empty() {
         let is_allowed = ALLOWED_COMMAND_PREFIXES
             .iter()
@@ -411,6 +423,19 @@ mod tests {
         assert!(validate_command("npm run check --rulesdir /attacker-path").is_err());
         assert!(validate_command("bun run lint --flag").is_err());
         assert!(validate_command("bun run check extra-arg").is_err());
+    }
+
+    #[test]
+    fn test_npm_bun_run_argument_injection_denied_custom_allowlist() {
+        // The exact-match guard must also apply when a custom allowlist is used.
+        // A repo's pipeline.yaml that adds "npm run lint" should NOT re-enable
+        // argument injection.
+        let custom = vec!["npm run lint".to_string(), "bun run check".to_string()];
+        assert!(validate_command_with_allowlist("npm run lint", &custom).is_ok());
+        assert!(validate_command_with_allowlist("bun run check", &custom).is_ok());
+        // Argument injection must still be blocked
+        assert!(validate_command_with_allowlist("npm run lint --rulesdir /attacker-path", &custom).is_err());
+        assert!(validate_command_with_allowlist("bun run check extra-arg", &custom).is_err());
     }
 
     #[test]
