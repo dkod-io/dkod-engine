@@ -260,20 +260,32 @@ async fn test_get_by_id_not_found() {
 #[tokio::test]
 async fn test_delete_by_repo() {
     let pool = setup_pool().await;
-    let repo_id = create_test_repo(&pool).await;
+    let repo_a = create_test_repo(&pool).await;
+    let repo_b = create_test_repo(&pool).await;
     let store = SymbolStore::new(pool.clone());
 
-    let sym1 = make_symbol("repo_func_a", SymbolKind::Function, "src/a.rs");
-    let sym2 = make_symbol("repo_func_b", SymbolKind::Function, "src/b.rs");
+    let sym_a1 = make_symbol("repo_a_func", SymbolKind::Function, "src/a.rs");
+    let sym_a2 = make_symbol("repo_a_struct", SymbolKind::Struct, "src/b.rs");
+    let sym_b = make_symbol("repo_b_func", SymbolKind::Function, "src/lib.rs");
 
-    store.upsert_symbol(repo_id, &sym1).await.unwrap();
-    store.upsert_symbol(repo_id, &sym2).await.unwrap();
-    assert_eq!(store.count(repo_id).await.unwrap(), 2);
+    store.upsert_symbol(repo_a, &sym_a1).await.unwrap();
+    store.upsert_symbol(repo_a, &sym_a2).await.unwrap();
+    store.upsert_symbol(repo_b, &sym_b).await.unwrap();
+    assert_eq!(store.count(repo_a).await.unwrap(), 2);
+    assert_eq!(store.count(repo_b).await.unwrap(), 1);
 
-    let deleted = store.delete_by_repo(repo_id).await.unwrap();
+    let deleted = store.delete_by_repo(repo_a).await.unwrap();
     assert_eq!(deleted, 2);
 
-    assert_eq!(store.count(repo_id).await.unwrap(), 0);
+    // Target repo should be empty
+    assert_eq!(store.count(repo_a).await.unwrap(), 0);
 
-    cleanup_repo(&pool, repo_id).await;
+    // Other repo's symbols should be unaffected
+    assert_eq!(store.count(repo_b).await.unwrap(), 1);
+    let remaining = store.find_symbols(repo_b, "repo_b_func").await.unwrap();
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].name, "repo_b_func");
+
+    cleanup_repo(&pool, repo_a).await;
+    cleanup_repo(&pool, repo_b).await;
 }

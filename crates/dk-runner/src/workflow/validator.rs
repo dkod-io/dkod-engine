@@ -137,9 +137,10 @@ pub fn validate_command_with_allowlist(command: &str, custom_allowlist: &[String
             || ALLOWED_EXACT_COMMANDS.iter().any(|cmd| trimmed == *cmd);
         if !is_allowed {
             bail!(
-                "command not in allowlist: '{}'. Allowed prefixes: {:?}",
+                "command not in allowlist: '{}'. Allowed prefixes: {:?}, exact commands: {:?}",
                 trimmed,
-                ALLOWED_COMMAND_PREFIXES
+                ALLOWED_COMMAND_PREFIXES,
+                ALLOWED_EXACT_COMMANDS
             );
         }
     } else {
