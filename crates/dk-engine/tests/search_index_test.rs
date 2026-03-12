@@ -288,3 +288,61 @@ fn test_limit_is_respected() {
     let results = index.search(repo_id, "widget", 10).unwrap();
     assert_eq!(results.len(), 5);
 }
+
+#[test]
+fn test_delete_by_repo() {
+    let tmp = TempDir::new().unwrap();
+    let mut index = SearchIndex::open(tmp.path()).unwrap();
+    let repo_a = Uuid::new_v4();
+    let repo_b = Uuid::new_v4();
+
+    // Index symbols in two repos
+    let sym_a1 = make_symbol(
+        "repo_a_func",
+        "crate::repo_a_func",
+        SymbolKind::Function,
+        "src/lib.rs",
+        Some("fn repo_a_func()"),
+        None,
+    );
+    let sym_a2 = make_symbol(
+        "repo_a_struct",
+        "crate::repo_a_struct",
+        SymbolKind::Struct,
+        "src/types.rs",
+        None,
+        Some("A struct in repo A"),
+    );
+    let sym_b = make_symbol(
+        "repo_b_func",
+        "crate::repo_b_func",
+        SymbolKind::Function,
+        "src/lib.rs",
+        Some("fn repo_b_func()"),
+        None,
+    );
+
+    index.index_symbol(repo_a, &sym_a1).unwrap();
+    index.index_symbol(repo_a, &sym_a2).unwrap();
+    index.index_symbol(repo_b, &sym_b).unwrap();
+    index.commit().unwrap();
+
+    // Confirm both repos have symbols
+    let results_a = index.search(repo_a, "repo_a", 10).unwrap();
+    assert_eq!(results_a.len(), 2);
+    let results_b = index.search(repo_b, "repo_b", 10).unwrap();
+    assert_eq!(results_b.len(), 1);
+
+    // Delete all symbols for repo_a
+    index.delete_by_repo(repo_a).unwrap();
+    index.commit().unwrap();
+
+    // repo_a symbols should be gone
+    let results_a = index.search(repo_a, "repo_a", 10).unwrap();
+    assert!(results_a.is_empty());
+
+    // repo_b symbols should remain untouched
+    let results_b = index.search(repo_b, "repo_b", 10).unwrap();
+    assert_eq!(results_b.len(), 1);
+    assert_eq!(results_b[0], sym_b.id);
+}
