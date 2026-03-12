@@ -134,7 +134,7 @@ pub fn validate_command_with_allowlist(command: &str, custom_allowlist: &[String
         let is_allowed = ALLOWED_COMMAND_PREFIXES
             .iter()
             .any(|prefix| command_matches_prefix(trimmed, prefix))
-            || ALLOWED_EXACT_COMMANDS.iter().any(|cmd| trimmed == *cmd);
+            || ALLOWED_EXACT_COMMANDS.contains(&trimmed);
         if !is_allowed {
             bail!(
                 "command not in allowlist: '{}'. Allowed prefixes: {:?}, exact commands: {:?}",
