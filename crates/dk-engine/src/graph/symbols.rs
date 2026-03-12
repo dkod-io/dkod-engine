@@ -254,6 +254,16 @@ impl SymbolStore {
         Ok(result.rows_affected())
     }
 
+    /// Delete all symbols belonging to a repository. Returns the number of rows deleted.
+    pub async fn delete_by_repo(&self, repo_id: RepoId) -> dk_core::Result<u64> {
+        let result = sqlx::query("DELETE FROM symbols WHERE repo_id = $1")
+            .bind(repo_id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(result.rows_affected())
+    }
+
     /// Count symbols in a repository.
     pub async fn count(&self, repo_id: RepoId) -> dk_core::Result<i64> {
         let (count,): (i64,) =

@@ -124,6 +124,13 @@ impl SearchIndex {
         Ok(())
     }
 
+    /// Delete all documents belonging to a repository.
+    pub fn delete_by_repo(&mut self, repo_id: RepoId) -> dk_core::Result<()> {
+        let term = tantivy::Term::from_field_text(self.f_repo_id, &repo_id.to_string());
+        self.writer.delete_term(term);
+        Ok(())
+    }
+
     /// Commit the index writer, making all pending additions and deletions
     /// visible to subsequent searches.
     pub fn commit(&mut self) -> dk_core::Result<()> {
