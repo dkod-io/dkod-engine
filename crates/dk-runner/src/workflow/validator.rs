@@ -16,7 +16,7 @@ const ALWAYS_DENIED_PREFIXES: &[&str] = &[
     "/usr/bin/env ruby", "/usr/bin/env node",
     "python -c", "python3 -c", "perl -e", "ruby -e",
     "eval ", "exec ",
-    "go run", "go get",
+    "go run", "go get", "go install",
     "cargo run", "cargo install",
     // Go execution-delegation flags that allow running arbitrary binaries
     "go test -exec ", "go build -toolexec ", "go vet -vettool ",
@@ -399,6 +399,14 @@ mod tests {
         assert!(validate_command("go get github.com/evil/pkg").is_err());
         let custom = vec!["go get".to_string()];
         assert!(validate_command_with_allowlist("go get ./...", &custom).is_err());
+    }
+
+    #[test]
+    fn test_go_install_denied() {
+        // go install downloads, compiles, and installs arbitrary remote packages
+        assert!(validate_command("go install github.com/evil/pkg@latest").is_err());
+        let custom = vec!["go install".to_string()];
+        assert!(validate_command_with_allowlist("go install github.com/evil/pkg@latest", &custom).is_err());
     }
 
     #[test]
