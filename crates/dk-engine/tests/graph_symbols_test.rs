@@ -256,3 +256,24 @@ async fn test_get_by_id_not_found() {
     let result = store.get_by_id(Uuid::new_v4()).await.unwrap();
     assert!(result.is_none());
 }
+
+#[tokio::test]
+async fn test_delete_by_repo() {
+    let pool = setup_pool().await;
+    let repo_id = create_test_repo(&pool).await;
+    let store = SymbolStore::new(pool.clone());
+
+    let sym1 = make_symbol("repo_func_a", SymbolKind::Function, "src/a.rs");
+    let sym2 = make_symbol("repo_func_b", SymbolKind::Function, "src/b.rs");
+
+    store.upsert_symbol(repo_id, &sym1).await.unwrap();
+    store.upsert_symbol(repo_id, &sym2).await.unwrap();
+    assert_eq!(store.count(repo_id).await.unwrap(), 2);
+
+    let deleted = store.delete_by_repo(repo_id).await.unwrap();
+    assert_eq!(deleted, 2);
+
+    assert_eq!(store.count(repo_id).await.unwrap(), 0);
+
+    cleanup_repo(&pool, repo_id).await;
+}
