@@ -45,11 +45,8 @@ const DENIED_FLAG_SUBSTRINGS: &[&str] = &[
 
 const ALLOWED_COMMAND_PREFIXES: &[&str] = &[
     "cargo check", "cargo test", "cargo clippy", "cargo fmt", "cargo build",
-    "npm ci", "npm test", "npm run lint", "npm run check",
-    "bun install --frozen-lockfile", "bun test", "bun run lint", "bun run check",
-    // NOTE: npm/bun run entries are intentionally scoped to specific script names
-    // (lint, check). Word-boundary matching prevents "npm run exploit" from matching
-    // "npm run lint". Open-ended "npm run" or "bun run" are NOT in this list.
+    "npm ci", "npm test",
+    "bun install --frozen-lockfile", "bun test",
     "npx tsc", "bunx tsc",
     "pip install -e .", "pip install -r requirements.txt", "pytest", "python -m pytest",
     "go build", "go test", "go vet",
@@ -57,6 +54,14 @@ const ALLOWED_COMMAND_PREFIXES: &[&str] = &[
     // NOTE: make targets removed from default allowlist because Makefile targets
     // can execute arbitrary shell commands, bypassing command security controls.
     // Use allowed_commands in pipeline.yaml to explicitly opt-in to make.
+];
+
+/// Commands that are allowed ONLY as exact matches — no additional arguments
+/// permitted.  This prevents argument-injection attacks where a caller appends
+/// arbitrary flags or file paths (e.g., `npm run lint --rulesdir /attacker-path`).
+const ALLOWED_EXACT_COMMANDS: &[&str] = &[
+    "npm run lint", "npm run check",
+    "bun run lint", "bun run check",
 ];
 
 /// Check if a command matches an allowlist prefix with word-boundary awareness.
@@ -116,7 +121,8 @@ pub fn validate_command_with_allowlist(command: &str, custom_allowlist: &[String
     if custom_allowlist.is_empty() {
         let is_allowed = ALLOWED_COMMAND_PREFIXES
             .iter()
-            .any(|prefix| command_matches_prefix(trimmed, prefix));
+            .any(|prefix| command_matches_prefix(trimmed, prefix))
+            || ALLOWED_EXACT_COMMANDS.iter().any(|cmd| trimmed == *cmd);
         if !is_allowed {
             bail!(
                 "command not in allowlist: '{}'. Allowed prefixes: {:?}",
@@ -384,7 +390,7 @@ mod tests {
 
     #[test]
     fn test_npm_bun_run_only_specific_scripts() {
-        // Only specific script names (lint, check) are allowed, not open-ended run
+        // Only specific script names (lint, check) are allowed as exact matches
         assert!(validate_command("npm run lint").is_ok());
         assert!(validate_command("npm run check").is_ok());
         assert!(validate_command("bun run lint").is_ok());
@@ -394,6 +400,17 @@ mod tests {
         assert!(validate_command("bun run exploit").is_err());
         assert!(validate_command("npm run build").is_err());
         assert!(validate_command("bun run build").is_err());
+    }
+
+    #[test]
+    fn test_npm_bun_run_argument_injection_denied() {
+        // npm/bun run lint/check are exact-match only — no additional arguments
+        // allowed to prevent argument injection into the underlying scripts.
+        assert!(validate_command("npm run lint --flag").is_err());
+        assert!(validate_command("npm run lint /etc/passwd").is_err());
+        assert!(validate_command("npm run check --rulesdir /attacker-path").is_err());
+        assert!(validate_command("bun run lint --flag").is_err());
+        assert!(validate_command("bun run check extra-arg").is_err());
     }
 
     #[test]

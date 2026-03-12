@@ -125,6 +125,9 @@ impl SearchIndex {
     }
 
     /// Delete all documents belonging to a repository.
+    ///
+    /// **Note:** This only stages the deletion. You must call [`commit`] afterwards
+    /// for the deletion to be persisted and visible to readers.
     pub fn delete_by_repo(&mut self, repo_id: RepoId) -> dk_core::Result<()> {
         let term = tantivy::Term::from_field_text(self.f_repo_id, &repo_id.to_string());
         self.writer.delete_term(term);
