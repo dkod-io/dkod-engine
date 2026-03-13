@@ -1,22 +1,22 @@
 """Integration tests against a real dk-server.
 
-Run with: DEKODE_SERVER_URL=localhost:50051 DEKODE_AUTH_TOKEN=secret pytest -m integration -v
+Run with: DKOD_SERVER_URL=localhost:50051 DKOD_AUTH_TOKEN=secret pytest -m integration -v
 """
 
 import os
 
 import pytest
 
-from dekode import (
+from dkod import (
     Change,
     ChangeType,
     ContextDepth,
-    DekodeClient,
+    DkodClient,
     SubmitStatus,
 )
 
-SERVER_URL = os.environ.get("DEKODE_SERVER_URL", "")
-AUTH_TOKEN = os.environ.get("DEKODE_AUTH_TOKEN", "")
+SERVER_URL = os.environ.get("DKOD_SERVER_URL", "")
+AUTH_TOKEN = os.environ.get("DKOD_AUTH_TOKEN", "")
 
 pytestmark = pytest.mark.integration
 
@@ -24,8 +24,8 @@ pytestmark = pytest.mark.integration
 @pytest.fixture
 def session():
     if not SERVER_URL:
-        pytest.skip("DEKODE_SERVER_URL not set")
-    client = DekodeClient(SERVER_URL, auth_token=AUTH_TOKEN)
+        pytest.skip("DKOD_SERVER_URL not set")
+    client = DkodClient(SERVER_URL, auth_token=AUTH_TOKEN)
     session = client.connect(codebase="test-repo", intent="integration test")
     yield session
     session.close()

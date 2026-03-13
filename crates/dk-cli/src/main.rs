@@ -17,7 +17,7 @@ use output::Output;
 const DEFAULT_SERVER: &str = "https://agent.dkod.io:443";
 
 #[derive(Parser)]
-#[command(name = "dk", about = "Dekode CLI — agent-native code platform")]
+#[command(name = "dk", about = "dkod CLI — agent-native code platform")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -31,7 +31,7 @@ struct Cli {
     json: bool,
 
     /// gRPC server address
-    #[arg(long, global = true, env = "DEKODE_GRPC_ADDR")]
+    #[arg(long, global = true, env = "DKOD_GRPC_ADDR")]
     server: Option<String>,
 
     /// Suppress non-essential output

@@ -20,7 +20,7 @@ impl Config {
     pub fn path() -> Result<PathBuf> {
         let dir = dirs::config_dir()
             .context("could not determine config directory")?
-            .join("dekode");
+            .join("dkod");
         Ok(dir.join("config.toml"))
     }
 

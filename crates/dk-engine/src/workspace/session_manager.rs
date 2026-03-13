@@ -401,7 +401,7 @@ mod tests {
     /// Integration-level test for list_sessions and WorkspaceManager.
     /// Requires PgPool which we cannot construct without a DB, so this
     /// is marked #[ignore]. Run with:
-    ///   DATABASE_URL=postgres://localhost/dekode_test cargo test -p dk-engine -- --ignored
+    ///   DATABASE_URL=postgres://localhost/dkod_test cargo test -p dk-engine -- --ignored
     #[test]
     #[ignore]
     fn list_sessions_returns_empty_for_unknown_repo() {

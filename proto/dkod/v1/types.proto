@@ -1,5 +1,5 @@
 syntax = "proto3";
-package dekode.v1;
+package dkod.v1;
 
 message SymbolRef {
   string id = 1;

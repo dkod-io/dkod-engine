@@ -1,7 +1,7 @@
 //! Token resolution for dk CLI authentication.
 //!
 //! Resolution priority:
-//! 1. `DEKODE_AUTH_TOKEN` env var (CI/automation)
+//! 1. `DKOD_AUTH_TOKEN` env var (CI/automation)
 //! 2. Cached token at `~/.config/dkod/token.json`
 //! 3. OAuth device flow via `dk login`
 

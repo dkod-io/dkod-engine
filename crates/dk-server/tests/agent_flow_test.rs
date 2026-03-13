@@ -2,7 +2,7 @@
 //!
 //! Requires a running PostgreSQL instance. Run with:
 //! ```
-//! DATABASE_URL=postgres://localhost/dekode_test cargo test -p dk-server --test agent_flow_test -- --ignored
+//! DATABASE_URL=postgres://localhost/dkod_test cargo test -p dk-server --test agent_flow_test -- --ignored
 //! ```
 
 use std::sync::Arc;
@@ -20,7 +20,7 @@ async fn test_agent_flow_connect_context_submit() {
     // ── Setup ──
 
     let db_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://localhost/dekode_test".into());
+        .unwrap_or_else(|_| "postgres://localhost/dkod_test".into());
     let pool = PgPool::connect(&db_url).await.unwrap();
     sqlx::migrate!("../dk-engine/migrations")
         .run(&pool)
@@ -196,7 +196,7 @@ pub fn validate_token(token: &str) -> Result<String, String> {
 #[ignore] // Requires PostgreSQL
 async fn test_connect_invalid_auth() {
     let db_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://localhost/dekode_test".into());
+        .unwrap_or_else(|_| "postgres://localhost/dkod_test".into());
     let pool = PgPool::connect(&db_url).await.unwrap();
 
     let tmp = tempfile::TempDir::new().unwrap();
@@ -231,7 +231,7 @@ async fn test_connect_invalid_auth() {
 #[ignore] // Requires PostgreSQL
 async fn test_context_invalid_session() {
     let db_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://localhost/dekode_test".into());
+        .unwrap_or_else(|_| "postgres://localhost/dkod_test".into());
     let pool = PgPool::connect(&db_url).await.unwrap();
 
     let tmp = tempfile::TempDir::new().unwrap();
@@ -266,7 +266,7 @@ async fn test_context_invalid_session() {
 #[ignore] // Requires PostgreSQL
 async fn test_submit_modify_nonexistent_file() {
     let db_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://localhost/dekode_test".into());
+        .unwrap_or_else(|_| "postgres://localhost/dkod_test".into());
     let pool = PgPool::connect(&db_url).await.unwrap();
     sqlx::migrate!("../dk-engine/migrations")
         .run(&pool)

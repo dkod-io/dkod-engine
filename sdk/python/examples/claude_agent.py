@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Dekode AI Agent — uses Claude to search and modify code via the Dekode Agent Protocol.
+"""dkod AI Agent — uses Claude to search and modify code via the dkod Agent Protocol.
 
 Usage:
     python claude_agent.py --server localhost:50051 --token SECRET --codebase my-repo "add error handling to parse_config"
 
 Requires:
-    pip install dekode[anthropic]
+    pip install dkod[anthropic]
     export ANTHROPIC_API_KEY=sk-ant-...
 """
 
@@ -16,20 +16,20 @@ import sys
 
 from anthropic import Anthropic
 
-from dekode import DekodeClient, dekode_tools, dispatch_tool
+from dkod import DkodClient, dkod_tools, dispatch_tool
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Dekode AI Agent powered by Claude")
-    parser.add_argument("--server", default="localhost:50051", help="Dekode server address")
-    parser.add_argument("--token", required=True, help="Auth token for the Dekode server")
+    parser = argparse.ArgumentParser(description="dkod AI Agent powered by Claude")
+    parser.add_argument("--server", default="localhost:50051", help="dkod server address")
+    parser.add_argument("--token", required=True, help="Auth token for the dkod server")
     parser.add_argument("--codebase", required=True, help="Codebase name to connect to")
     parser.add_argument("--model", default="claude-sonnet-4-5-20250929", help="Claude model to use")
     parser.add_argument("task", help="Task for the agent (e.g. 'add error handling to parse_config')")
     args = parser.parse_args()
 
-    # Connect to Dekode
-    client = DekodeClient(args.server, auth_token=args.token, agent_id="claude-agent")
+    # Connect to dkod
+    client = DkodClient(args.server, auth_token=args.token, agent_id="claude-agent")
     session = client.connect(codebase=args.codebase, intent=args.task)
     print(f"Connected to '{args.codebase}' (version: {session.codebase_version})")
     print(f"  Languages: {', '.join(session.summary.languages)}")
@@ -38,11 +38,11 @@ def main() -> None:
 
     # Set up Claude
     anthropic = Anthropic()
-    tools = dekode_tools(session)
+    tools = dkod_tools(session)
     messages: list[dict] = [{"role": "user", "content": args.task}]
 
     system_prompt = (
-        "You are a coding agent connected to a codebase via the Dekode platform. "
+        "You are a coding agent connected to a codebase via the dkod platform. "
         "Use search_codebase to find relevant code, then submit_changes to make modifications. "
         "Always search first to understand the current code before making changes. "
         "Explain your reasoning as you work."

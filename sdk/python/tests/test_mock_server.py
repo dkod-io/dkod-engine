@@ -5,7 +5,7 @@ from __future__ import annotations
 import grpc
 import pytest
 
-from dekode._generated.dekode.v1 import agent_pb2, agent_pb2_grpc
+from dkod._generated.dkod.v1 import agent_pb2, agent_pb2_grpc
 
 
 # ── Connect ──────────────────────────────────────────────────────────

@@ -42,7 +42,7 @@ pub fn run(path: Option<PathBuf>) -> Result<()> {
     };
 
     println!(
-        "{} {} Dekode repository in {}",
+        "{} {} dkod repository in {}",
         prefix,
         qualifier,
         git_dir.display().to_string().bold()

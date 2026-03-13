@@ -89,8 +89,8 @@ mod tests {
         let exec = ProcessExecutor::new();
         let dir = std::env::temp_dir();
         let mut env = HashMap::new();
-        env.insert("DEKODE_TEST".to_string(), "yes".to_string());
-        let out = exec.run_command("echo $DEKODE_TEST", &dir, Duration::from_secs(5), &env).await;
+        env.insert("DKOD_TEST".to_string(), "yes".to_string());
+        let out = exec.run_command("echo $DKOD_TEST", &dir, Duration::from_secs(5), &env).await;
         assert_eq!(out.status, StepStatus::Pass);
         assert!(out.stdout.contains("yes"));
     }

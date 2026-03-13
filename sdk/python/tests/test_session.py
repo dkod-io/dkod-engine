@@ -1,12 +1,12 @@
-"""Tests for dekode.session — DekodeSession RPC wrappers."""
+"""Tests for dkod.session — DkodSession RPC wrappers."""
 
 from __future__ import annotations
 
 import grpc
 import pytest
 
-from dekode.client import DekodeClient
-from dekode.models import (
+from dkod.client import DkodClient
+from dkod.models import (
     Change,
     ChangeType,
     ContextDepth,
@@ -14,7 +14,7 @@ from dekode.models import (
     SubmitResult,
     SubmitStatus,
 )
-from dekode.session import DekodeSession
+from dkod.session import DkodSession
 
 
 # ── Context ──────────────────────────────────────────────────────────
@@ -22,7 +22,7 @@ from dekode.session import DekodeSession
 
 def test_session_context(grpc_server: str) -> None:
     """session.context() returns a ContextResult with symbols."""
-    client = DekodeClient(grpc_server, auth_token="test-token")
+    client = DkodClient(grpc_server, auth_token="test-token")
 
     with client.connect("my-repo", "explore") as session:
         result = session.context("parse_config")
@@ -51,7 +51,7 @@ def test_session_context(grpc_server: str) -> None:
 
 def test_session_context_with_params(grpc_server: str) -> None:
     """session.context() forwards depth, include_tests, include_dependencies, max_tokens."""
-    client = DekodeClient(grpc_server, auth_token="test-token")
+    client = DkodClient(grpc_server, auth_token="test-token")
 
     with client.connect("my-repo", "deep exploration") as session:
         # Call with every non-default parameter to verify they're wired through.
@@ -74,7 +74,7 @@ def test_session_context_with_params(grpc_server: str) -> None:
 
 def test_session_submit(grpc_server: str) -> None:
     """session.submit() returns a SubmitResult with ACCEPTED status."""
-    client = DekodeClient(grpc_server, auth_token="test-token")
+    client = DkodClient(grpc_server, auth_token="test-token")
 
     with client.connect("my-repo", "refactor") as session:
         changes = [
@@ -103,10 +103,10 @@ def test_session_context_invalid_session(grpc_server: str) -> None:
     channel = grpc.insecure_channel(grpc_server)
 
     try:
-        from dekode.models import CodebaseSummary
+        from dkod.models import CodebaseSummary
 
         # Manually construct a session with a bogus session_id.
-        session = DekodeSession(
+        session = DkodSession(
             channel=channel,
             session_id="non-existent-session",
             codebase_version="fake",

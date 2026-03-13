@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 async fn setup_pool() -> PgPool {
     let url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://localhost/dekode_test".to_string());
+        .unwrap_or_else(|_| "postgres://localhost/dkod_test".to_string());
 
     let pool = PgPool::connect(&url)
         .await

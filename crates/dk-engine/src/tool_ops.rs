@@ -647,7 +647,7 @@ impl Engine {
                 self.parser(),
                 commit_message,
                 agent,
-                &format!("{agent}@dekode.dev"),
+                &format!("{agent}@dkod.dev"),
             )?
         };
         drop(git_repo);

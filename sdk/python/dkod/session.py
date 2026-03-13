@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING
 
 import grpc
 
-from dekode._generated.dekode.v1 import agent_pb2, agent_pb2_grpc
-from dekode.models import (
+from dkod._generated.dkod.v1 import agent_pb2, agent_pb2_grpc
+from dkod.models import (
     Change,
     CodebaseSummary,
     ContextDepth,
@@ -20,13 +20,13 @@ if TYPE_CHECKING:
     pass
 
 
-class DekodeSession:
+class DkodSession:
     """Stateful session wrapping Connect/Context/Submit RPCs.
 
-    A session is obtained via :meth:`DekodeClient.connect` and represents an
+    A session is obtained via :meth:`DkodClient.connect` and represents an
     active agent connection to a specific codebase.  It holds the gRPC channel,
     a stub, the server-assigned ``session_id``, the current ``codebase_version``
-    and the initial :class:`~dekode.models.CodebaseSummary`.
+    and the initial :class:`~dkod.models.CodebaseSummary`.
 
     Usage::
 
@@ -61,7 +61,7 @@ class DekodeSession:
         """Search for symbols in the current codebase.
 
         Builds a ``ContextRequest``, calls the ``Context`` RPC on the server,
-        and returns a :class:`~dekode.models.ContextResult` containing matched
+        and returns a :class:`~dkod.models.ContextResult` containing matched
         symbols, call-graph edges, dependencies, and a token estimate.
 
         Parameters
@@ -94,7 +94,7 @@ class DekodeSession:
     def submit(self, changes: list[Change], intent: str) -> SubmitResult:
         """Submit code changes to the server for verification and merge.
 
-        Each :class:`~dekode.models.Change` is serialised via its ``to_proto()``
+        Each :class:`~dkod.models.Change` is serialised via its ``to_proto()``
         method before being sent over gRPC.
 
         Parameters
@@ -168,7 +168,7 @@ class DekodeSession:
         """Close the underlying gRPC channel."""
         self._channel.close()
 
-    def __enter__(self) -> DekodeSession:
+    def __enter__(self) -> DkodSession:
         return self
 
     def __exit__(self, *exc: object) -> None:

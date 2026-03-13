@@ -5,7 +5,7 @@ use crate::error::{Result, SdkError};
 use crate::session::Session;
 use crate::types::ConnectResult;
 
-/// Top-level client for the Dekode Agent Protocol.
+/// Top-level client for the dkod Agent Protocol.
 ///
 /// Use [`AgentClient::connect`] to establish a gRPC channel to the server, then
 /// call [`AgentClient::init`] to create a stateful session for a specific
@@ -16,7 +16,7 @@ pub struct AgentClient {
 }
 
 impl AgentClient {
-    /// Connect to a Dekode Agent Protocol server at the given address.
+    /// Connect to a dkod Agent Protocol server at the given address.
     ///
     /// `addr` should be a full URI such as `"http://localhost:50051"` or
     /// `"https://agent.dkod.io:443"`. TLS is enabled automatically for

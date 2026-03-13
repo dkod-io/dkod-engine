@@ -3,9 +3,9 @@ requires = ["setuptools>=68.0", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "dekode"
+name = "dkod"
 version = "0.1.0"
-description = "Python SDK for the Dekode Agent Protocol"
+description = "Python SDK for the dkod Agent Protocol"
 requires-python = ">=3.11"
 dependencies = [
     "grpcio>=1.62.0",
@@ -25,10 +25,10 @@ anthropic = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["dekode*"]
+include = ["dkod*"]
 
 [tool.setuptools.package-data]
-dekode = ["py.typed"]
+dkod = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
