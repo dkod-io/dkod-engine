@@ -1,9 +1,9 @@
-"""Tests for dekode.models — Pydantic models and enum conversions."""
+"""Tests for dkod.models — Pydantic models and enum conversions."""
 
 from __future__ import annotations
 
-from dekode._generated.dekode.v1 import agent_pb2, types_pb2
-from dekode.models import (
+from dkod._generated.dkod.v1 import agent_pb2, types_pb2
+from dkod.models import (
     CallEdge,
     Change,
     ChangeType,

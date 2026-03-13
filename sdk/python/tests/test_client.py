@@ -1,24 +1,24 @@
-"""Tests for dekode.client — DekodeClient connection logic."""
+"""Tests for dkod.client — DkodClient connection logic."""
 
 from __future__ import annotations
 
 import grpc
 import pytest
 
-from dekode.client import DekodeClient
-from dekode.session import DekodeSession
+from dkod.client import DkodClient
+from dkod.session import DkodSession
 
 
 # ── Connect ──────────────────────────────────────────────────────────
 
 
 def test_client_connect(grpc_server: str) -> None:
-    """DekodeClient.connect returns a DekodeSession with correct fields."""
-    client = DekodeClient(grpc_server, auth_token="test-token")
+    """DkodClient.connect returns a DkodSession with correct fields."""
+    client = DkodClient(grpc_server, auth_token="test-token")
     session = client.connect("my-repo", "explore codebase")
 
     try:
-        assert isinstance(session, DekodeSession)
+        assert isinstance(session, DkodSession)
         assert session.session_id == "mock-session-1"
         assert session.codebase_version == "abc123"
 
@@ -35,7 +35,7 @@ def test_client_connect(grpc_server: str) -> None:
 
 def test_client_connect_invalid_auth(grpc_server: str) -> None:
     """Connect with a wrong token raises UNAUTHENTICATED."""
-    client = DekodeClient(grpc_server, auth_token="bad-token")
+    client = DkodClient(grpc_server, auth_token="bad-token")
 
     with pytest.raises(grpc.RpcError) as exc_info:
         client.connect("my-repo", "explore")
@@ -47,11 +47,11 @@ def test_client_connect_invalid_auth(grpc_server: str) -> None:
 
 
 def test_client_context_manager(grpc_server: str) -> None:
-    """DekodeSession supports the ``with`` statement (context manager)."""
-    client = DekodeClient(grpc_server, auth_token="test-token")
+    """DkodSession supports the ``with`` statement (context manager)."""
+    client = DkodClient(grpc_server, auth_token="test-token")
 
     with client.connect("my-repo", "explore") as session:
-        assert isinstance(session, DekodeSession)
+        assert isinstance(session, DkodSession)
         assert session.session_id == "mock-session-1"
 
     # After exiting the context manager the channel is closed.

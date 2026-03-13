@@ -1,9 +1,9 @@
-"""Dekode Agent SDK — Python client for the Dekode Agent Protocol."""
+"""dkod Agent SDK — Python client for the dkod Agent Protocol."""
 
 __version__ = "0.1.0"
 
-from dekode.client import DekodeClient
-from dekode.models import (
+from dkod.client import DkodClient
+from dkod.models import (
     CallEdge,
     Change,
     ChangeType,
@@ -16,12 +16,12 @@ from dekode.models import (
     SubmitStatus,
     Symbol,
 )
-from dekode.session import DekodeSession
-from dekode.tools import dekode_tools, dispatch_tool
+from dkod.session import DkodSession
+from dkod.tools import dkod_tools, dispatch_tool
 
 __all__ = [
-    "DekodeClient",
-    "DekodeSession",
+    "DkodClient",
+    "DkodSession",
     "Symbol",
     "ContextResult",
     "Change",
@@ -33,6 +33,6 @@ __all__ = [
     "ChangeType",
     "ContextDepth",
     "SubmitStatus",
-    "dekode_tools",
+    "dkod_tools",
     "dispatch_tool",
 ]

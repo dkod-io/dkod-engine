@@ -1,21 +1,21 @@
-"""High-level client for connecting to a Dekode Agent Protocol server."""
+"""High-level client for connecting to a dkod Agent Protocol server."""
 
 from __future__ import annotations
 
 import grpc
 
-from dekode._generated.dekode.v1 import agent_pb2, agent_pb2_grpc
-from dekode.models import CodebaseSummary
-from dekode.session import DekodeSession
+from dkod._generated.dkod.v1 import agent_pb2, agent_pb2_grpc
+from dkod.models import CodebaseSummary
+from dkod.session import DkodSession
 
 
-class DekodeClient:
-    """Entry point for AI agents interacting with a Dekode codebase.
+class DkodClient:
+    """Entry point for AI agents interacting with a dkod codebase.
 
     Create a client with server address and credentials, then call
-    :meth:`connect` to obtain a :class:`~dekode.session.DekodeSession`::
+    :meth:`connect` to obtain a :class:`~dkod.session.DkodSession`::
 
-        client = DekodeClient("localhost:50051", auth_token="tok-abc")
+        client = DkodClient("localhost:50051", auth_token="tok-abc")
         with client.connect("my-repo", "refactor auth module") as session:
             ctx = session.context("login handler")
             ...
@@ -23,7 +23,7 @@ class DekodeClient:
     Parameters
     ----------
     address:
-        ``host:port`` of the Dekode Agent Protocol gRPC server.
+        ``host:port`` of the dkod Agent Protocol gRPC server.
     auth_token:
         Bearer / API token used for authentication.
     agent_id:
@@ -40,11 +40,11 @@ class DekodeClient:
         self._auth_token = auth_token
         self._agent_id = agent_id
 
-    def connect(self, codebase: str, intent: str) -> DekodeSession:
+    def connect(self, codebase: str, intent: str) -> DkodSession:
         """Open a stateful session against *codebase*.
 
         Creates an insecure gRPC channel, sends a ``ConnectRequest``, and
-        returns a :class:`~dekode.session.DekodeSession` that owns the
+        returns a :class:`~dkod.session.DkodSession` that owns the
         channel.  The caller is responsible for closing the session (or using
         it as a context manager).
 
@@ -69,7 +69,7 @@ class DekodeClient:
             intent=intent,
         )
         response = stub.Connect(request)
-        return DekodeSession(
+        return DkodSession(
             channel=channel,
             session_id=response.session_id,
             codebase_version=response.codebase_version,

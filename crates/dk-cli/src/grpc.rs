@@ -57,7 +57,7 @@ pub async fn client_from_session() -> Result<(AuthClient, SessionState)> {
     let state = SessionState::load()?;
     let token = crate::auth::resolve_token(
         &crate::auth::api_base_from_grpc(&state.server),
-        std::env::var("DEKODE_AUTH_TOKEN").ok().as_deref(),
+        std::env::var("DKOD_AUTH_TOKEN").ok().as_deref(),
     )
     .await?;
     let client = connect(&state.server, &token).await?;

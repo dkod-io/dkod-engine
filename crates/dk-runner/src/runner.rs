@@ -113,8 +113,8 @@ impl Runner {
         validate_workflow(&workflow).context("workflow validation failed")?;
 
         let mut env = HashMap::new();
-        env.insert("DEKODE_CHANGESET_ID".to_string(), changeset_id.to_string());
-        env.insert("DEKODE_REPO_ID".to_string(), repo_id.to_string());
+        env.insert("DKOD_CHANGESET_ID".to_string(), changeset_id.to_string());
+        env.insert("DKOD_REPO_ID".to_string(), repo_id.to_string());
 
         let passed = tokio::time::timeout(
             workflow.timeout,
@@ -160,7 +160,7 @@ impl Runner {
         if legacy_toml.exists() {
             tracing::warn!(
                 path = %legacy_toml.display(),
-                "found legacy .dekode/pipeline.toml — this format is no longer loaded; please migrate to .dkod/pipeline.yaml"
+                "found legacy .dekode/pipeline.toml \u{2014} this format is no longer loaded; please migrate to .dkod/pipeline.yaml"
             );
         }
 

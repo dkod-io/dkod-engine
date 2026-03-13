@@ -6,7 +6,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_client(true)
         .build_transport(false)
         .compile_protos(
-            &[proto_root.join("dekode/v1/agent.proto")],
+            &[proto_root.join("dkod/v1/agent.proto")],
             &[proto_root],
         )?;
     Ok(())

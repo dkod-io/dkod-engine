@@ -1,7 +1,7 @@
 syntax = "proto3";
-package dekode.v1;
+package dkod.v1;
 
-import "dekode/v1/types.proto";
+import "dkod/v1/types.proto";
 
 service AgentService {
   rpc Connect(ConnectRequest) returns (ConnectResponse);

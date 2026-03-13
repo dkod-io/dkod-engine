@@ -7,7 +7,7 @@ from concurrent import futures
 import grpc
 import pytest
 
-from dekode._generated.dekode.v1 import agent_pb2, agent_pb2_grpc, types_pb2
+from dkod._generated.dkod.v1 import agent_pb2, agent_pb2_grpc, types_pb2
 
 
 @pytest.fixture()
@@ -118,7 +118,7 @@ def make_connect_response_proto() -> agent_pb2.ConnectResponse:
 
 
 class FakeAgentServicer(agent_pb2_grpc.AgentServiceServicer):
-    """In-process mock of the Dekode Agent gRPC service."""
+    """In-process mock of the dkod Agent gRPC service."""
 
     VALID_TOKEN = "test-token"
     _MOCK_SESSION = "mock-session-1"

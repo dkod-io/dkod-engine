@@ -73,7 +73,7 @@ pub async fn handle_merge(
         engine.parser(),
         &req.commit_message,
         agent,
-        &format!("{}@dekode.dev", agent),
+        &format!("{}@dkod.dev", agent),
     )
     .map_err(|e| Status::internal(format!("merge failed: {e}")))?;
 

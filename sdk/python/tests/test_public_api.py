@@ -1,31 +1,31 @@
-"""Tests for the dekode package public API and re-exports."""
+"""Tests for the dkod package public API and re-exports."""
 
-import dekode
+import dkod
 
 
 def test_public_imports():
     """All 15 public names are importable from the top-level package."""
-    from dekode import (
+    from dkod import (
         CallEdge,
         Change,
         ChangeType,
         CodebaseSummary,
         ContextDepth,
         ContextResult,
-        DekodeClient,
-        DekodeSession,
+        DkodClient,
+        DkodSession,
         Dependency,
         SubmitError,
         SubmitResult,
         SubmitStatus,
         Symbol,
-        dekode_tools,
+        dkod_tools,
         dispatch_tool,
     )
 
     public_names = [
-        DekodeClient,
-        DekodeSession,
+        DkodClient,
+        DkodSession,
         Symbol,
         ContextResult,
         Change,
@@ -37,7 +37,7 @@ def test_public_imports():
         ChangeType,
         ContextDepth,
         SubmitStatus,
-        dekode_tools,
+        dkod_tools,
         dispatch_tool,
     ]
     for name in public_names:
@@ -46,4 +46,4 @@ def test_public_imports():
 
 def test_version():
     """Package exposes __version__ == '0.1.0'."""
-    assert dekode.__version__ == "0.1.0"
+    assert dkod.__version__ == "0.1.0"

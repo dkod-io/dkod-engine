@@ -1,14 +1,14 @@
 #![allow(clippy::new_without_default, clippy::result_large_err)]
 
 pub mod proto {
-    pub mod dekode {
+    pub mod dkod {
         pub mod v1 {
-            tonic::include_proto!("dekode.v1");
+            tonic::include_proto!("dkod.v1");
         }
     }
 }
 
-pub use proto::dekode::v1::*;
+pub use proto::dkod::v1::*;
 
 pub mod auth;
 pub mod connect;

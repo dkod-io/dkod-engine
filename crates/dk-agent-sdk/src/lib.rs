@@ -1,10 +1,10 @@
 //! # dk-agent-sdk
 //!
-//! Typed Rust client for the Dekode Agent Protocol.
+//! Typed Rust client for the dkod Agent Protocol.
 //!
 //! This crate wraps the tonic-generated gRPC client from `dk-protocol` and
 //! provides a clean, session-oriented API for AI agents to interact with a
-//! Dekode server.
+//! dkod server.
 //!
 //! ## Quick start
 //!

@@ -11,7 +11,7 @@ use sqlx::PgPool;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
-#[command(name = "dk-server", about = "Dekode Reference Server — engine + Agent Protocol")]
+#[command(name = "dk-server", about = "dkod Reference Server — engine + Agent Protocol")]
 struct Cli {
     /// PostgreSQL connection string
     #[arg(long, env = "DATABASE_URL")]

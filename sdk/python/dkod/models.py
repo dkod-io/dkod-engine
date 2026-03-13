@@ -1,4 +1,4 @@
-"""Pydantic models and enums wrapping the Dekode Agent Protocol protobuf types.
+"""Pydantic models and enums wrapping the dkod Agent Protocol protobuf types.
 
 Each model provides a ``from_proto()`` (or ``from_symbol_result()``) classmethod
 for converting *from* protobuf messages, and ``Change`` additionally exposes a
@@ -12,7 +12,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from dekode._generated.dekode.v1 import agent_pb2, types_pb2
+from dkod._generated.dkod.v1 import agent_pb2, types_pb2
 
 # ---------------------------------------------------------------------------
 # Enums

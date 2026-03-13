@@ -38,7 +38,7 @@ cargo run --bin dk-server -- --database-url postgres://localhost/dkod --auth-tok
 cargo test --workspace
 
 # With database
-DATABASE_URL=postgres://localhost/dekode_test cargo test --workspace
+DATABASE_URL=postgres://localhost/dkod_test cargo test --workspace
 ```
 
 ## License

@@ -27,10 +27,10 @@ impl ClaudeReviewProvider {
     }
 
     pub fn from_env() -> Option<Self> {
-        let api_key = std::env::var("DEKODE_REVIEW_API_KEY")
+        let api_key = std::env::var("DKOD_REVIEW_API_KEY")
             .or_else(|_| std::env::var("ANTHROPIC_API_KEY"))
             .ok()?;
-        let model = std::env::var("DEKODE_REVIEW_MODEL").ok();
+        let model = std::env::var("DKOD_REVIEW_MODEL").ok();
         Self::new(api_key, model, None).ok()
     }
 }

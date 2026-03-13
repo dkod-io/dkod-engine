@@ -16,7 +16,7 @@ use crate::config::Config;
 
 #[derive(Subcommand)]
 pub enum AgentAction {
-    /// Connect to a Dekode server and start an agent session
+    /// Connect to a dkod server and start an agent session
     Connect {
         /// gRPC server address
         #[arg(long, default_value = "http://[::1]:50051")]

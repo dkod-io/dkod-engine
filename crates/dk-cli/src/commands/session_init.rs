@@ -8,7 +8,7 @@ use crate::session::SessionState;
 
 pub async fn run(out: Output, server: &str, repo: &str, intent: &str) -> Result<()> {
     let api_base = auth::api_base_from_grpc(server);
-    let env_token = std::env::var("DEKODE_AUTH_TOKEN").ok();
+    let env_token = std::env::var("DKOD_AUTH_TOKEN").ok();
     let token = auth::resolve_token(&api_base, env_token.as_deref()).await?;
 
     let mut client = grpc::connect(server, &token)
