@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-from dkod._generated.dkod.v1 import agent_pb2 as dekode_dot_v1_dot_agent__pb2
+from dkod._generated.dkod.v1 import agent_pb2 as dkod_dot_v1_dot_agent__pb2
 
 GRPC_GENERATED_VERSION = '1.78.0'
 GRPC_VERSION = grpc.__version__
