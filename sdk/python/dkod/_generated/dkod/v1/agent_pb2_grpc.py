@@ -35,19 +35,59 @@ class AgentServiceStub(object):
             channel: A grpc.Channel.
         """
         self.Connect = channel.unary_unary(
-                '/dekode.v1.AgentService/Connect',
-                request_serializer=dekode_dot_v1_dot_agent__pb2.ConnectRequest.SerializeToString,
-                response_deserializer=dekode_dot_v1_dot_agent__pb2.ConnectResponse.FromString,
+                '/dkod.v1.AgentService/Connect',
+                request_serializer=dkod_dot_v1_dot_agent__pb2.ConnectRequest.SerializeToString,
+                response_deserializer=dkod_dot_v1_dot_agent__pb2.ConnectResponse.FromString,
                 _registered_method=True)
         self.Context = channel.unary_unary(
-                '/dekode.v1.AgentService/Context',
-                request_serializer=dekode_dot_v1_dot_agent__pb2.ContextRequest.SerializeToString,
-                response_deserializer=dekode_dot_v1_dot_agent__pb2.ContextResponse.FromString,
+                '/dkod.v1.AgentService/Context',
+                request_serializer=dkod_dot_v1_dot_agent__pb2.ContextRequest.SerializeToString,
+                response_deserializer=dkod_dot_v1_dot_agent__pb2.ContextResponse.FromString,
                 _registered_method=True)
         self.Submit = channel.unary_unary(
-                '/dekode.v1.AgentService/Submit',
-                request_serializer=dekode_dot_v1_dot_agent__pb2.SubmitRequest.SerializeToString,
-                response_deserializer=dekode_dot_v1_dot_agent__pb2.SubmitResponse.FromString,
+                '/dkod.v1.AgentService/Submit',
+                request_serializer=dkod_dot_v1_dot_agent__pb2.SubmitRequest.SerializeToString,
+                response_deserializer=dkod_dot_v1_dot_agent__pb2.SubmitResponse.FromString,
+                _registered_method=True)
+        self.Verify = channel.unary_stream(
+                '/dkod.v1.AgentService/Verify',
+                request_serializer=dkod_dot_v1_dot_agent__pb2.VerifyRequest.SerializeToString,
+                response_deserializer=dkod_dot_v1_dot_agent__pb2.VerifyStepResult.FromString,
+                _registered_method=True)
+        self.Merge = channel.unary_unary(
+                '/dkod.v1.AgentService/Merge',
+                request_serializer=dkod_dot_v1_dot_agent__pb2.MergeRequest.SerializeToString,
+                response_deserializer=dkod_dot_v1_dot_agent__pb2.MergeResponse.FromString,
+                _registered_method=True)
+        self.Watch = channel.unary_stream(
+                '/dkod.v1.AgentService/Watch',
+                request_serializer=dkod_dot_v1_dot_agent__pb2.WatchRequest.SerializeToString,
+                response_deserializer=dkod_dot_v1_dot_agent__pb2.WatchEvent.FromString,
+                _registered_method=True)
+        self.FileRead = channel.unary_unary(
+                '/dkod.v1.AgentService/FileRead',
+                request_serializer=dkod_dot_v1_dot_agent__pb2.FileReadRequest.SerializeToString,
+                response_deserializer=dkod_dot_v1_dot_agent__pb2.FileReadResponse.FromString,
+                _registered_method=True)
+        self.FileWrite = channel.unary_unary(
+                '/dkod.v1.AgentService/FileWrite',
+                request_serializer=dkod_dot_v1_dot_agent__pb2.FileWriteRequest.SerializeToString,
+                response_deserializer=dkod_dot_v1_dot_agent__pb2.FileWriteResponse.FromString,
+                _registered_method=True)
+        self.FileList = channel.unary_unary(
+                '/dkod.v1.AgentService/FileList',
+                request_serializer=dkod_dot_v1_dot_agent__pb2.FileListRequest.SerializeToString,
+                response_deserializer=dkod_dot_v1_dot_agent__pb2.FileListResponse.FromString,
+                _registered_method=True)
+        self.PreSubmitCheck = channel.unary_unary(
+                '/dkod.v1.AgentService/PreSubmitCheck',
+                request_serializer=dkod_dot_v1_dot_agent__pb2.PreSubmitCheckRequest.SerializeToString,
+                response_deserializer=dkod_dot_v1_dot_agent__pb2.PreSubmitCheckResponse.FromString,
+                _registered_method=True)
+        self.GetSessionStatus = channel.unary_unary(
+                '/dkod.v1.AgentService/GetSessionStatus',
+                request_serializer=dkod_dot_v1_dot_agent__pb2.SessionStatusRequest.SerializeToString,
+                response_deserializer=dkod_dot_v1_dot_agent__pb2.SessionStatusResponse.FromString,
                 _registered_method=True)
 
 
@@ -72,29 +112,123 @@ class AgentServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def Verify(self, request, context):
+        """Trigger verification pipeline on a changeset (server-streaming)
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Merge(self, request, context):
+        """Merge an approved changeset into a Git commit
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Watch(self, request, context):
+        """Watch for repo events from other agents (server-streaming)
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def FileRead(self, request, context):
+        """File-level operations through the session workspace overlay
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def FileWrite(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def FileList(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def PreSubmitCheck(self, request, context):
+        """Dry-run conflict detection before SUBMIT
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetSessionStatus(self, request, context):
+        """Get current session workspace state
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_AgentServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'Connect': grpc.unary_unary_rpc_method_handler(
                     servicer.Connect,
-                    request_deserializer=dekode_dot_v1_dot_agent__pb2.ConnectRequest.FromString,
-                    response_serializer=dekode_dot_v1_dot_agent__pb2.ConnectResponse.SerializeToString,
+                    request_deserializer=dkod_dot_v1_dot_agent__pb2.ConnectRequest.FromString,
+                    response_serializer=dkod_dot_v1_dot_agent__pb2.ConnectResponse.SerializeToString,
             ),
             'Context': grpc.unary_unary_rpc_method_handler(
                     servicer.Context,
-                    request_deserializer=dekode_dot_v1_dot_agent__pb2.ContextRequest.FromString,
-                    response_serializer=dekode_dot_v1_dot_agent__pb2.ContextResponse.SerializeToString,
+                    request_deserializer=dkod_dot_v1_dot_agent__pb2.ContextRequest.FromString,
+                    response_serializer=dkod_dot_v1_dot_agent__pb2.ContextResponse.SerializeToString,
             ),
             'Submit': grpc.unary_unary_rpc_method_handler(
                     servicer.Submit,
-                    request_deserializer=dekode_dot_v1_dot_agent__pb2.SubmitRequest.FromString,
-                    response_serializer=dekode_dot_v1_dot_agent__pb2.SubmitResponse.SerializeToString,
+                    request_deserializer=dkod_dot_v1_dot_agent__pb2.SubmitRequest.FromString,
+                    response_serializer=dkod_dot_v1_dot_agent__pb2.SubmitResponse.SerializeToString,
+            ),
+            'Verify': grpc.unary_stream_rpc_method_handler(
+                    servicer.Verify,
+                    request_deserializer=dkod_dot_v1_dot_agent__pb2.VerifyRequest.FromString,
+                    response_serializer=dkod_dot_v1_dot_agent__pb2.VerifyStepResult.SerializeToString,
+            ),
+            'Merge': grpc.unary_unary_rpc_method_handler(
+                    servicer.Merge,
+                    request_deserializer=dkod_dot_v1_dot_agent__pb2.MergeRequest.FromString,
+                    response_serializer=dkod_dot_v1_dot_agent__pb2.MergeResponse.SerializeToString,
+            ),
+            'Watch': grpc.unary_stream_rpc_method_handler(
+                    servicer.Watch,
+                    request_deserializer=dkod_dot_v1_dot_agent__pb2.WatchRequest.FromString,
+                    response_serializer=dkod_dot_v1_dot_agent__pb2.WatchEvent.SerializeToString,
+            ),
+            'FileRead': grpc.unary_unary_rpc_method_handler(
+                    servicer.FileRead,
+                    request_deserializer=dkod_dot_v1_dot_agent__pb2.FileReadRequest.FromString,
+                    response_serializer=dkod_dot_v1_dot_agent__pb2.FileReadResponse.SerializeToString,
+            ),
+            'FileWrite': grpc.unary_unary_rpc_method_handler(
+                    servicer.FileWrite,
+                    request_deserializer=dkod_dot_v1_dot_agent__pb2.FileWriteRequest.FromString,
+                    response_serializer=dkod_dot_v1_dot_agent__pb2.FileWriteResponse.SerializeToString,
+            ),
+            'FileList': grpc.unary_unary_rpc_method_handler(
+                    servicer.FileList,
+                    request_deserializer=dkod_dot_v1_dot_agent__pb2.FileListRequest.FromString,
+                    response_serializer=dkod_dot_v1_dot_agent__pb2.FileListResponse.SerializeToString,
+            ),
+            'PreSubmitCheck': grpc.unary_unary_rpc_method_handler(
+                    servicer.PreSubmitCheck,
+                    request_deserializer=dkod_dot_v1_dot_agent__pb2.PreSubmitCheckRequest.FromString,
+                    response_serializer=dkod_dot_v1_dot_agent__pb2.PreSubmitCheckResponse.SerializeToString,
+            ),
+            'GetSessionStatus': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetSessionStatus,
+                    request_deserializer=dkod_dot_v1_dot_agent__pb2.SessionStatusRequest.FromString,
+                    response_serializer=dkod_dot_v1_dot_agent__pb2.SessionStatusResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-            'dekode.v1.AgentService', rpc_method_handlers)
+            'dkod.v1.AgentService', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
-    server.add_registered_method_handlers('dekode.v1.AgentService', rpc_method_handlers)
+    server.add_registered_method_handlers('dkod.v1.AgentService', rpc_method_handlers)
 
 
  # This class is part of an EXPERIMENTAL API.
@@ -115,9 +249,9 @@ class AgentService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/dekode.v1.AgentService/Connect',
-            dekode_dot_v1_dot_agent__pb2.ConnectRequest.SerializeToString,
-            dekode_dot_v1_dot_agent__pb2.ConnectResponse.FromString,
+            '/dkod.v1.AgentService/Connect',
+            dkod_dot_v1_dot_agent__pb2.ConnectRequest.SerializeToString,
+            dkod_dot_v1_dot_agent__pb2.ConnectResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -142,9 +276,9 @@ class AgentService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/dekode.v1.AgentService/Context',
-            dekode_dot_v1_dot_agent__pb2.ContextRequest.SerializeToString,
-            dekode_dot_v1_dot_agent__pb2.ContextResponse.FromString,
+            '/dkod.v1.AgentService/Context',
+            dkod_dot_v1_dot_agent__pb2.ContextRequest.SerializeToString,
+            dkod_dot_v1_dot_agent__pb2.ContextResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -169,9 +303,225 @@ class AgentService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/dekode.v1.AgentService/Submit',
-            dekode_dot_v1_dot_agent__pb2.SubmitRequest.SerializeToString,
-            dekode_dot_v1_dot_agent__pb2.SubmitResponse.FromString,
+            '/dkod.v1.AgentService/Submit',
+            dkod_dot_v1_dot_agent__pb2.SubmitRequest.SerializeToString,
+            dkod_dot_v1_dot_agent__pb2.SubmitResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Verify(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/dkod.v1.AgentService/Verify',
+            dkod_dot_v1_dot_agent__pb2.VerifyRequest.SerializeToString,
+            dkod_dot_v1_dot_agent__pb2.VerifyStepResult.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Merge(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dkod.v1.AgentService/Merge',
+            dkod_dot_v1_dot_agent__pb2.MergeRequest.SerializeToString,
+            dkod_dot_v1_dot_agent__pb2.MergeResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Watch(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/dkod.v1.AgentService/Watch',
+            dkod_dot_v1_dot_agent__pb2.WatchRequest.SerializeToString,
+            dkod_dot_v1_dot_agent__pb2.WatchEvent.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def FileRead(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dkod.v1.AgentService/FileRead',
+            dkod_dot_v1_dot_agent__pb2.FileReadRequest.SerializeToString,
+            dkod_dot_v1_dot_agent__pb2.FileReadResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def FileWrite(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dkod.v1.AgentService/FileWrite',
+            dkod_dot_v1_dot_agent__pb2.FileWriteRequest.SerializeToString,
+            dkod_dot_v1_dot_agent__pb2.FileWriteResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def FileList(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dkod.v1.AgentService/FileList',
+            dkod_dot_v1_dot_agent__pb2.FileListRequest.SerializeToString,
+            dkod_dot_v1_dot_agent__pb2.FileListResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def PreSubmitCheck(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dkod.v1.AgentService/PreSubmitCheck',
+            dkod_dot_v1_dot_agent__pb2.PreSubmitCheckRequest.SerializeToString,
+            dkod_dot_v1_dot_agent__pb2.PreSubmitCheckResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetSessionStatus(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dkod.v1.AgentService/GetSessionStatus',
+            dkod_dot_v1_dot_agent__pb2.SessionStatusRequest.SerializeToString,
+            dkod_dot_v1_dot_agent__pb2.SessionStatusResponse.FromString,
             options,
             channel_credentials,
             insecure,
