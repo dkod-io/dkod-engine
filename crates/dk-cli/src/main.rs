@@ -43,8 +43,8 @@ struct Cli {
 enum Commands {
     /// Open a session on a dkod codebase
     Init {
-        /// Repository name
-        repo: String,
+        /// Repository name (auto-detected from git remote if omitted)
+        repo: Option<String>,
         /// Session intent description
         #[arg(long, default_value = "interactive session")]
         intent: String,
@@ -299,7 +299,7 @@ fn main() -> Result<()> {
     match cli.command {
         // ── Agent Protocol commands (async) ──────────────────
         Commands::Init { repo, intent } => {
-            run_async(commands::session_init::run(out, &server, &repo, &intent))
+            run_async(commands::session_init::run(out, &server, repo.as_deref(), &intent))
         }
         Commands::Search { query, depth, max_tokens } => {
             run_async(commands::session_search::run(out, &query, &depth, max_tokens))
