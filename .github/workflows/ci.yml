@@ -252,7 +252,7 @@ jobs:
           VERSION="${{ needs.version.outputs.version }}"
           VERSION="${VERSION#v}"  # strip leading v
           echo "Setting workspace version to $VERSION"
-          cargo install cargo-edit --features vendored-openssl
+          cargo install cargo-edit
           cargo set-version --workspace "$VERSION"
       - name: Publish crates in dependency order
         env:
