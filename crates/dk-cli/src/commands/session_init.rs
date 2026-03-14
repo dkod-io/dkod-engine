@@ -6,7 +6,30 @@ use crate::grpc;
 use crate::output::Output;
 use crate::session::SessionState;
 
-pub async fn run(out: Output, server: &str, repo: &str, intent: &str) -> Result<()> {
+pub async fn run(out: Output, server: &str, repo: Option<&str>, intent: &str) -> Result<()> {
+    let repo = match repo {
+        Some(r) => r.to_string(),
+        None => {
+            // Auto-detect from git remote
+            let output = std::process::Command::new("git")
+                .args(["config", "--get", "remote.origin.url"])
+                .output()
+                .context("failed to run git — are you inside a git repository?")?;
+
+            if !output.status.success() {
+                anyhow::bail!(
+                    "no repository specified and no git remote found.\n\
+                     Usage: dk init <owner/repo>\n\
+                     Or run inside a git repository with an origin remote."
+                );
+            }
+
+            let remote_url = String::from_utf8_lossy(&output.stdout);
+            crate::util::repo_name_from_remote(remote_url.trim())
+                .context("could not parse repository name from git remote URL")?
+        }
+    };
+
     let api_base = auth::api_base_from_grpc(server);
     let env_token = std::env::var("DKOD_AUTH_TOKEN").ok();
     let token = auth::resolve_token(&api_base, env_token.as_deref()).await?;
@@ -19,7 +42,7 @@ pub async fn run(out: Output, server: &str, repo: &str, intent: &str) -> Result<
         .connect(dk_protocol::ConnectRequest {
             agent_id: format!("dk-cli-{}", std::process::id()),
             auth_token: token,
-            codebase: repo.to_string(),
+            codebase: repo.clone(),
             intent: intent.to_string(),
             workspace_config: None,
             agent_name: String::new(),
@@ -30,7 +53,7 @@ pub async fn run(out: Output, server: &str, repo: &str, intent: &str) -> Result<
 
     let state = SessionState {
         server: server.to_string(),
-        repo: repo.to_string(),
+        repo: repo.clone(),
         session_id: resp.session_id.clone(),
         changeset_id: resp.changeset_id.clone(),
         workspace_id: String::new(),
