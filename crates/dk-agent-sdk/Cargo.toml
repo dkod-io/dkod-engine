@@ -10,7 +10,7 @@ keywords = ["ai", "agents", "sdk", "code"]
 categories = ["development-tools"]
 
 [dependencies]
-dk-protocol = { path = "../dk-protocol", version = "0.1.0" }
+dk-protocol = { workspace = true }
 tonic = { version = "0.12", features = ["transport", "tls", "tls-webpki-roots"] }
 tokio = { workspace = true }
 tokio-stream = "0.1"
