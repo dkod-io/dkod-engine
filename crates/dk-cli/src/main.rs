@@ -17,7 +17,7 @@ use output::Output;
 const DEFAULT_SERVER: &str = "https://agent.dkod.io:443";
 
 #[derive(Parser)]
-#[command(name = "dk", about = "dkod CLI — agent-native code platform")]
+#[command(name = "dk", about = "dkod CLI — agent-native code platform", version)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
