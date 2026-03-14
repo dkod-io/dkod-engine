@@ -37,7 +37,12 @@ Tests that need Postgres: `DATABASE_URL=postgres://dkod:dkod@localhost:5432/dkod
 
 ## Proto
 
-Definitions live in `proto/dkod/v1/`. Generated Rust code is in `dk-protocol`.
+Canonical definitions live in `proto/dkod/v1/`. A copy exists at
+`crates/dk-protocol/proto/dkod/v1/` for crates.io packaging (so the crate is
+self-contained). **Both directories must stay in sync** — CI runs `diff -r` and
+fails if they diverge. When editing proto files, update the canonical source in
+`proto/dkod/v1/` and copy to `crates/dk-protocol/proto/dkod/v1/`.
+Generated Rust code is in `dk-protocol`.
 Protobuf compiler (`protoc`) is required at build time.
 
 ## CI

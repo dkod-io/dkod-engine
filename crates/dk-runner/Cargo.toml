@@ -2,6 +2,12 @@
 name = "dk-runner"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "dkod verification runner — CI/CD pipeline execution"
+homepage = "https://dkod.io"
+keywords = ["ai", "agents", "code", "ci"]
+categories = ["development-tools"]
 
 [dependencies]
 dk-core.workspace = true

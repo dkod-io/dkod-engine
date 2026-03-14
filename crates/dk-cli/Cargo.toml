@@ -28,8 +28,8 @@ ignore = "0.4"
 urlencoding = "2"
 walkdir = "2"
 rpassword = "7"
-dk-agent-sdk = { path = "../dk-agent-sdk", version = "0.1.0" }
-dk-protocol = { path = "../dk-protocol", version = "0.1.0" }
+dk-agent-sdk.workspace = true
+dk-protocol.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread"] }
 tokio-stream = "0.1"
 tonic = { version = "0.12", features = ["transport", "tls", "tls-webpki-roots"] }

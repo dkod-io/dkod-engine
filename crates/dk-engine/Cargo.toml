@@ -2,6 +2,12 @@
 name = "dk-engine"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "dkod code analysis engine — semantic parsing, indexing, and search"
+homepage = "https://dkod.io"
+keywords = ["ai", "agents", "code", "semantic"]
+categories = ["development-tools"]
 
 [dependencies]
 dk-core.workspace = true
