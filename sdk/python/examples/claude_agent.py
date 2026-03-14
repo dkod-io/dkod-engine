@@ -38,7 +38,7 @@ def main() -> None:
 
     # Set up Claude
     anthropic = Anthropic()
-    tools = dkod_tools(session)
+    tools = dkod_tools()
     messages: list[dict] = [{"role": "user", "content": args.task}]
 
     system_prompt = (
