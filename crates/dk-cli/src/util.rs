@@ -42,16 +42,26 @@ pub fn repo_name_from_remote(url: &str) -> Option<String> {
         let path = path.split_once(':')?.1;
         let parts: Vec<&str> = path.split('/').collect();
         if parts.len() >= 2 {
-            return Some(format!("{}/{}", parts[parts.len() - 2], parts[parts.len() - 1]));
+            let owner = parts[parts.len() - 2];
+            let repo = parts[parts.len() - 1];
+            if !owner.is_empty() && !repo.is_empty() {
+                return Some(format!("{owner}/{repo}"));
+            }
         }
     }
 
     // URL with scheme (https://, ssh://, git://): require "://" to avoid matching
     // local file paths or other non-URL strings.
+    // A valid URL splits as: ["scheme:", "", "host", ..., "owner", "repo"]
+    // so we need at least 5 parts to have both owner and repo segments.
     if url.contains("://") {
         let parts: Vec<&str> = url.split('/').collect();
-        if parts.len() >= 2 {
-            return Some(format!("{}/{}", parts[parts.len() - 2], parts[parts.len() - 1]));
+        if parts.len() >= 5 {
+            let owner = parts[parts.len() - 2];
+            let repo = parts[parts.len() - 1];
+            if !owner.is_empty() && !repo.is_empty() {
+                return Some(format!("{owner}/{repo}"));
+            }
         }
     }
 
@@ -172,5 +182,17 @@ mod tests {
             repo_name_from_remote("git://github.com/owner/repo.git"),
             Some("owner/repo".to_string()),
         );
+    }
+
+    #[test]
+    fn rejects_https_host_only() {
+        // No path segments — must return None, not "/github.com".
+        assert_eq!(repo_name_from_remote("https://github.com"), None);
+    }
+
+    #[test]
+    fn rejects_https_single_path_segment() {
+        // Only one path segment — must return None, not "github.com/owner".
+        assert_eq!(repo_name_from_remote("https://github.com/owner"), None);
     }
 }
