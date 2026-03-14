@@ -32,7 +32,7 @@ pub fn remote_origin_url() -> Result<String> {
 /// - SSH explicit: `ssh://git@github.com/owner/repo.git` → `owner/repo`
 /// - HTTPS: `https://github.com/owner/repo.git` → `owner/repo`
 ///
-/// Returns `None` for unrecognised formats (local paths, bare names, etc.).
+/// Returns `None` for unrecognised formats (local paths, bare names, `file://`, etc.).
 pub fn repo_name_from_remote(url: &str) -> Option<String> {
     // Strip trailing slash first so `.git` suffix is always visible to the next step.
     let url = url.trim().trim_end_matches('/').trim_end_matches(".git");
@@ -53,11 +53,16 @@ pub fn repo_name_from_remote(url: &str) -> Option<String> {
         }
     }
 
-    // URL with scheme (https://, ssh://, git://): require "://" to avoid matching
-    // local file paths or other non-URL strings.
-    // A valid URL splits as: ["scheme:", "", "host", ..., "owner", "repo"]
-    // so we need at least 5 parts to have both owner and repo segments.
-    if url.contains("://") {
+    // URL with a well-known remote scheme. Only accept protocols that indicate
+    // a remote host; reject file:// and other local/exotic schemes.
+    let is_remote_scheme = url.starts_with("https://")
+        || url.starts_with("http://")
+        || url.starts_with("ssh://")
+        || url.starts_with("git://");
+
+    if is_remote_scheme {
+        // A valid URL splits as: ["scheme:", "", "host", ..., "owner", "repo"]
+        // so we need at least 5 parts to have both owner and repo segments.
         let parts: Vec<&str> = url.split('/').collect();
         if parts.len() >= 5 {
             let owner = parts[parts.len() - 2];
@@ -152,7 +157,6 @@ mod tests {
 
     #[test]
     fn rejects_bare_slash_string() {
-        // "foo/bar" has no scheme — must return None.
         assert_eq!(repo_name_from_remote("foo/bar"), None);
     }
 
@@ -189,19 +193,33 @@ mod tests {
 
     #[test]
     fn rejects_https_host_only() {
-        // No path segments — must return None, not "/github.com".
         assert_eq!(repo_name_from_remote("https://github.com"), None);
     }
 
     #[test]
     fn rejects_https_single_path_segment() {
-        // Only one path segment — must return None, not "github.com/owner".
         assert_eq!(repo_name_from_remote("https://github.com/owner"), None);
     }
 
     #[test]
     fn ssh_malformed_no_colon_falls_through() {
-        // Malformed SSH-like URL without colon should return None (not early-exit).
         assert_eq!(repo_name_from_remote("git@github.com/owner/repo"), None);
+    }
+
+    #[test]
+    fn rejects_file_protocol() {
+        // file:// is a local path, not a remote — must return None.
+        assert_eq!(
+            repo_name_from_remote("file:///home/user/repos/myrepo.git"),
+            None,
+        );
+    }
+
+    #[test]
+    fn http_protocol() {
+        assert_eq!(
+            repo_name_from_remote("http://github.com/owner/repo.git"),
+            Some("owner/repo".to_string()),
+        );
     }
 }
