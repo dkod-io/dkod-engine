@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use gix::bstr::ByteSlice;
 
 /// Discover a git repository by walking up from the given directory.
 pub fn discover_repo(path: &Path) -> Result<gix::Repository> {
@@ -17,7 +18,11 @@ pub fn remote_origin_url() -> Result<String> {
     let url = remote
         .url(gix::remote::Direction::Fetch)
         .context("origin remote has no URL")?;
-    Ok(url.to_bstring().to_string())
+    Ok(url
+        .to_bstring()
+        .to_str()
+        .context("origin remote URL is not valid UTF-8")?
+        .to_string())
 }
 
 /// Extract `owner/repo` from a git remote URL.
@@ -29,7 +34,8 @@ pub fn remote_origin_url() -> Result<String> {
 ///
 /// Returns `None` for unrecognised formats (local paths, bare names, etc.).
 pub fn repo_name_from_remote(url: &str) -> Option<String> {
-    let url = url.trim().trim_end_matches(".git").trim_end_matches('/');
+    // Strip trailing slash first so `.git` suffix is always visible to the next step.
+    let url = url.trim().trim_end_matches('/').trim_end_matches(".git");
 
     // SSH shorthand: git@github.com:owner/repo
     if let Some(path) = url.strip_prefix("git@") {
@@ -76,6 +82,15 @@ mod tests {
     fn https_trailing_slash() {
         assert_eq!(
             repo_name_from_remote("https://github.com/owner/repo/"),
+            Some("owner/repo".to_string()),
+        );
+    }
+
+    #[test]
+    fn https_dot_git_trailing_slash() {
+        // ".git/" — trailing slash after .git suffix must still strip correctly.
+        assert_eq!(
+            repo_name_from_remote("https://github.com/owner/repo.git/"),
             Some("owner/repo".to_string()),
         );
     }
