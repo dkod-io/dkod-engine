@@ -251,6 +251,11 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
+          # Validate token is configured before attempting any publishes
+          if [ -z "$CARGO_REGISTRY_TOKEN" ]; then
+            echo "::error::CARGO_REGISTRY_TOKEN secret is not set"
+            exit 1
+          fi
           publish_crate() {
             local crate=$1
             local version
@@ -282,9 +287,9 @@ jobs:
 
           # Dependency order: dk-core has no internal deps, each subsequent
           # crate depends on the ones published before it.
-          publish_crate dk-core
-          publish_crate dk-engine
-          publish_crate dk-runner
-          publish_crate dk-protocol
-          publish_crate dk-agent-sdk
-          publish_crate dk-cli
+          publish_crate dk-core \
+            && publish_crate dk-engine \
+            && publish_crate dk-runner \
+            && publish_crate dk-protocol \
+            && publish_crate dk-agent-sdk \
+            && publish_crate dk-cli
