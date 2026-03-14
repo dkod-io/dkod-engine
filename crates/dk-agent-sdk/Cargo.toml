@@ -2,9 +2,15 @@
 name = "dk-agent-sdk"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "dkod Agent SDK — connect AI agents to the dkod platform"
+homepage = "https://dkod.io"
+keywords = ["ai", "agents", "sdk", "code"]
+categories = ["development-tools"]
 
 [dependencies]
-dk-protocol = { path = "../dk-protocol" }
+dk-protocol = { path = "../dk-protocol", version = "0.1.0" }
 tonic = { version = "0.12", features = ["transport", "tls", "tls-webpki-roots"] }
 tokio = { workspace = true }
 tokio-stream = "0.1"
