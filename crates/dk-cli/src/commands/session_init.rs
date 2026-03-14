@@ -10,22 +10,13 @@ pub async fn run(out: Output, server: &str, repo: Option<&str>, intent: &str) ->
     let repo = match repo {
         Some(r) => r.to_string(),
         None => {
-            // Auto-detect from git remote
-            let output = std::process::Command::new("git")
-                .args(["config", "--get", "remote.origin.url"])
-                .output()
-                .context("failed to run git — are you inside a git repository?")?;
-
-            if !output.status.success() {
-                anyhow::bail!(
-                    "no repository specified and no git remote found.\n\
-                     Usage: dk init <owner/repo>\n\
-                     Or run inside a git repository with an origin remote."
-                );
-            }
-
-            let remote_url = String::from_utf8_lossy(&output.stdout);
-            crate::util::repo_name_from_remote(remote_url.trim())
+            // Auto-detect from git remote using gix (no git binary required)
+            let remote_url = crate::util::remote_origin_url().context(
+                "no repository specified and no git remote found.\n\
+                 Usage: dk init <owner/repo>\n\
+                 Or run inside a git repository with an origin remote.",
+            )?;
+            crate::util::repo_name_from_remote(&remote_url)
                 .context("could not parse repository name from git remote URL")?
         }
     };
