@@ -38,14 +38,17 @@ pub fn repo_name_from_remote(url: &str) -> Option<String> {
     let url = url.trim().trim_end_matches('/').trim_end_matches(".git");
 
     // SSH shorthand: git@github.com:owner/repo
+    // Use nested `if let` instead of `?` so that a missing colon falls through
+    // to the scheme-based branch rather than returning None from the function.
     if let Some(path) = url.strip_prefix("git@") {
-        let path = path.split_once(':')?.1;
-        let parts: Vec<&str> = path.split('/').collect();
-        if parts.len() >= 2 {
-            let owner = parts[parts.len() - 2];
-            let repo = parts[parts.len() - 1];
-            if !owner.is_empty() && !repo.is_empty() {
-                return Some(format!("{owner}/{repo}"));
+        if let Some((_, after_colon)) = path.split_once(':') {
+            let parts: Vec<&str> = after_colon.split('/').collect();
+            if parts.len() >= 2 {
+                let owner = parts[parts.len() - 2];
+                let repo = parts[parts.len() - 1];
+                if !owner.is_empty() && !repo.is_empty() {
+                    return Some(format!("{owner}/{repo}"));
+                }
             }
         }
     }
@@ -194,5 +197,11 @@ mod tests {
     fn rejects_https_single_path_segment() {
         // Only one path segment — must return None, not "github.com/owner".
         assert_eq!(repo_name_from_remote("https://github.com/owner"), None);
+    }
+
+    #[test]
+    fn ssh_malformed_no_colon_falls_through() {
+        // Malformed SSH-like URL without colon should return None (not early-exit).
+        assert_eq!(repo_name_from_remote("git@github.com/owner/repo"), None);
     }
 }
