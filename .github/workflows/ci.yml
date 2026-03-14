@@ -25,6 +25,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Install protobuf compiler
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: Proto sync check
+        run: diff -r proto/dkod/v1/ crates/dk-protocol/proto/dkod/v1/
       - name: Cargo check
         run: cargo check --workspace
       - name: Clippy
