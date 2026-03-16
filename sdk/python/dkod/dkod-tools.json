@@ -1,0 +1,231 @@
+[
+  {
+    "name": "dkod_connect",
+    "description": "Establish an isolated session workspace on a dkod repository. Returns a session_id, base_commit hash, codebase summary (languages, modules, symbol count), and count of other active sessions. The session workspace is automatically isolated — changes made in this session are invisible to other sessions until merged. Response is JSON: {session_id, base_commit, codebase_summary: {languages, total_symbols, total_files}, active_sessions}.",
+    "input_schema": {
+      "properties": {
+        "codebase": {
+          "description": "Repository identifier: 'org/repo'",
+          "type": "string"
+        },
+        "intent": {
+          "description": "What this agent session intends to accomplish",
+          "type": "string"
+        },
+        "mode": {
+          "description": "Ephemeral (default): auto-cleanup on disconnect. Persistent: survives disconnect for later resume.",
+          "enum": [
+            "ephemeral",
+            "persistent"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "codebase",
+        "intent"
+      ],
+      "type": "object"
+    },
+    "allowed_callers": [
+      "code_execution_20260120"
+    ]
+  },
+  {
+    "name": "dkod_context",
+    "description": "Query semantic context from the codebase. Returns symbols (functions, classes, types) matching the query, with signatures, file locations, call graph edges, and associated tests. Response is JSON: {symbols: [{name, qualified_name, kind, file_path, signature, source, callers, callees}], token_count, freshness}. Results reflect this session's workspace (including uncommitted local changes).",
+    "input_schema": {
+      "properties": {
+        "depth": {
+          "description": "signatures: names + types only. full: complete source. call_graph: signatures + caller/callee edges.",
+          "enum": [
+            "signatures",
+            "full",
+            "call_graph"
+          ],
+          "type": "string"
+        },
+        "include_tests": {
+          "type": "boolean"
+        },
+        "max_tokens": {
+          "description": "Cap response size in tokens",
+          "type": "integer"
+        },
+        "query": {
+          "description": "Natural language or structured query: 'All functions that handle user authentication' or 'symbol:authenticate_user'",
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id",
+        "query"
+      ],
+      "type": "object"
+    },
+    "allowed_callers": [
+      "code_execution_20260120"
+    ]
+  },
+  {
+    "name": "dkod_read_file",
+    "description": "Read a file from this session's workspace. Returns the session's view: if the file was modified in this session, returns the modified version; otherwise returns the base version. Response is JSON: {content, hash, modified_in_session}.",
+    "input_schema": {
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id",
+        "path"
+      ],
+      "type": "object"
+    },
+    "allowed_callers": [
+      "code_execution_20260120"
+    ]
+  },
+  {
+    "name": "dkod_write_file",
+    "description": "Write a file to this session's workspace overlay. The change is only visible to this session until submitted. Response is JSON: {new_hash, detected_changes: [{symbol_name, change_type}]}.",
+    "input_schema": {
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id",
+        "path",
+        "content"
+      ],
+      "type": "object"
+    },
+    "allowed_callers": [
+      "code_execution_20260120"
+    ]
+  },
+  {
+    "name": "dkod_submit",
+    "description": "Submit this session's changes as a semantic changeset for verification and merge. The platform auto-rebases onto current HEAD if the base moved. Response is JSON with one of: {status: 'accepted', version, changeset_id} or {status: 'verification_failed', failures: [{gate, test_name, error, suggestion}]} or {status: 'conflict', conflicts: [{file, symbol, our_change, their_change}]} or {status: 'pending_review', changeset_id}.",
+    "input_schema": {
+      "properties": {
+        "intent": {
+          "description": "What this changeset accomplishes",
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "verify": {
+          "description": "Verification gates to run: 'typecheck', 'affected_tests', 'all_tests', 'lint', 'invariants'",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "session_id",
+        "intent"
+      ],
+      "type": "object"
+    },
+    "allowed_callers": [
+      "code_execution_20260120"
+    ]
+  },
+  {
+    "name": "dkod_session_status",
+    "description": "Get the current state of this session's workspace. Response is JSON: {session_id, base_commit, files_modified, symbols_modified, overlay_size_bytes, active_other_sessions}.",
+    "input_schema": {
+      "properties": {
+        "session_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id"
+      ],
+      "type": "object"
+    },
+    "allowed_callers": [
+      "code_execution_20260120"
+    ]
+  },
+  {
+    "name": "dkod_list_files",
+    "description": "List files in this session's workspace, optionally filtered by path prefix. Modified files are tagged. Response is JSON: {files: [{path, modified_in_session}], total}.",
+    "input_schema": {
+      "properties": {
+        "session_id": {
+          "type": "string"
+        },
+        "prefix": {
+          "description": "Optional path prefix filter (e.g. 'src/')",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id"
+      ],
+      "type": "object"
+    },
+    "allowed_callers": [
+      "code_execution_20260120"
+    ]
+  },
+  {
+    "name": "dkod_verify",
+    "description": "Run verification pipeline (lint, test, type-check) on the session's changeset. Returns step-by-step results. Response is JSON: {changeset_id, passed, steps: [{step_name, status, output, required}]}.",
+    "input_schema": {
+      "properties": {
+        "session_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id"
+      ],
+      "type": "object"
+    },
+    "allowed_callers": [
+      "code_execution_20260120"
+    ]
+  },
+  {
+    "name": "dkod_merge",
+    "description": "Merge the verified changeset into a Git commit. Session is cleared on success. Changeset must be in 'approved' state. Response is JSON: {commit_hash, merged_version, auto_rebased, auto_rebased_files, conflicts}.",
+    "input_schema": {
+      "properties": {
+        "session_id": {
+          "type": "string"
+        },
+        "message": {
+          "description": "Optional commit message (auto-generated if omitted)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id"
+      ],
+      "type": "object"
+    },
+    "allowed_callers": [
+      "code_execution_20260120"
+    ]
+  }
+]
