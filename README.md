@@ -48,7 +48,9 @@ dkod is an open-source platform purpose-built for concurrent AI code collaborati
 
 ### Session Isolation
 
-Each agent gets an isolated workspace overlay on top of the shared repo. Writes go to the overlay, reads fall through to the base.
+**This is not a worktree, not a fork, not a workspace, and not a clone for each agent.**
+
+Each agent gets an isolated session overlay on top of the shared repo. Writes go to the overlay, reads fall through to the base. dkod uses AST-level symbol tracking (via tree-sitter) to understand exactly which functions, classes, and methods each agent is touching — zero-copy, zero-clone, zero-coordination.
 
 **No clones. No locks. No waiting.**
 
