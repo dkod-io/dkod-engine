@@ -71,48 +71,63 @@ pub fn analyze_file_conflict(
     let overlay_str = std::str::from_utf8(overlay_content).ok();
 
     if let (Some(base), Some(head), Some(overlay)) = (base_str, head_str, overlay_str) {
-        if let Ok(result) = ast_merge::ast_merge(parser, file_path, base, head, overlay) {
-            return match result.status {
-                ast_merge::MergeStatus::Clean => {
-                    // Guard: ast_merge reconstructs files from imports + symbols only.
-                    // Top-level items the parser doesn't classify as symbols (const,
-                    // static, type aliases, mod declarations, crate attributes) are
-                    // silently dropped.  Detect content loss by checking that the
-                    // merged output is at least 80% of the *base* file's size.
-                    // We compare against base (not max of head/overlay) because a
-                    // legitimate large deletion by an agent correctly shrinks the
-                    // output — only reconstruction loss relative to the common
-                    // ancestor indicates a problem.
-                    let merged_len = result.merged_content.len();
-                    let base_len = base.len();
-                    if base_len > 0 && merged_len * 100 / base_len < 80 {
-                        byte_level_analysis(file_path, base_content, head_content, overlay_content)
-                    } else {
-                        MergeAnalysis::AutoMerge {
-                            merged_content: result.merged_content.into_bytes(),
+        match ast_merge::ast_merge(parser, file_path, base, head, overlay) {
+            Ok(result) => {
+                return match result.status {
+                    ast_merge::MergeStatus::Clean => {
+                        // Guard: ast_merge reconstructs files from imports + symbols only.
+                        // Top-level items the parser doesn't classify as symbols (const,
+                        // static, type aliases, mod declarations, crate attributes) are
+                        // silently dropped.  Detect content loss by checking that the
+                        // merged output is at least 80% of the smaller agent version.
+                        // We compare against min(head, overlay) because a legitimate
+                        // large deletion correctly shrinks the output — the guard should
+                        // only fire when the merge result is smaller than even the
+                        // most-deleting agent's output, which is a strong signal that
+                        // ast_merge dropped content it shouldn't have.
+                        let merged_len = result.merged_content.len();
+                        let min_agent_len = head.len().min(overlay.len());
+                        if min_agent_len > 0 && merged_len * 100 / min_agent_len < 80 {
+                            byte_level_analysis(
+                                file_path,
+                                base_content,
+                                head_content,
+                                overlay_content,
+                            )
+                        } else {
+                            MergeAnalysis::AutoMerge {
+                                merged_content: result.merged_content.into_bytes(),
+                            }
                         }
                     }
-                }
-                ast_merge::MergeStatus::Conflict => MergeAnalysis::Conflict {
-                    conflicts: result
-                        .conflicts
-                        .into_iter()
-                        .map(|c| {
-                            // Infer change kinds from the three-way symbol versions:
-                            // - version_a = head (their), version_b = overlay (our)
-                            // - empty string means the symbol does not exist in that version
-                            let their_change = infer_change_kind(&c.base, &c.version_a);
-                            let our_change = infer_change_kind(&c.base, &c.version_b);
-                            SemanticConflict {
-                                file_path: file_path.to_string(),
-                                symbol_name: c.qualified_name,
-                                our_change,
-                                their_change,
-                            }
-                        })
-                        .collect(),
-                },
-            };
+                    ast_merge::MergeStatus::Conflict => MergeAnalysis::Conflict {
+                        conflicts: result
+                            .conflicts
+                            .into_iter()
+                            .map(|c| {
+                                // Infer change kinds from the three-way symbol versions:
+                                // - version_a = head (their), version_b = overlay (our)
+                                // - empty string means the symbol does not exist in that version
+                                let their_change = infer_change_kind(&c.base, &c.version_a);
+                                let our_change = infer_change_kind(&c.base, &c.version_b);
+                                SemanticConflict {
+                                    file_path: file_path.to_string(),
+                                    symbol_name: c.qualified_name,
+                                    our_change,
+                                    their_change,
+                                }
+                            })
+                            .collect(),
+                    },
+                };
+            }
+            Err(e) => {
+                tracing::debug!(
+                    file_path,
+                    error = %e,
+                    "ast_merge failed, falling back to byte-level analysis"
+                );
+            }
         }
     }
 
