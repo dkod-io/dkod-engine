@@ -471,6 +471,9 @@ async fn merge_cmd(
                 );
             }
             println!("  Suggested action: {}", c.suggested_action);
+            if !c.available_actions.is_empty() {
+                println!("  Available actions: {}", c.available_actions.join(", "));
+            }
         }
         None => {
             anyhow::bail!("empty merge response from server");

@@ -69,6 +69,9 @@ pub async fn run(out: Output, message: Option<&str>) -> Result<()> {
                     );
                 }
                 println!("  Suggested action: {}", c.suggested_action);
+                if !c.available_actions.is_empty() {
+                    println!("  Available actions: {}", c.available_actions.join(", "));
+                }
             }
         }
         None => bail!("empty merge response from server"),

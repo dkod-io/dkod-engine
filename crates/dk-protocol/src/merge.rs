@@ -6,6 +6,9 @@ use dk_engine::workspace::merge::{merge_workspace, WorkspaceMergeResult};
 use crate::server::ProtocolServer;
 use crate::{merge_response, ConflictDetail, MergeConflict, MergeRequest, MergeResponse, MergeSuccess};
 
+/// Conflict type for true write-write semantic conflicts.
+const CONFLICT_TYPE_TRUE: &str = "true_conflict";
+
 pub async fn handle_merge(
     server: &ProtocolServer,
     req: MergeRequest,
@@ -153,8 +156,10 @@ pub async fn handle_merge(
                     file_path: c.file_path.clone(),
                     symbols: vec![c.symbol_name.clone()],
                     your_agent: agent.to_string(),
+                    // TODO: resolve their_agent from the session/changeset store
+                    // once SemanticConflict carries agent attribution.
                     their_agent: String::new(),
-                    conflict_type: "true_conflict".to_string(),
+                    conflict_type: CONFLICT_TYPE_TRUE.to_string(),
                     description: format!(
                         "Symbol '{}' — our change: {:?}, their change: {:?}",
                         c.symbol_name, c.our_change, c.their_change
@@ -248,12 +253,15 @@ mod tests {
 
     #[test]
     fn merge_conflict_construction() {
+        // their_agent is currently not populated by the server (SemanticConflict
+        // does not carry agent attribution yet), so the test mirrors real
+        // behavior by using an empty string.
         let detail = ConflictDetail {
             file_path: "src/lib.rs".to_string(),
             symbols: vec!["process_data".to_string()],
             your_agent: "agent-1".to_string(),
-            their_agent: "agent-2".to_string(),
-            conflict_type: "true_conflict".to_string(),
+            their_agent: String::new(),
+            conflict_type: CONFLICT_TYPE_TRUE.to_string(),
             description: "both agents modified process_data".to_string(),
         };
         let resp = MergeResponse {
@@ -275,7 +283,7 @@ mod tests {
                 assert_eq!(c.conflicts[0].file_path, "src/lib.rs");
                 assert_eq!(c.conflicts[0].symbols, vec!["process_data"]);
                 assert_eq!(c.conflicts[0].your_agent, "agent-1");
-                assert_eq!(c.conflicts[0].their_agent, "agent-2");
+                assert!(c.conflicts[0].their_agent.is_empty());
                 assert_eq!(c.suggested_action, "adapt");
                 assert_eq!(c.available_actions.len(), 3);
             }
@@ -290,10 +298,10 @@ mod tests {
             symbols: vec!["handle_request".to_string(), "parse_input".to_string()],
             your_agent: "agent-a".to_string(),
             their_agent: "agent-b".to_string(),
-            conflict_type: "true_conflict".to_string(),
+            conflict_type: CONFLICT_TYPE_TRUE.to_string(),
             description: "multiple symbols in conflict".to_string(),
         };
         assert_eq!(detail.symbols.len(), 2);
-        assert_eq!(detail.conflict_type, "true_conflict");
+        assert_eq!(detail.conflict_type, CONFLICT_TYPE_TRUE);
     }
 }
