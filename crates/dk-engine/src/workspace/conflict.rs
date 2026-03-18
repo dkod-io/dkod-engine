@@ -5,11 +5,6 @@
 //! resulting symbol tables. Conflicts arise when both sides modify,
 //! add, or remove the *same* symbol.
 
-use std::collections::{HashMap, HashSet};
-use std::path::Path;
-
-use dk_core::{FileAnalysis, Symbol};
-
 use crate::conflict::ast_merge;
 use crate::parser::ParserRegistry;
 
@@ -102,70 +97,6 @@ pub fn analyze_file_conflict(
     byte_level_analysis(file_path, base_content, head_content, overlay_content)
 }
 
-/// Semantic three-way merge analysis using parsed symbol tables.
-fn semantic_analysis(
-    file_path: &str,
-    base: &FileAnalysis,
-    head: &FileAnalysis,
-    overlay: &FileAnalysis,
-    overlay_content: &[u8],
-) -> MergeAnalysis {
-    let base_syms = symbol_map(&base.symbols);
-    let head_syms = symbol_map(&head.symbols);
-    let overlay_syms = symbol_map(&overlay.symbols);
-
-    // Collect all symbol names across all three versions.
-    let all_names: HashSet<&str> = base_syms
-        .keys()
-        .chain(head_syms.keys())
-        .chain(overlay_syms.keys())
-        .copied()
-        .collect();
-
-    let mut conflicts = Vec::new();
-
-    for name in all_names {
-        let base_sym = base_syms.get(name);
-        let head_sym = head_syms.get(name);
-        let overlay_sym = overlay_syms.get(name);
-
-        let head_change = classify_change(base_sym, head_sym);
-        let overlay_change = classify_change(base_sym, overlay_sym);
-
-        // If both sides made a change to the same symbol, it's a conflict
-        // (unless both changes are identical).
-        if let (Some(their), Some(ours)) = (&head_change, &overlay_change) {
-            // Same kind of change — check if the results are actually identical.
-            if their == ours {
-                // Both added or both modified to the same thing — check content.
-                let identical = match (head_sym, overlay_sym) {
-                    (Some(h), Some(o)) => symbols_equivalent(h, o),
-                    (None, None) => true, // both removed
-                    _ => false,
-                };
-                if identical {
-                    continue; // No conflict — same change on both sides.
-                }
-            }
-
-            conflicts.push(SemanticConflict {
-                file_path: file_path.to_string(),
-                symbol_name: name.to_string(),
-                our_change: ours.clone(),
-                their_change: their.clone(),
-            });
-        }
-    }
-
-    if conflicts.is_empty() {
-        MergeAnalysis::AutoMerge {
-            merged_content: overlay_content.to_vec(),
-        }
-    } else {
-        MergeAnalysis::Conflict { conflicts }
-    }
-}
-
 /// Byte-level fallback when parsing is not available.
 fn byte_level_analysis(
     file_path: &str,
@@ -197,43 +128,6 @@ fn byte_level_analysis(
             },
         }
     }
-}
-
-/// Build a map of qualified_name -> Symbol for quick lookup.
-fn symbol_map(symbols: &[Symbol]) -> HashMap<&str, &Symbol> {
-    symbols
-        .iter()
-        .map(|s| (s.qualified_name.as_str(), s))
-        .collect()
-}
-
-/// Classify how a symbol changed from base to the given version.
-fn classify_change(
-    base: Option<&&Symbol>,
-    current: Option<&&Symbol>,
-) -> Option<SymbolChangeKind> {
-    match (base, current) {
-        (None, None) => None,
-        (None, Some(_)) => Some(SymbolChangeKind::Added),
-        (Some(_), None) => Some(SymbolChangeKind::Removed),
-        (Some(b), Some(c)) => {
-            if symbols_equivalent(b, c) {
-                None // unchanged
-            } else {
-                Some(SymbolChangeKind::Modified)
-            }
-        }
-    }
-}
-
-/// Check whether two symbols are semantically equivalent for merge purposes.
-/// We compare span, kind, visibility, and signature — NOT the symbol ID.
-fn symbols_equivalent(a: &Symbol, b: &Symbol) -> bool {
-    a.qualified_name == b.qualified_name
-        && a.kind == b.kind
-        && a.visibility == b.visibility
-        && a.span == b.span
-        && a.signature == b.signature
 }
 
 #[cfg(test)]
@@ -294,46 +188,4 @@ mod tests {
         }
     }
 
-    #[test]
-    fn classify_change_cases() {
-        use dk_core::{Span, SymbolKind, Visibility};
-        use std::path::PathBuf;
-        use uuid::Uuid;
-
-        let sym = Symbol {
-            id: Uuid::new_v4(),
-            name: "f".into(),
-            qualified_name: "f".into(),
-            kind: SymbolKind::Function,
-            visibility: Visibility::Public,
-            file_path: PathBuf::from("t.rs"),
-            span: Span {
-                start_byte: 0,
-                end_byte: 10,
-            },
-            signature: None,
-            doc_comment: None,
-            parent: None,
-            last_modified_by: None,
-            last_modified_intent: None,
-        };
-
-        // None -> None => no change
-        assert!(classify_change(None, None).is_none());
-
-        // None -> Some => Added
-        assert_eq!(
-            classify_change(None, Some(&&sym)),
-            Some(SymbolChangeKind::Added)
-        );
-
-        // Some -> None => Removed
-        assert_eq!(
-            classify_change(Some(&&sym), None),
-            Some(SymbolChangeKind::Removed)
-        );
-
-        // Some -> Some (identical) => no change
-        assert!(classify_change(Some(&&sym), Some(&&sym)).is_none());
-    }
 }
