@@ -253,32 +253,46 @@ impl SessionStore for RedisSessionStore {
         // converted to snapshots for resume support.
         let mut conn = self.conn.clone();
         let pattern = format!("{SESSION_PREFIX}*");
-        let keys: Vec<String> = match redis::cmd("KEYS")
-            .arg(&pattern)
-            .query_async(&mut conn)
-            .await
-        {
-            Ok(k) => k,
-            Err(e) => {
-                warn!("Redis KEYS scan failed during cleanup: {e}");
-                return;
+
+        // Use SCAN instead of KEYS to avoid blocking Redis while iterating.
+        let mut cursor: u64 = 0;
+        loop {
+            let (new_cursor, keys): (u64, Vec<String>) = match redis::cmd("SCAN")
+                .arg(cursor)
+                .arg("MATCH")
+                .arg(&pattern)
+                .arg("COUNT")
+                .arg(100)
+                .query_async(&mut conn)
+                .await
+            {
+                Ok(result) => result,
+                Err(e) => {
+                    warn!("Redis SCAN failed during cleanup at cursor={cursor}: {e}");
+                    return;
+                }
+            };
+
+            for key in keys {
+                let json: Option<String> = match conn.get(&key).await {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+                let Some(json) = json else { continue };
+                let stored: StoredSession = match serde_json::from_str(&json) {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                };
+
+                if stored.is_expired(&self.timeout) {
+                    self.save_snapshot_from_stored(&stored.id, &stored).await;
+                    let _: Option<i64> = conn.del(&key).await.ok();
+                }
             }
-        };
 
-        for key in keys {
-            let json: Option<String> = match conn.get(&key).await {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-            let Some(json) = json else { continue };
-            let stored: StoredSession = match serde_json::from_str(&json) {
-                Ok(s) => s,
-                Err(_) => continue,
-            };
-
-            if stored.is_expired(&self.timeout) {
-                self.save_snapshot_from_stored(&stored.id, &stored).await;
-                let _: Option<i64> = conn.del(&key).await.ok();
+            cursor = new_cursor;
+            if cursor == 0 {
+                break;
             }
         }
     }

@@ -221,19 +221,32 @@ message MergeRequest {
 }
 
 message MergeResponse {
-  string commit_hash = 1;
-  string merged_version = 2;
-  repeated ConflictInfo conflicts = 3;
-  bool auto_rebased = 4;
-  repeated string auto_rebased_files = 5;
+  oneof result {
+    MergeSuccess success = 1;
+    MergeConflict conflict = 2;
+  }
 }
 
-message ConflictInfo {
+message MergeSuccess {
+  string commit_hash = 1;
+  string merged_version = 2;
+  bool auto_rebased = 3;
+  repeated string auto_rebased_files = 4;
+}
+
+message MergeConflict {
+  string changeset_id = 1;
+  repeated ConflictDetail conflicts = 2;
+  string suggested_action = 3;
+  repeated string available_actions = 4;
+}
+
+message ConflictDetail {
   string file_path = 1;
-  string symbol_name = 2;
-  string conflict_type = 3;
-  string other_agent_id = 4;
-  string other_changeset_id = 5;
+  repeated string symbols = 2;
+  string your_agent = 3;
+  string their_agent = 4;
+  string conflict_type = 5;
   string description = 6;
 }
 

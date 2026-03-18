@@ -317,34 +317,52 @@ class MergeRequest(_message.Message):
     def __init__(self, session_id: _Optional[str] = ..., changeset_id: _Optional[str] = ..., commit_message: _Optional[str] = ...) -> None: ...
 
 class MergeResponse(_message.Message):
-    __slots__ = ("commit_hash", "merged_version", "conflicts", "auto_rebased", "auto_rebased_files")
+    __slots__ = ("success", "conflict")
+    SUCCESS_FIELD_NUMBER: _ClassVar[int]
+    CONFLICT_FIELD_NUMBER: _ClassVar[int]
+    success: MergeSuccess
+    conflict: MergeConflict
+    def __init__(self, success: _Optional[_Union[MergeSuccess, _Mapping]] = ..., conflict: _Optional[_Union[MergeConflict, _Mapping]] = ...) -> None: ...
+
+class MergeSuccess(_message.Message):
+    __slots__ = ("commit_hash", "merged_version", "auto_rebased", "auto_rebased_files")
     COMMIT_HASH_FIELD_NUMBER: _ClassVar[int]
     MERGED_VERSION_FIELD_NUMBER: _ClassVar[int]
-    CONFLICTS_FIELD_NUMBER: _ClassVar[int]
     AUTO_REBASED_FIELD_NUMBER: _ClassVar[int]
     AUTO_REBASED_FILES_FIELD_NUMBER: _ClassVar[int]
     commit_hash: str
     merged_version: str
-    conflicts: _containers.RepeatedCompositeFieldContainer[ConflictInfo]
     auto_rebased: bool
     auto_rebased_files: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, commit_hash: _Optional[str] = ..., merged_version: _Optional[str] = ..., conflicts: _Optional[_Iterable[_Union[ConflictInfo, _Mapping]]] = ..., auto_rebased: bool = ..., auto_rebased_files: _Optional[_Iterable[str]] = ...) -> None: ...
+    def __init__(self, commit_hash: _Optional[str] = ..., merged_version: _Optional[str] = ..., auto_rebased: bool = ..., auto_rebased_files: _Optional[_Iterable[str]] = ...) -> None: ...
 
-class ConflictInfo(_message.Message):
-    __slots__ = ("file_path", "symbol_name", "conflict_type", "other_agent_id", "other_changeset_id", "description")
+class MergeConflict(_message.Message):
+    __slots__ = ("changeset_id", "conflicts", "suggested_action", "available_actions")
+    CHANGESET_ID_FIELD_NUMBER: _ClassVar[int]
+    CONFLICTS_FIELD_NUMBER: _ClassVar[int]
+    SUGGESTED_ACTION_FIELD_NUMBER: _ClassVar[int]
+    AVAILABLE_ACTIONS_FIELD_NUMBER: _ClassVar[int]
+    changeset_id: str
+    conflicts: _containers.RepeatedCompositeFieldContainer[ConflictDetail]
+    suggested_action: str
+    available_actions: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, changeset_id: _Optional[str] = ..., conflicts: _Optional[_Iterable[_Union[ConflictDetail, _Mapping]]] = ..., suggested_action: _Optional[str] = ..., available_actions: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class ConflictDetail(_message.Message):
+    __slots__ = ("file_path", "symbols", "your_agent", "their_agent", "conflict_type", "description")
     FILE_PATH_FIELD_NUMBER: _ClassVar[int]
-    SYMBOL_NAME_FIELD_NUMBER: _ClassVar[int]
+    SYMBOLS_FIELD_NUMBER: _ClassVar[int]
+    YOUR_AGENT_FIELD_NUMBER: _ClassVar[int]
+    THEIR_AGENT_FIELD_NUMBER: _ClassVar[int]
     CONFLICT_TYPE_FIELD_NUMBER: _ClassVar[int]
-    OTHER_AGENT_ID_FIELD_NUMBER: _ClassVar[int]
-    OTHER_CHANGESET_ID_FIELD_NUMBER: _ClassVar[int]
     DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
     file_path: str
-    symbol_name: str
+    symbols: _containers.RepeatedScalarFieldContainer[str]
+    your_agent: str
+    their_agent: str
     conflict_type: str
-    other_agent_id: str
-    other_changeset_id: str
     description: str
-    def __init__(self, file_path: _Optional[str] = ..., symbol_name: _Optional[str] = ..., conflict_type: _Optional[str] = ..., other_agent_id: _Optional[str] = ..., other_changeset_id: _Optional[str] = ..., description: _Optional[str] = ...) -> None: ...
+    def __init__(self, file_path: _Optional[str] = ..., symbols: _Optional[_Iterable[str]] = ..., your_agent: _Optional[str] = ..., their_agent: _Optional[str] = ..., conflict_type: _Optional[str] = ..., description: _Optional[str] = ...) -> None: ...
 
 class WatchRequest(_message.Message):
     __slots__ = ("session_id", "repo_id", "filter")

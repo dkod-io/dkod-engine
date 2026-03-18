@@ -1,7 +1,7 @@
 use dk_protocol::agent_service_client::AgentServiceClient;
 use dk_protocol::{
-    Change as ProtoChange, ChangeType, ContextDepth, ContextRequest, MergeRequest, SubmitRequest,
-    VerifyRequest, WatchRequest,
+    merge_response, Change as ProtoChange, ChangeType, ContextDepth, ContextRequest, MergeRequest,
+    SubmitRequest, VerifyRequest, WatchRequest,
 };
 use tonic::transport::Channel;
 use tokio_stream::StreamExt;
@@ -148,11 +148,11 @@ impl Session {
             .await?
             .into_inner();
 
-        Ok(MergeResult {
-            commit_hash: resp.commit_hash,
-            merged_version: resp.merged_version,
-            conflicts: resp.conflicts,
-        })
+        match resp.result {
+            Some(merge_response::Result::Success(s)) => Ok(MergeResult::Success(s)),
+            Some(merge_response::Result::Conflict(c)) => Ok(MergeResult::Conflict(c)),
+            None => Err(tonic::Status::internal("empty merge response").into()),
+        }
     }
 
     /// Subscribe to repository events (other agents' changes, merges, etc.).
