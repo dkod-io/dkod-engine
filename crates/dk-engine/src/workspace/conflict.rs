@@ -78,11 +78,14 @@ pub fn analyze_file_conflict(
                     // Top-level items the parser doesn't classify as symbols (const,
                     // static, type aliases, mod declarations, crate attributes) are
                     // silently dropped.  Detect content loss by checking that the
-                    // merged output is at least 80% of the longer input's size and
-                    // fall back to byte-level analysis when it isn't.
+                    // merged output is at least 80% of the *base* file's size.
+                    // We compare against base (not max of head/overlay) because a
+                    // legitimate large deletion by an agent correctly shrinks the
+                    // output — only reconstruction loss relative to the common
+                    // ancestor indicates a problem.
                     let merged_len = result.merged_content.len();
-                    let max_input_len = head.len().max(overlay.len());
-                    if max_input_len > 0 && merged_len * 100 / max_input_len < 80 {
+                    let base_len = base.len();
+                    if base_len > 0 && merged_len * 100 / base_len < 80 {
                         byte_level_analysis(file_path, base_content, head_content, overlay_content)
                     } else {
                         MergeAnalysis::AutoMerge {
