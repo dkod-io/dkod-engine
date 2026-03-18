@@ -8,7 +8,7 @@
 use crate::conflict::ast_merge;
 use crate::parser::ParserRegistry;
 
-// ── Types ────────────────────────────────────────────────────────────
+// ââ Types âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 /// Describes a single semantic conflict within a file.
 #[derive(Debug, Clone)]
@@ -34,7 +34,7 @@ pub enum SymbolChangeKind {
 /// Result of analyzing a file for three-way merge.
 #[derive(Debug)]
 pub enum MergeAnalysis {
-    /// No overlapping symbol changes — the file can be auto-merged.
+    /// No overlapping symbol changes â the file can be auto-merged.
     AutoMerge {
         /// The merged content (overlay content wins for non-overlapping changes).
         merged_content: Vec<u8>,
@@ -45,13 +45,13 @@ pub enum MergeAnalysis {
     },
 }
 
-// ── Analysis ─────────────────────────────────────────────────────────
+// ââ Analysis âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 /// Analyze a single file for semantic conflicts across three versions.
 ///
-/// - `base_content` — the file at the merge base (common ancestor).
-/// - `head_content` — the file at the current HEAD (their changes).
-/// - `overlay_content` — the file in the session overlay (our changes).
+/// - `base_content` â the file at the merge base (common ancestor).
+/// - `head_content` â the file at the current HEAD (their changes).
+/// - `overlay_content` â the file in the session overlay (our changes).
 ///
 /// If parsing fails for any version (e.g. unsupported language), the
 /// function falls back to byte-level comparison: if both sides changed
@@ -80,11 +80,18 @@ pub fn analyze_file_conflict(
                     conflicts: result
                         .conflicts
                         .into_iter()
-                        .map(|c| SemanticConflict {
-                            file_path: file_path.to_string(),
-                            symbol_name: c.qualified_name,
-                            our_change: SymbolChangeKind::Modified,
-                            their_change: SymbolChangeKind::Modified,
+                        .map(|c| {
+                            // Infer change kinds from the three-way symbol versions:
+                            // - version_a = head (their), version_b = overlay (our)
+                            // - empty string means the symbol does not exist in that version
+                            let their_change = infer_change_kind(&c.base, &c.version_a);
+                            let our_change = infer_change_kind(&c.base, &c.version_b);
+                            SemanticConflict {
+                                file_path: file_path.to_string(),
+                                symbol_name: c.qualified_name,
+                                our_change,
+                                their_change,
+                            }
                         })
                         .collect(),
                 },
@@ -127,6 +134,20 @@ fn byte_level_analysis(
                 head_content.to_vec()
             },
         }
+    }
+}
+
+/// Infer the [`SymbolChangeKind`] by comparing a symbol's base version to its
+/// current version.  An empty string means the symbol does not exist in that
+/// version of the file.
+fn infer_change_kind(base: &str, current: &str) -> SymbolChangeKind {
+    match (base.is_empty(), current.is_empty()) {
+        // Symbol absent in base, present now â added
+        (true, false) => SymbolChangeKind::Added,
+        // Symbol present in base, absent now â removed
+        (false, true) => SymbolChangeKind::Removed,
+        // Both present (content differs) or both absent â modified
+        _ => SymbolChangeKind::Modified,
     }
 }
 
@@ -188,4 +209,27 @@ mod tests {
         }
     }
 
+    #[test]
+    fn infer_change_kind_added() {
+        assert_eq!(infer_change_kind("", "fn new() {}"), SymbolChangeKind::Added);
+    }
+
+    #[test]
+    fn infer_change_kind_removed() {
+        assert_eq!(infer_change_kind("fn old() {}", ""), SymbolChangeKind::Removed);
+    }
+
+    #[test]
+    fn infer_change_kind_modified() {
+        assert_eq!(
+            infer_change_kind("fn foo() { 1 }", "fn foo() { 2 }"),
+            SymbolChangeKind::Modified
+        );
+    }
+
+    #[test]
+    fn infer_change_kind_both_empty() {
+        // Edge case: both empty means no meaningful change â Modified is the safe default
+        assert_eq!(infer_change_kind("", ""), SymbolChangeKind::Modified);
+    }
 }
