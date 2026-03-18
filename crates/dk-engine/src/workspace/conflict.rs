@@ -8,7 +8,7 @@
 use crate::conflict::ast_merge;
 use crate::parser::ParserRegistry;
 
-// ââ Types âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ── Types ────────────────────────────────────────────────────────────
 
 /// Describes a single semantic conflict within a file.
 #[derive(Debug, Clone)]
@@ -34,7 +34,7 @@ pub enum SymbolChangeKind {
 /// Result of analyzing a file for three-way merge.
 #[derive(Debug)]
 pub enum MergeAnalysis {
-    /// No overlapping symbol changes â the file can be auto-merged.
+    /// No overlapping symbol changes — the file can be auto-merged.
     AutoMerge {
         /// The merged content (overlay content wins for non-overlapping changes).
         merged_content: Vec<u8>,
@@ -45,13 +45,13 @@ pub enum MergeAnalysis {
     },
 }
 
-// ââ Analysis âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+// ── Analysis ─────────────────────────────────────────────────────────
 
 /// Analyze a single file for semantic conflicts across three versions.
 ///
-/// - `base_content` â the file at the merge base (common ancestor).
-/// - `head_content` â the file at the current HEAD (their changes).
-/// - `overlay_content` â the file in the session overlay (our changes).
+/// - `base_content` — the file at the merge base (common ancestor).
+/// - `head_content` — the file at the current HEAD (their changes).
+/// - `overlay_content` — the file in the session overlay (our changes).
 ///
 /// If parsing fails for any version (e.g. unsupported language), the
 /// function falls back to byte-level comparison: if both sides changed
@@ -73,9 +73,23 @@ pub fn analyze_file_conflict(
     if let (Some(base), Some(head), Some(overlay)) = (base_str, head_str, overlay_str) {
         if let Ok(result) = ast_merge::ast_merge(parser, file_path, base, head, overlay) {
             return match result.status {
-                ast_merge::MergeStatus::Clean => MergeAnalysis::AutoMerge {
-                    merged_content: result.merged_content.into_bytes(),
-                },
+                ast_merge::MergeStatus::Clean => {
+                    // Guard: ast_merge reconstructs files from imports + symbols only.
+                    // Top-level items the parser doesn't classify as symbols (const,
+                    // static, type aliases, mod declarations, crate attributes) are
+                    // silently dropped.  Detect content loss by checking that the
+                    // merged output is at least 80% of the longer input's size and
+                    // fall back to byte-level analysis when it isn't.
+                    let merged_len = result.merged_content.len();
+                    let max_input_len = head.len().max(overlay.len());
+                    if max_input_len > 0 && merged_len * 100 / max_input_len < 80 {
+                        byte_level_analysis(file_path, base_content, head_content, overlay_content)
+                    } else {
+                        MergeAnalysis::AutoMerge {
+                            merged_content: result.merged_content.into_bytes(),
+                        }
+                    }
+                }
                 ast_merge::MergeStatus::Conflict => MergeAnalysis::Conflict {
                     conflicts: result
                         .conflicts
@@ -142,12 +156,16 @@ fn byte_level_analysis(
 /// version of the file.
 fn infer_change_kind(base: &str, current: &str) -> SymbolChangeKind {
     match (base.is_empty(), current.is_empty()) {
-        // Symbol absent in base, present now â added
+        // Symbol absent in base, present now — added
         (true, false) => SymbolChangeKind::Added,
-        // Symbol present in base, absent now â removed
+        // Symbol present in base, absent now — removed
         (false, true) => SymbolChangeKind::Removed,
-        // Both present (content differs) or both absent â modified
-        _ => SymbolChangeKind::Modified,
+        // Both present — a genuine modification (content must differ; ast_merge
+        // only emits conflicts when at least one side changed).
+        (false, false) => SymbolChangeKind::Modified,
+        // Both absent — ast_merge never generates this as a conflict; treat as
+        // Modified defensively but this branch should be unreachable.
+        (true, true) => SymbolChangeKind::Modified,
     }
 }
 
@@ -229,7 +247,7 @@ mod tests {
 
     #[test]
     fn infer_change_kind_both_empty() {
-        // Edge case: both empty means no meaningful change â Modified is the safe default
+        // Edge case: both empty — ast_merge never emits this, but return Modified defensively
         assert_eq!(infer_change_kind("", ""), SymbolChangeKind::Modified);
     }
 }
