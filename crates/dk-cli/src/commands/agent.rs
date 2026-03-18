@@ -5,9 +5,9 @@ use clap::Subcommand;
 use colored::Colorize;
 use dk_protocol::agent_service_client::AgentServiceClient;
 use dk_protocol::{
-    Change as ProtoChange, ChangeType, ContextDepth, ContextRequest, FileListRequest,
-    FileReadRequest, FileWriteRequest, MergeRequest, PreSubmitCheckRequest, SubmitRequest,
-    VerifyRequest, WatchRequest,
+    merge_response, Change as ProtoChange, ChangeType, ContextDepth, ContextRequest,
+    FileListRequest, FileReadRequest, FileWriteRequest, MergeRequest, PreSubmitCheckRequest,
+    SubmitRequest, VerifyRequest, WatchRequest,
 };
 use tokio_stream::StreamExt;
 use tonic::transport::Channel;
@@ -442,27 +442,38 @@ async fn merge_cmd(
         .await?
         .into_inner();
 
-    if resp.conflicts.is_empty() {
-        println!(
-            "{} commit={}  version={}",
-            "Merged.".green().bold(),
-            resp.commit_hash,
-            resp.merged_version,
-        );
-    } else {
-        println!(
-            "{} {} conflict(s):",
-            "Merge blocked.".red().bold(),
-            resp.conflicts.len()
-        );
-        for c in &resp.conflicts {
+    match resp.result {
+        Some(merge_response::Result::Success(s)) => {
             println!(
-                "  {} {} ({}) \u{2014} {}",
-                "conflict:".red(),
-                c.file_path,
-                c.conflict_type,
-                c.description
+                "{} commit={}  version={}",
+                "Merged.".green().bold(),
+                s.commit_hash,
+                s.merged_version,
             );
+            if s.auto_rebased {
+                println!("  Auto-rebased {} file(s)", s.auto_rebased_files.len());
+            }
+        }
+        Some(merge_response::Result::Conflict(c)) => {
+            println!(
+                "{} {} conflict(s):",
+                "Merge blocked.".red().bold(),
+                c.conflicts.len()
+            );
+            for d in &c.conflicts {
+                println!(
+                    "  {} {} [{}] ({}) \u{2014} {}",
+                    "conflict:".red(),
+                    d.file_path,
+                    d.symbols.join(", "),
+                    d.conflict_type,
+                    d.description
+                );
+            }
+            println!("  Suggested action: {}", c.suggested_action);
+        }
+        None => {
+            anyhow::bail!("empty merge response from server");
         }
     }
 

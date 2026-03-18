@@ -4,7 +4,7 @@ use uuid::Uuid;
 use dk_engine::workspace::merge::{merge_workspace, WorkspaceMergeResult};
 
 use crate::server::ProtocolServer;
-use crate::{ConflictInfo, MergeRequest, MergeResponse};
+use crate::{merge_response, ConflictDetail, MergeConflict, MergeRequest, MergeResponse, MergeSuccess};
 
 pub async fn handle_merge(
     server: &ProtocolServer,
@@ -101,11 +101,12 @@ pub async fn handle_merge(
             });
 
             Ok(MergeResponse {
-                commit_hash: commit_hash.clone(),
-                merged_version: commit_hash,
-                conflicts: Vec::new(),
-                auto_rebased: false,
-                auto_rebased_files: Vec::new(),
+                result: Some(merge_response::Result::Success(MergeSuccess {
+                    commit_hash: commit_hash.clone(),
+                    merged_version: commit_hash,
+                    auto_rebased: false,
+                    auto_rebased_files: Vec::new(),
+                })),
             })
         }
 
@@ -136,23 +137,24 @@ pub async fn handle_merge(
             });
 
             Ok(MergeResponse {
-                commit_hash: commit_hash.clone(),
-                merged_version: commit_hash,
-                conflicts: Vec::new(),
-                auto_rebased: true,
-                auto_rebased_files,
+                result: Some(merge_response::Result::Success(MergeSuccess {
+                    commit_hash: commit_hash.clone(),
+                    merged_version: commit_hash,
+                    auto_rebased: true,
+                    auto_rebased_files,
+                })),
             })
         }
 
         WorkspaceMergeResult::Conflicts { conflicts } => {
-            let conflict_infos: Vec<ConflictInfo> = conflicts
+            let conflict_details: Vec<ConflictDetail> = conflicts
                 .iter()
-                .map(|c| ConflictInfo {
+                .map(|c| ConflictDetail {
                     file_path: c.file_path.clone(),
-                    symbol_name: c.symbol_name.clone(),
-                    conflict_type: "semantic".to_string(),
-                    other_agent_id: String::new(),
-                    other_changeset_id: String::new(),
+                    symbols: vec![c.symbol_name.clone()],
+                    your_agent: agent.to_string(),
+                    their_agent: String::new(),
+                    conflict_type: "true_conflict".to_string(),
                     description: format!(
                         "Symbol '{}' — our change: {:?}, their change: {:?}",
                         c.symbol_name, c.our_change, c.their_change
@@ -161,11 +163,12 @@ pub async fn handle_merge(
                 .collect();
 
             Ok(MergeResponse {
-                commit_hash: String::new(),
-                merged_version: String::new(),
-                conflicts: conflict_infos,
-                auto_rebased: false,
-                auto_rebased_files: Vec::new(),
+                result: Some(merge_response::Result::Conflict(MergeConflict {
+                    changeset_id: changeset_id.to_string(),
+                    conflicts: conflict_details,
+                    suggested_action: "adapt".to_string(),
+                    available_actions: vec!["adapt".to_string(), "keep_mine".to_string(), "keep_theirs".to_string()],
+                })),
             })
         }
     }
@@ -202,5 +205,95 @@ mod tests {
         // Verify the event was renamed from "changeset_merged" to "changeset.merged"
         assert_ne!(EVENT_MERGED, "changeset_merged");
         assert_eq!(EVENT_MERGED, "changeset.merged");
+    }
+
+    #[test]
+    fn merge_success_construction() {
+        let resp = MergeResponse {
+            result: Some(merge_response::Result::Success(MergeSuccess {
+                commit_hash: "abc123".to_string(),
+                merged_version: "abc123".to_string(),
+                auto_rebased: false,
+                auto_rebased_files: Vec::new(),
+            })),
+        };
+        match resp.result {
+            Some(merge_response::Result::Success(s)) => {
+                assert_eq!(s.commit_hash, "abc123");
+                assert!(!s.auto_rebased);
+                assert!(s.auto_rebased_files.is_empty());
+            }
+            _ => panic!("expected MergeSuccess"),
+        }
+    }
+
+    #[test]
+    fn merge_success_with_rebase() {
+        let resp = MergeResponse {
+            result: Some(merge_response::Result::Success(MergeSuccess {
+                commit_hash: "def456".to_string(),
+                merged_version: "def456".to_string(),
+                auto_rebased: true,
+                auto_rebased_files: vec!["src/main.rs".to_string()],
+            })),
+        };
+        match resp.result {
+            Some(merge_response::Result::Success(s)) => {
+                assert!(s.auto_rebased);
+                assert_eq!(s.auto_rebased_files, vec!["src/main.rs"]);
+            }
+            _ => panic!("expected MergeSuccess"),
+        }
+    }
+
+    #[test]
+    fn merge_conflict_construction() {
+        let detail = ConflictDetail {
+            file_path: "src/lib.rs".to_string(),
+            symbols: vec!["process_data".to_string()],
+            your_agent: "agent-1".to_string(),
+            their_agent: "agent-2".to_string(),
+            conflict_type: "true_conflict".to_string(),
+            description: "both agents modified process_data".to_string(),
+        };
+        let resp = MergeResponse {
+            result: Some(merge_response::Result::Conflict(MergeConflict {
+                changeset_id: "cs-001".to_string(),
+                conflicts: vec![detail],
+                suggested_action: "adapt".to_string(),
+                available_actions: vec![
+                    "adapt".to_string(),
+                    "keep_mine".to_string(),
+                    "keep_theirs".to_string(),
+                ],
+            })),
+        };
+        match resp.result {
+            Some(merge_response::Result::Conflict(c)) => {
+                assert_eq!(c.changeset_id, "cs-001");
+                assert_eq!(c.conflicts.len(), 1);
+                assert_eq!(c.conflicts[0].file_path, "src/lib.rs");
+                assert_eq!(c.conflicts[0].symbols, vec!["process_data"]);
+                assert_eq!(c.conflicts[0].your_agent, "agent-1");
+                assert_eq!(c.conflicts[0].their_agent, "agent-2");
+                assert_eq!(c.suggested_action, "adapt");
+                assert_eq!(c.available_actions.len(), 3);
+            }
+            _ => panic!("expected MergeConflict"),
+        }
+    }
+
+    #[test]
+    fn conflict_detail_fields() {
+        let detail = ConflictDetail {
+            file_path: "src/handler.rs".to_string(),
+            symbols: vec!["handle_request".to_string(), "parse_input".to_string()],
+            your_agent: "agent-a".to_string(),
+            their_agent: "agent-b".to_string(),
+            conflict_type: "true_conflict".to_string(),
+            description: "multiple symbols in conflict".to_string(),
+        };
+        assert_eq!(detail.symbols.len(), 2);
+        assert_eq!(detail.conflict_type, "true_conflict");
     }
 }

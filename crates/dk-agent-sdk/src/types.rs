@@ -1,7 +1,7 @@
 // Re-export proto types that SDK consumers will use directly.
 pub use dk_protocol::{
-    CallEdgeRef, CodebaseSummary, ConflictInfo, DependencyRef, SubmitError, SymbolRef,
-    SymbolResult, VerifyStepResult, WatchEvent,
+    CallEdgeRef, CodebaseSummary, ConflictDetail, DependencyRef, MergeConflict, MergeSuccess,
+    SubmitError, SymbolRef, SymbolResult, VerifyStepResult, WatchEvent,
 };
 
 /// A high-level representation of a code change that the SDK translates into
@@ -80,8 +80,9 @@ pub struct SubmitResult {
 
 /// Result of a MERGE operation.
 #[derive(Debug)]
-pub struct MergeResult {
-    pub commit_hash: String,
-    pub merged_version: String,
-    pub conflicts: Vec<ConflictInfo>,
+pub enum MergeResult {
+    /// Merge succeeded — changeset is now a Git commit.
+    Success(MergeSuccess),
+    /// Merge blocked by conflicts — agent must resolve.
+    Conflict(MergeConflict),
 }
