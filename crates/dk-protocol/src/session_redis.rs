@@ -268,7 +268,7 @@ impl SessionStore for RedisSessionStore {
             {
                 Ok(result) => result,
                 Err(e) => {
-                    warn!("Redis SCAN failed during cleanup: {e}");
+                    warn!("Redis SCAN failed during cleanup at cursor={cursor}: {e}");
                     return;
                 }
             };
