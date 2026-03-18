@@ -10,6 +10,7 @@ use std::path::Path;
 
 use dk_core::{FileAnalysis, Symbol};
 
+use crate::conflict::ast_merge;
 use crate::parser::ParserRegistry;
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -67,22 +68,38 @@ pub fn analyze_file_conflict(
     overlay_content: &[u8],
     parser: &ParserRegistry,
 ) -> MergeAnalysis {
-    let path = Path::new(file_path);
+    // Try AST-level three-way merge first. This produces proper merged
+    // content that combines non-overlapping symbol changes from both sides,
+    // instead of returning only one side's content.
+    let base_str = std::str::from_utf8(base_content).ok();
+    let head_str = std::str::from_utf8(head_content).ok();
+    let overlay_str = std::str::from_utf8(overlay_content).ok();
 
-    // Attempt to parse all three versions.
-    let base_parse = parser.parse_file(path, base_content);
-    let head_parse = parser.parse_file(path, head_content);
-    let overlay_parse = parser.parse_file(path, overlay_content);
-
-    match (base_parse, head_parse, overlay_parse) {
-        (Ok(base_fa), Ok(head_fa), Ok(overlay_fa)) => {
-            semantic_analysis(file_path, &base_fa, &head_fa, &overlay_fa, overlay_content)
-        }
-        _ => {
-            // Fallback: byte-level comparison.
-            byte_level_analysis(file_path, base_content, head_content, overlay_content)
+    if let (Some(base), Some(head), Some(overlay)) = (base_str, head_str, overlay_str) {
+        if let Ok(result) = ast_merge::ast_merge(parser, file_path, base, head, overlay) {
+            return match result.status {
+                ast_merge::MergeStatus::Clean => MergeAnalysis::AutoMerge {
+                    merged_content: result.merged_content.into_bytes(),
+                },
+                ast_merge::MergeStatus::Conflict => MergeAnalysis::Conflict {
+                    conflicts: result
+                        .conflicts
+                        .into_iter()
+                        .map(|c| SemanticConflict {
+                            file_path: file_path.to_string(),
+                            symbol_name: c.qualified_name,
+                            our_change: SymbolChangeKind::Modified,
+                            their_change: SymbolChangeKind::Modified,
+                        })
+                        .collect(),
+                },
+            };
         }
     }
+
+    // Fallback: byte-level comparison when AST merge is not available
+    // (binary files, unsupported languages, or UTF-8 decode failure).
+    byte_level_analysis(file_path, base_content, head_content, overlay_content)
 }
 
 /// Semantic three-way merge analysis using parsed symbol tables.
