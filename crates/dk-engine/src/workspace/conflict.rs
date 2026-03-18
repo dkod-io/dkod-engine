@@ -85,9 +85,12 @@ pub fn analyze_file_conflict(
                         // only fire when the merge result is smaller than even the
                         // most-deleting agent's output, which is a strong signal that
                         // ast_merge dropped content it shouldn't have.
+                        // Note: uses `merged * 5 < min * 4` instead of
+                        // `merged * 100 / min < 80` to avoid usize overflow on
+                        // large files (>42 MB on 32-bit hosts).
                         let merged_len = result.merged_content.len();
                         let min_agent_len = head.len().min(overlay.len());
-                        if min_agent_len > 0 && merged_len * 100 / min_agent_len < 80 {
+                        if min_agent_len > 0 && merged_len * 5 < min_agent_len * 4 {
                             byte_level_analysis(
                                 file_path,
                                 base_content,
