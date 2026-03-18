@@ -273,22 +273,22 @@ impl SessionStore for RedisSessionStore {
                 }
             };
 
-        for key in keys {
-            let json: Option<String> = match conn.get(&key).await {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-            let Some(json) = json else { continue };
-            let stored: StoredSession = match serde_json::from_str(&json) {
-                Ok(s) => s,
-                Err(_) => continue,
-            };
+            for key in keys {
+                let json: Option<String> = match conn.get(&key).await {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+                let Some(json) = json else { continue };
+                let stored: StoredSession = match serde_json::from_str(&json) {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                };
 
-            if stored.is_expired(&self.timeout) {
-                self.save_snapshot_from_stored(&stored.id, &stored).await;
-                let _: Option<i64> = conn.del(&key).await.ok();
+                if stored.is_expired(&self.timeout) {
+                    self.save_snapshot_from_stored(&stored.id, &stored).await;
+                    let _: Option<i64> = conn.del(&key).await.ok();
+                }
             }
-        }
 
             cursor = new_cursor;
             if cursor == 0 {

@@ -167,12 +167,21 @@ pub async fn handle_merge(
                 })
                 .collect();
 
+            let suggested_action = "adapt".to_string();
+            let available_actions = vec!["adapt".to_string(), "keep_mine".to_string(), "keep_theirs".to_string()];
+
+            debug_assert!(
+                available_actions.iter().any(|a| a == &suggested_action),
+                "suggested_action '{}' is not in available_actions {:?}",
+                suggested_action, available_actions
+            );
+
             Ok(MergeResponse {
                 result: Some(merge_response::Result::Conflict(MergeConflict {
                     changeset_id: changeset_id.to_string(),
                     conflicts: conflict_details,
-                    suggested_action: "adapt".to_string(),
-                    available_actions: vec!["adapt".to_string(), "keep_mine".to_string(), "keep_theirs".to_string()],
+                    suggested_action,
+                    available_actions,
                 })),
             })
         }
