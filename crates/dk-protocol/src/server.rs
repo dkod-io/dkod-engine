@@ -187,4 +187,12 @@ impl crate::agent_service_server::AgentService for ProtocolServer {
     ) -> Result<Response<crate::SessionStatusResponse>, Status> {
         crate::session_status::handle_get_session_status(self, request.into_inner()).await
     }
+
+    async fn push(
+        &self,
+        request: Request<crate::PushRequest>,
+    ) -> Result<Response<crate::PushResponse>, Status> {
+        let resp = crate::push::handle_push(self, request.into_inner()).await?;
+        Ok(Response::new(resp))
+    }
 }

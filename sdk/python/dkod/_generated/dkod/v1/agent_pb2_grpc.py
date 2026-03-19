@@ -89,6 +89,11 @@ class AgentServiceStub(object):
                 request_serializer=dkod_dot_v1_dot_agent__pb2.SessionStatusRequest.SerializeToString,
                 response_deserializer=dkod_dot_v1_dot_agent__pb2.SessionStatusResponse.FromString,
                 _registered_method=True)
+        self.Push = channel.unary_unary(
+                '/dkod.v1.AgentService/Push',
+                request_serializer=dkod_dot_v1_dot_agent__pb2.PushRequest.SerializeToString,
+                response_deserializer=dkod_dot_v1_dot_agent__pb2.PushResponse.FromString,
+                _registered_method=True)
 
 
 class AgentServiceServicer(object):
@@ -166,6 +171,13 @@ class AgentServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def Push(self, request, context):
+        """Push merged changes to GitHub (branch or PR)
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_AgentServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -223,6 +235,11 @@ def add_AgentServiceServicer_to_server(servicer, server):
                     servicer.GetSessionStatus,
                     request_deserializer=dkod_dot_v1_dot_agent__pb2.SessionStatusRequest.FromString,
                     response_serializer=dkod_dot_v1_dot_agent__pb2.SessionStatusResponse.SerializeToString,
+            ),
+            'Push': grpc.unary_unary_rpc_method_handler(
+                    servicer.Push,
+                    request_deserializer=dkod_dot_v1_dot_agent__pb2.PushRequest.FromString,
+                    response_serializer=dkod_dot_v1_dot_agent__pb2.PushResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -522,6 +539,33 @@ class AgentService(object):
             '/dkod.v1.AgentService/GetSessionStatus',
             dkod_dot_v1_dot_agent__pb2.SessionStatusRequest.SerializeToString,
             dkod_dot_v1_dot_agent__pb2.SessionStatusResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Push(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dkod.v1.AgentService/Push',
+            dkod_dot_v1_dot_agent__pb2.PushRequest.SerializeToString,
+            dkod_dot_v1_dot_agent__pb2.PushResponse.FromString,
             options,
             channel_credentials,
             insecure,
