@@ -58,7 +58,11 @@ pub async fn run(out: Output, message: Option<&str>, force: bool) -> Result<()> 
                     }).collect::<Vec<_>>(),
                 }));
             } else {
-                println!("{} {} conflict(s):", "Merge blocked.".red().bold(), c.conflicts.len());
+                println!(
+                    "{} {} conflict(s):",
+                    "Merge blocked.".red().bold(),
+                    c.conflicts.len()
+                );
                 for d in &c.conflicts {
                     println!(
                         "  {} {} [{}] ({}) -- {}",
@@ -92,16 +96,18 @@ pub async fn run(out: Output, message: Option<&str>, force: bool) -> Result<()> 
                     }).collect::<Vec<_>>(),
                 }));
             } else {
-                println!(
+                eprintln!(
                     "{} {} symbol(s) recently overwritten:",
                     "Overwrite warning.".yellow().bold(),
                     w.overwrites.len()
                 );
                 for o in &w.overwrites {
-                    let merged_at = o.merged_at.as_ref()
+                    let merged_at = o
+                        .merged_at
+                        .as_ref()
                         .map(|t| t.to_string())
                         .unwrap_or_else(|| "unknown".to_string());
-                    println!(
+                    eprintln!(
                         "  {} {} in {} (by {}, merged at {})",
                         "overwrite:".yellow(),
                         o.symbol_name,
@@ -111,9 +117,10 @@ pub async fn run(out: Output, message: Option<&str>, force: bool) -> Result<()> 
                     );
                 }
                 if !w.available_actions.is_empty() {
-                    println!("  Available actions: {}", w.available_actions.join(", "));
+                    eprintln!("  Available actions: {}", w.available_actions.join(", "));
                 }
             }
+            bail!("merge blocked by overwrite warning (re-run with --force to proceed)");
         }
         None => bail!("empty merge response from server"),
     }
