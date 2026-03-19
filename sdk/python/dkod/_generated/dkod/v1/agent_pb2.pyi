@@ -48,6 +48,15 @@ ACCEPTED: SubmitStatus
 REJECTED: SubmitStatus
 CONFLICT: SubmitStatus
 
+class PushMode(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    PUSH_MODE_UNSPECIFIED: _ClassVar[PushMode]
+    PUSH_MODE_BRANCH: _ClassVar[PushMode]
+    PUSH_MODE_PR: _ClassVar[PushMode]
+PUSH_MODE_UNSPECIFIED: PushMode
+PUSH_MODE_BRANCH: PushMode
+PUSH_MODE_PR: PushMode
+
 class ConnectRequest(_message.Message):
     __slots__ = ("agent_id", "auth_token", "codebase", "intent", "workspace_config", "agent_name")
     AGENT_ID_FIELD_NUMBER: _ClassVar[int]
@@ -564,11 +573,11 @@ class PushRequest(_message.Message):
     PR_TITLE_FIELD_NUMBER: _ClassVar[int]
     PR_BODY_FIELD_NUMBER: _ClassVar[int]
     session_id: str
-    mode: str
+    mode: int
     branch_name: str
     pr_title: str
     pr_body: str
-    def __init__(self, session_id: _Optional[str] = ..., mode: _Optional[str] = ..., branch_name: _Optional[str] = ..., pr_title: _Optional[str] = ..., pr_body: _Optional[str] = ...) -> None: ...
+    def __init__(self, session_id: _Optional[str] = ..., mode: _Optional[_Union[PushMode, str]] = ..., branch_name: _Optional[str] = ..., pr_title: _Optional[str] = ..., pr_body: _Optional[str] = ...) -> None: ...
 
 class PushResponse(_message.Message):
     __slots__ = ("branch_name", "pr_url", "commit_hash", "changeset_ids")

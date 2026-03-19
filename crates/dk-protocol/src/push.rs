@@ -1,7 +1,7 @@
 use tonic::Status;
 
 use crate::server::ProtocolServer;
-use crate::{PushRequest, PushResponse};
+use crate::{PushMode, PushRequest, PushResponse};
 
 /// Handle a Push request.
 ///
@@ -16,23 +16,35 @@ pub async fn handle_push(
     let _session = server.validate_session(&req.session_id)?;
 
     // Validate mode
-    if req.mode != "branch" && req.mode != "pr" {
+    let mode = req.mode();
+    if mode == PushMode::Unspecified {
         return Err(Status::invalid_argument(
-            "mode must be 'branch' or 'pr'",
+            "mode must be PUSH_MODE_BRANCH or PUSH_MODE_PR",
         ));
     }
 
-    // Validate branch_name is non-empty
+    // Validate branch_name is non-empty and well-formed
     if req.branch_name.is_empty() {
+        return Err(Status::invalid_argument("branch_name is required"));
+    }
+    if req.branch_name.contains(' ')
+        || req.branch_name.contains("..")
+        || req.branch_name.starts_with('/')
+        || req.branch_name.ends_with('/')
+        || req.branch_name.ends_with('.')
+        || req.branch_name.contains('\\')
+        || req.branch_name.contains('\x7f')
+        || req.branch_name.bytes().any(|b| b < 0x20)
+    {
         return Err(Status::invalid_argument(
-            "branch_name is required",
+            "branch_name contains characters not valid in a git branch name",
         ));
     }
 
-    // Validate pr fields when mode is "pr"
-    if req.mode == "pr" && req.pr_title.is_empty() {
+    // Validate pr fields when mode is PR
+    if mode == PushMode::Pr && req.pr_title.is_empty() {
         return Err(Status::invalid_argument(
-            "pr_title is required when mode is 'pr'",
+            "pr_title is required when mode is PUSH_MODE_PR",
         ));
     }
 

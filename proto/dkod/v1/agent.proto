@@ -380,17 +380,23 @@ message SessionStatusResponse {
 
 // --- PUSH ---
 
+enum PushMode {
+  PUSH_MODE_UNSPECIFIED = 0;
+  PUSH_MODE_BRANCH = 1;
+  PUSH_MODE_PR = 2;
+}
+
 message PushRequest {
   string session_id = 1;
-  string mode = 2;           // "branch" or "pr"
+  PushMode mode = 2;
   string branch_name = 3;
-  string pr_title = 4;       // only used when mode = "pr"
-  string pr_body = 5;        // only used when mode = "pr"
+  string pr_title = 4;       // only used when mode = PUSH_MODE_PR
+  string pr_body = 5;        // only used when mode = PUSH_MODE_PR
 }
 
 message PushResponse {
   string branch_name = 1;
-  string pr_url = 2;         // empty when mode = "branch"
+  string pr_url = 2;         // empty when mode = PUSH_MODE_BRANCH
   string commit_hash = 3;
   repeated string changeset_ids = 4;  // changesets included in the push
 }
