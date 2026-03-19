@@ -91,7 +91,7 @@ pub async fn run(out: Output, message: Option<&str>, force: bool) -> Result<()> 
                             "symbol_name": o.symbol_name,
                             "other_agent": o.other_agent,
                             "other_changeset_id": o.other_changeset_id,
-                            "merged_at": o.merged_at.as_ref().map(|t| t.to_string()).unwrap_or_default(),
+                            "merged_at": o.merged_at.as_ref().map(|t| t.to_string()).unwrap_or_else(|| "unknown".to_string()),
                         })
                     }).collect::<Vec<_>>(),
                 }));
@@ -120,7 +120,12 @@ pub async fn run(out: Output, message: Option<&str>, force: bool) -> Result<()> 
                     eprintln!("  Available actions: {}", w.available_actions.join(", "));
                 }
             }
-            bail!("merge blocked by overwrite warning (re-run with --force to proceed)");
+            if !out.is_json() {
+                bail!("merge blocked by overwrite warning (re-run with --force to proceed)");
+            }
+            // JSON mode: set non-zero exit via process exit to match non-JSON behavior
+            // without printing an additional anyhow error message
+            std::process::exit(1);
         }
         None => bail!("empty merge response from server"),
     }
