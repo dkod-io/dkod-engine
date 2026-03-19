@@ -27,6 +27,9 @@ service AgentService {
 
   // Get current session workspace state
   rpc GetSessionStatus(SessionStatusRequest) returns (SessionStatusResponse);
+
+  // Push merged changes to GitHub (branch or PR)
+  rpc Push(PushRequest) returns (PushResponse);
 }
 
 // ── CONNECT ──
@@ -373,4 +376,21 @@ message SessionStatusResponse {
   repeated string symbols_modified = 4;
   uint64 overlay_size_bytes = 5;
   uint32 active_other_sessions = 6;
+}
+
+// --- PUSH ---
+
+message PushRequest {
+  string session_id = 1;
+  string mode = 2;           // "branch" or "pr"
+  string branch_name = 3;
+  string pr_title = 4;       // only used when mode = "pr"
+  string pr_body = 5;        // only used when mode = "pr"
+}
+
+message PushResponse {
+  string branch_name = 1;
+  string pr_url = 2;         // empty when mode = "branch"
+  string commit_hash = 3;
+  repeated string changeset_ids = 4;  // changesets included in the push
 }

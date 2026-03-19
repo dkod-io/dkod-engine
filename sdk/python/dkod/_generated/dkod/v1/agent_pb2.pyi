@@ -555,3 +555,29 @@ class SessionStatusResponse(_message.Message):
     overlay_size_bytes: int
     active_other_sessions: int
     def __init__(self, session_id: _Optional[str] = ..., base_commit: _Optional[str] = ..., files_modified: _Optional[_Iterable[str]] = ..., symbols_modified: _Optional[_Iterable[str]] = ..., overlay_size_bytes: _Optional[int] = ..., active_other_sessions: _Optional[int] = ...) -> None: ...
+
+class PushRequest(_message.Message):
+    __slots__ = ("session_id", "mode", "branch_name", "pr_title", "pr_body")
+    SESSION_ID_FIELD_NUMBER: _ClassVar[int]
+    MODE_FIELD_NUMBER: _ClassVar[int]
+    BRANCH_NAME_FIELD_NUMBER: _ClassVar[int]
+    PR_TITLE_FIELD_NUMBER: _ClassVar[int]
+    PR_BODY_FIELD_NUMBER: _ClassVar[int]
+    session_id: str
+    mode: str
+    branch_name: str
+    pr_title: str
+    pr_body: str
+    def __init__(self, session_id: _Optional[str] = ..., mode: _Optional[str] = ..., branch_name: _Optional[str] = ..., pr_title: _Optional[str] = ..., pr_body: _Optional[str] = ...) -> None: ...
+
+class PushResponse(_message.Message):
+    __slots__ = ("branch_name", "pr_url", "commit_hash", "changeset_ids")
+    BRANCH_NAME_FIELD_NUMBER: _ClassVar[int]
+    PR_URL_FIELD_NUMBER: _ClassVar[int]
+    COMMIT_HASH_FIELD_NUMBER: _ClassVar[int]
+    CHANGESET_IDS_FIELD_NUMBER: _ClassVar[int]
+    branch_name: str
+    pr_url: str
+    commit_hash: str
+    changeset_ids: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, branch_name: _Optional[str] = ..., pr_url: _Optional[str] = ..., commit_hash: _Optional[str] = ..., changeset_ids: _Optional[_Iterable[str]] = ...) -> None: ...

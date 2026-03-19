@@ -19,6 +19,7 @@ pub mod file_read;
 pub mod file_write;
 pub mod merge;
 pub mod pre_submit;
+pub mod push;
 pub mod server;
 pub mod session;
 #[cfg(feature = "redis")]
