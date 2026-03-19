@@ -5,7 +5,7 @@ use dk_protocol::{merge_response, MergeRequest};
 use crate::grpc;
 use crate::output::Output;
 
-pub async fn run(out: Output, message: Option<&str>) -> Result<()> {
+pub async fn run(out: Output, message: Option<&str>, force: bool) -> Result<()> {
     let (mut client, state) = grpc::client_from_session().await?;
 
     let commit_message = message
@@ -17,7 +17,7 @@ pub async fn run(out: Output, message: Option<&str>) -> Result<()> {
             session_id: state.session_id,
             changeset_id: state.changeset_id,
             commit_message,
-            force: false,
+            force,
         })
         .await?
         .into_inner();
@@ -87,7 +87,7 @@ pub async fn run(out: Output, message: Option<&str>) -> Result<()> {
                             "symbol_name": o.symbol_name,
                             "other_agent": o.other_agent,
                             "other_changeset_id": o.other_changeset_id,
-                            "merged_at": o.merged_at,
+                            "merged_at": o.merged_at.as_ref().map(|t| t.to_string()).unwrap_or_default(),
                         })
                     }).collect::<Vec<_>>(),
                 }));
@@ -98,13 +98,16 @@ pub async fn run(out: Output, message: Option<&str>) -> Result<()> {
                     w.overwrites.len()
                 );
                 for o in &w.overwrites {
+                    let merged_at = o.merged_at.as_ref()
+                        .map(|t| t.to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
                     println!(
                         "  {} {} in {} (by {}, merged at {})",
                         "overwrite:".yellow(),
                         o.symbol_name,
                         o.file_path,
                         o.other_agent,
-                        o.merged_at,
+                        merged_at,
                     );
                 }
                 if !w.available_actions.is_empty() {

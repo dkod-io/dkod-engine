@@ -137,14 +137,17 @@ impl Session {
     }
 
     /// Merge the current changeset into a Git commit.
-    pub async fn merge(&mut self, message: &str) -> Result<MergeResult> {
+    ///
+    /// If `force` is `true`, the recency guard is bypassed (use after the
+    /// caller has acknowledged an [`MergeResult::OverwriteWarning`]).
+    pub async fn merge(&mut self, message: &str, force: bool) -> Result<MergeResult> {
         let resp = self
             .client
             .merge(MergeRequest {
                 session_id: self.session_id.clone(),
                 changeset_id: self.changeset_id.clone(),
                 commit_message: message.to_string(),
-                force: false,
+                force,
             })
             .await?
             .into_inner();

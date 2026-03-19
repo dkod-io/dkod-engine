@@ -92,6 +92,9 @@ pub enum AgentAction {
         /// Commit message
         #[arg(short, long)]
         message: String,
+        /// Bypass the recency-guard warning after user acknowledgement
+        #[arg(long, default_value_t = false)]
+        force: bool,
         /// gRPC server address
         #[arg(long, default_value = "http://[::1]:50051")]
         server: String,
@@ -201,8 +204,9 @@ async fn run_async(action: AgentAction) -> Result<()> {
             session,
             changeset,
             message,
+            force,
             server,
-        } => merge_cmd(server, session, changeset, message).await,
+        } => merge_cmd(server, session, changeset, message, force).await,
 
         AgentAction::Watch { session, server } => watch_cmd(server, session).await,
 
@@ -430,6 +434,7 @@ async fn merge_cmd(
     session: String,
     changeset: String,
     message: String,
+    force: bool,
 ) -> Result<()> {
     let mut client = grpc_client(&server).await?;
 
@@ -438,7 +443,7 @@ async fn merge_cmd(
             session_id: session,
             changeset_id: changeset,
             commit_message: message,
-            force: false,
+            force,
         })
         .await?
         .into_inner();
@@ -483,14 +488,17 @@ async fn merge_cmd(
                 w.overwrites.len()
             );
             for o in &w.overwrites {
-                println!(
-                    "  {} {} in {} (by {}, merged at {})",
-                    "overwrite:".yellow(),
-                    o.symbol_name,
-                    o.file_path,
-                    o.other_agent,
-                    o.merged_at,
-                );
+                let merged_at = o.merged_at.as_ref()
+                        .map(|t| t.to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+                    println!(
+                        "  {} {} in {} (by {}, merged at {})",
+                        "overwrite:".yellow(),
+                        o.symbol_name,
+                        o.file_path,
+                        o.other_agent,
+                        merged_at,
+                    );
             }
             if !w.available_actions.is_empty() {
                 println!("  Available actions: {}", w.available_actions.join(", "));
