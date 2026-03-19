@@ -104,6 +104,9 @@ enum Commands {
         /// Commit message (defaults to changeset intent)
         #[arg(short, long)]
         message: Option<String>,
+        /// Bypass the recency-guard warning after user acknowledgement
+        #[arg(long, default_value_t = false)]
+        force: bool,
     },
 
     /// Show session state and pending changes
@@ -319,8 +322,8 @@ fn main() -> Result<()> {
         Commands::Check => {
             run_async(commands::check::run(out))
         }
-        Commands::Push { message } => {
-            run_async(commands::session_push::run(out, message.as_deref()))
+        Commands::Push { message, force } => {
+            run_async(commands::session_push::run(out, message.as_deref(), force))
         }
         Commands::Status => {
             run_async(commands::session_status::run(out))

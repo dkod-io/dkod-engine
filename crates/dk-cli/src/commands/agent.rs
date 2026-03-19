@@ -92,6 +92,9 @@ pub enum AgentAction {
         /// Commit message
         #[arg(short, long)]
         message: String,
+        /// Bypass the recency-guard warning after user acknowledgement
+        #[arg(long, default_value_t = false)]
+        force: bool,
         /// gRPC server address
         #[arg(long, default_value = "http://[::1]:50051")]
         server: String,
@@ -201,8 +204,9 @@ async fn run_async(action: AgentAction) -> Result<()> {
             session,
             changeset,
             message,
+            force,
             server,
-        } => merge_cmd(server, session, changeset, message).await,
+        } => merge_cmd(server, session, changeset, message, force).await,
 
         AgentAction::Watch { session, server } => watch_cmd(server, session).await,
 
@@ -338,10 +342,7 @@ async fn submit_cmd(
     for path in &files {
         let content = std::fs::read_to_string(path)
             .with_context(|| format!("failed to read {}", path.display()))?;
-        let file_path = path
-            .to_str()
-            .context("non-UTF-8 file path")?
-            .to_string();
+        let file_path = path.to_str().context("non-UTF-8 file path")?.to_string();
         changes.push(ProtoChange {
             r#type: ChangeType::AddFunction as i32,
             symbol_name: String::new(),
@@ -399,10 +400,7 @@ async fn verify_cmd(server: String, session: String, changeset: String) -> Resul
         .await?
         .into_inner();
 
-    println!(
-        "{:>3} | {:<24} | {:<10} | Output",
-        "#", "Step", "Status"
-    );
+    println!("{:>3} | {:<24} | {:<10} | Output", "#", "Step", "Status");
     println!("{}", "-".repeat(80));
 
     while let Some(step) = stream.next().await {
@@ -430,6 +428,7 @@ async fn merge_cmd(
     session: String,
     changeset: String,
     message: String,
+    force: bool,
 ) -> Result<()> {
     let mut client = grpc_client(&server).await?;
 
@@ -438,6 +437,7 @@ async fn merge_cmd(
             session_id: session,
             changeset_id: changeset,
             commit_message: message,
+            force,
         })
         .await?
         .into_inner();
@@ -474,6 +474,32 @@ async fn merge_cmd(
             if !c.available_actions.is_empty() {
                 println!("  Available actions: {}", c.available_actions.join(", "));
             }
+        }
+        Some(merge_response::Result::OverwriteWarning(w)) => {
+            eprintln!(
+                "{} {} symbol(s) recently overwritten:",
+                "Overwrite warning.".yellow().bold(),
+                w.overwrites.len()
+            );
+            for o in &w.overwrites {
+                let merged_at = o
+                    .merged_at
+                    .as_ref()
+                    .map(|t| t.to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+                eprintln!(
+                    "  {} {} in {} (by {}, merged at {})",
+                    "overwrite:".yellow(),
+                    o.symbol_name,
+                    o.file_path,
+                    o.other_agent,
+                    merged_at,
+                );
+            }
+            if !w.available_actions.is_empty() {
+                eprintln!("  Available actions: {}", w.available_actions.join(", "));
+            }
+            anyhow::bail!("merge blocked by overwrite warning (re-run with --force to proceed)");
         }
         None => {
             anyhow::bail!("empty merge response from server");
@@ -552,8 +578,19 @@ async fn file_read_cmd(server: String, session: String, path: String) -> Result<
         Ok(text) => print!("{}", text),
         Err(_) => {
             let len = resp.content.len();
-            let preview: String = resp.content.iter().take(64).map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join(" ");
-            println!("[binary: {} bytes]  {}{}", len, preview, if len > 64 { " ..." } else { "" });
+            let preview: String = resp
+                .content
+                .iter()
+                .take(64)
+                .map(|b| format!("{:02x}", b))
+                .collect::<Vec<_>>()
+                .join(" ");
+            println!(
+                "[binary: {} bytes]  {}{}",
+                len,
+                preview,
+                if len > 64 { " ..." } else { "" }
+            );
         }
     }
 
@@ -592,7 +629,12 @@ async fn file_write_cmd(
     if !resp.detected_changes.is_empty() {
         println!("Detected symbol changes:");
         for change in &resp.detected_changes {
-            println!("  {} {} ({})", "\u{2022}".cyan(), change.symbol_name, change.change_type);
+            println!(
+                "  {} {} ({})",
+                "\u{2022}".cyan(),
+                change.symbol_name,
+                change.change_type
+            );
         }
     }
 

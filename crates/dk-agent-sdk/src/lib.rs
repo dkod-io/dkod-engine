@@ -18,7 +18,7 @@
 //! let ctx = session.context("auth middleware", Depth::Full, 4000).await?;
 //! session.submit(vec![Change::modify("src/auth.rs", "// fixed")]).await?;
 //! let steps = session.verify().await?;
-//! let result = session.merge("fix: auth bypass").await?;
+//! let result = session.merge("fix: auth bypass", false).await?;
 //! # Ok(())
 //! # }
 //! ```
