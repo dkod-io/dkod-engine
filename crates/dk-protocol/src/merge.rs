@@ -9,6 +9,16 @@ use crate::{merge_response, ConflictDetail, MergeConflict, MergeRequest, MergeRe
 /// Conflict type for true write-write semantic conflicts.
 const CONFLICT_TYPE_TRUE: &str = "true_conflict";
 
+/// Sanitize a string for protobuf `string` fields.
+///
+/// Rust `String` is guaranteed valid UTF-8, but content originating from
+/// tree-sitter AST parsing may contain null bytes or replacement characters
+/// from lossy conversions.  Strip null bytes so the value round-trips cleanly
+/// through protobuf serialization/deserialization.
+fn sanitize_for_proto(s: &str) -> String {
+    s.replace('\0', "")
+}
+
 pub async fn handle_merge(
     server: &ProtocolServer,
     req: MergeRequest,
@@ -152,18 +162,22 @@ pub async fn handle_merge(
         WorkspaceMergeResult::Conflicts { conflicts } => {
             let conflict_details: Vec<ConflictDetail> = conflicts
                 .iter()
-                .map(|c| ConflictDetail {
-                    file_path: c.file_path.clone(),
-                    symbols: vec![c.symbol_name.clone()],
-                    your_agent: agent.to_string(),
-                    // TODO: resolve their_agent from the session/changeset store
-                    // once SemanticConflict carries agent attribution.
-                    their_agent: String::new(),
-                    conflict_type: CONFLICT_TYPE_TRUE.to_string(),
-                    description: format!(
-                        "Symbol '{}' — our change: {:?}, their change: {:?}",
-                        c.symbol_name, c.our_change, c.their_change
-                    ),
+                .map(|c| {
+                    let file = sanitize_for_proto(&c.file_path);
+                    let symbol = sanitize_for_proto(&c.symbol_name);
+                    ConflictDetail {
+                        file_path: file,
+                        symbols: vec![symbol.clone()],
+                        your_agent: agent.to_string(),
+                        // TODO: resolve their_agent from the session/changeset store
+                        // once SemanticConflict carries agent attribution.
+                        their_agent: String::new(),
+                        conflict_type: CONFLICT_TYPE_TRUE.to_string(),
+                        description: format!(
+                            "Symbol '{}' — our change: {:?}, their change: {:?}",
+                            symbol, c.our_change, c.their_change
+                        ),
+                    }
                 })
                 .collect();
 
@@ -312,5 +326,21 @@ mod tests {
         };
         assert_eq!(detail.symbols.len(), 2);
         assert_eq!(detail.conflict_type, CONFLICT_TYPE_TRUE);
+    }
+
+    #[test]
+    fn sanitize_for_proto_strips_null_bytes() {
+        assert_eq!(sanitize_for_proto("hello\0world"), "helloworld");
+        assert_eq!(sanitize_for_proto("\0\0"), "");
+        assert_eq!(sanitize_for_proto("clean"), "clean");
+    }
+
+    #[test]
+    fn sanitize_for_proto_preserves_valid_utf8() {
+        // Multi-byte UTF-8 characters must survive sanitization
+        assert_eq!(sanitize_for_proto("fn résumé()"), "fn résumé()");
+        assert_eq!(sanitize_for_proto("日本語"), "日本語");
+        // Replacement character from String::from_utf8_lossy is valid UTF-8
+        assert_eq!(sanitize_for_proto("bad\u{FFFD}char"), "bad\u{FFFD}char");
     }
 }

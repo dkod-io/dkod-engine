@@ -64,7 +64,8 @@ fn find_symbol_in_content(
             let end = sym.span.end_byte as usize;
             let bytes = content.as_bytes();
             if end <= bytes.len() {
-                let text = String::from_utf8_lossy(&bytes[start..end]).to_string();
+                let text = String::from_utf8_lossy(&bytes[start..end])
+                    .replace('\0', "");
                 return Ok(Some((sym.clone(), text)));
             }
         }
