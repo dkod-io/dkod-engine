@@ -1,7 +1,6 @@
 syntax = "proto3";
 package dkod.v1;
 
-import "google/protobuf/timestamp.proto";
 import "dkod/v1/types.proto";
 
 service AgentService {
@@ -269,7 +268,7 @@ message SymbolOverwrite {
   string symbol_name = 2;
   string other_agent = 3;
   string other_changeset_id = 4;
-  google.protobuf.Timestamp merged_at = 5;
+  string merged_at = 5;
 }
 
 // --- WATCH ---

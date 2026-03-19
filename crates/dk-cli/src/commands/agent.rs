@@ -482,11 +482,11 @@ async fn merge_cmd(
                 w.overwrites.len()
             );
             for o in &w.overwrites {
-                let merged_at = o
-                    .merged_at
-                    .as_ref()
-                    .map(|t| t.to_string())
-                    .unwrap_or_else(|| "unknown".to_string());
+                let merged_at = if o.merged_at.is_empty() {
+                    "unknown".to_string()
+                } else {
+                    o.merged_at.clone()
+                };
                 eprintln!(
                     "  {} {} in {} (by {}, merged at {})",
                     "overwrite:".yellow(),

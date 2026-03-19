@@ -834,7 +834,6 @@ dependencies = [
  "dk-runner",
  "jsonwebtoken",
  "prost",
- "prost-types",
  "redis",
  "serde",
  "serde_json",

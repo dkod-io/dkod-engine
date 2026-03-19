@@ -91,7 +91,7 @@ pub async fn run(out: Output, message: Option<&str>, force: bool) -> Result<()> 
                             "symbol_name": o.symbol_name,
                             "other_agent": o.other_agent,
                             "other_changeset_id": o.other_changeset_id,
-                            "merged_at": o.merged_at.as_ref().map(|t| t.to_string()).unwrap_or_else(|| "unknown".to_string()),
+                            "merged_at": if o.merged_at.is_empty() { "unknown" } else { &o.merged_at },
                         })
                     }).collect::<Vec<_>>(),
                 }));
@@ -102,11 +102,11 @@ pub async fn run(out: Output, message: Option<&str>, force: bool) -> Result<()> 
                     w.overwrites.len()
                 );
                 for o in &w.overwrites {
-                    let merged_at = o
-                        .merged_at
-                        .as_ref()
-                        .map(|t| t.to_string())
-                        .unwrap_or_else(|| "unknown".to_string());
+                    let merged_at = if o.merged_at.is_empty() {
+                        "unknown".to_string()
+                    } else {
+                        o.merged_at.clone()
+                    };
                     eprintln!(
                         "  {} {} in {} (by {}, merged at {})",
                         "overwrite:".yellow(),
