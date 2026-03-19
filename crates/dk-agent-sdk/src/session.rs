@@ -144,6 +144,7 @@ impl Session {
                 session_id: self.session_id.clone(),
                 changeset_id: self.changeset_id.clone(),
                 commit_message: message.to_string(),
+                force: false,
             })
             .await?
             .into_inner();
@@ -151,6 +152,9 @@ impl Session {
         match resp.result {
             Some(merge_response::Result::Success(s)) => Ok(MergeResult::Success(s)),
             Some(merge_response::Result::Conflict(c)) => Ok(MergeResult::Conflict(c)),
+            Some(merge_response::Result::OverwriteWarning(w)) => {
+                Ok(MergeResult::OverwriteWarning(w))
+            }
             None => Err(tonic::Status::internal("empty merge response").into()),
         }
     }

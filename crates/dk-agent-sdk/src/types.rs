@@ -1,7 +1,7 @@
 // Re-export proto types that SDK consumers will use directly.
 pub use dk_protocol::{
     CallEdgeRef, CodebaseSummary, ConflictDetail, DependencyRef, MergeConflict, MergeSuccess,
-    SubmitError, SymbolRef, SymbolResult, VerifyStepResult, WatchEvent,
+    RecentOverwriteWarning, SubmitError, SymbolRef, SymbolResult, VerifyStepResult, WatchEvent,
 };
 
 /// A high-level representation of a code change that the SDK translates into
@@ -85,4 +85,6 @@ pub enum MergeResult {
     Success(MergeSuccess),
     /// Merge blocked by conflicts — agent must resolve.
     Conflict(MergeConflict),
+    /// Merge blocked by recent overwrite — agent must force or abort.
+    OverwriteWarning(RecentOverwriteWarning),
 }

@@ -221,12 +221,14 @@ message MergeRequest {
   string session_id = 1;
   string changeset_id = 2;
   string commit_message = 3;
+  bool force = 4;
 }
 
 message MergeResponse {
   oneof result {
     MergeSuccess success = 1;
     MergeConflict conflict = 2;
+    RecentOverwriteWarning overwrite_warning = 3;
   }
 }
 
@@ -251,6 +253,22 @@ message ConflictDetail {
   string their_agent = 4;
   string conflict_type = 5;
   string description = 6;
+}
+
+// --- OVERWRITE WARNING ---
+
+message RecentOverwriteWarning {
+  string changeset_id = 1;
+  repeated SymbolOverwrite overwrites = 2;
+  repeated string available_actions = 3;
+}
+
+message SymbolOverwrite {
+  string file_path = 1;
+  string symbol_name = 2;
+  string other_agent = 3;
+  string other_changeset_id = 4;
+  string merged_at = 5;
 }
 
 // --- WATCH ---

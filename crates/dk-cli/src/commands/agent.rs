@@ -438,6 +438,7 @@ async fn merge_cmd(
             session_id: session,
             changeset_id: changeset,
             commit_message: message,
+            force: false,
         })
         .await?
         .into_inner();
@@ -473,6 +474,26 @@ async fn merge_cmd(
             println!("  Suggested action: {}", c.suggested_action);
             if !c.available_actions.is_empty() {
                 println!("  Available actions: {}", c.available_actions.join(", "));
+            }
+        }
+        Some(merge_response::Result::OverwriteWarning(w)) => {
+            println!(
+                "{} {} symbol(s) recently overwritten:",
+                "Overwrite warning.".yellow().bold(),
+                w.overwrites.len()
+            );
+            for o in &w.overwrites {
+                println!(
+                    "  {} {} in {} (by {}, merged at {})",
+                    "overwrite:".yellow(),
+                    o.symbol_name,
+                    o.file_path,
+                    o.other_agent,
+                    o.merged_at,
+                );
+            }
+            if !w.available_actions.is_empty() {
+                println!("  Available actions: {}", w.available_actions.join(", "));
             }
         }
         None => {

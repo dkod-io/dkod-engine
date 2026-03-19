@@ -17,6 +17,7 @@ pub async fn run(out: Output, message: Option<&str>) -> Result<()> {
             session_id: state.session_id,
             changeset_id: state.changeset_id,
             commit_message,
+            force: false,
         })
         .await?
         .into_inner();
@@ -71,6 +72,43 @@ pub async fn run(out: Output, message: Option<&str>) -> Result<()> {
                 println!("  Suggested action: {}", c.suggested_action);
                 if !c.available_actions.is_empty() {
                     println!("  Available actions: {}", c.available_actions.join(", "));
+                }
+            }
+        }
+        Some(merge_response::Result::OverwriteWarning(w)) => {
+            if out.is_json() {
+                out.print_json(&serde_json::json!({
+                    "overwrite_warning": true,
+                    "changeset_id": w.changeset_id,
+                    "available_actions": w.available_actions,
+                    "overwrites": w.overwrites.iter().map(|o| {
+                        serde_json::json!({
+                            "file_path": o.file_path,
+                            "symbol_name": o.symbol_name,
+                            "other_agent": o.other_agent,
+                            "other_changeset_id": o.other_changeset_id,
+                            "merged_at": o.merged_at,
+                        })
+                    }).collect::<Vec<_>>(),
+                }));
+            } else {
+                println!(
+                    "{} {} symbol(s) recently overwritten:",
+                    "Overwrite warning.".yellow().bold(),
+                    w.overwrites.len()
+                );
+                for o in &w.overwrites {
+                    println!(
+                        "  {} {} in {} (by {}, merged at {})",
+                        "overwrite:".yellow(),
+                        o.symbol_name,
+                        o.file_path,
+                        o.other_agent,
+                        o.merged_at,
+                    );
+                }
+                if !w.available_actions.is_empty() {
+                    println!("  Available actions: {}", w.available_actions.join(", "));
                 }
             }
         }
