@@ -139,17 +139,28 @@ dk push
 
 <br>
 
-Add to your MCP config:
+For cloud (dkod.io):
+
+```bash
+claude mcp add --transport http dkod https://api.dkod.io/mcp
+```
+
+For other MCP-compatible agents, add to your MCP config:
 
 ```json
 {
   "mcpServers": {
     "dkod": {
-      "command": "dk",
-      "args": ["mcp"]
+      "url": "https://api.dkod.io/mcp"
     }
   }
 }
+```
+
+For self-hosted:
+
+```bash
+claude mcp add --transport http dkod http://localhost:8080/mcp
 ```
 
 Your agent gets these tools:
@@ -158,10 +169,15 @@ Your agent gets these tools:
 |------|---------|
 | `dk_connect` | Open a session for a repo |
 | `dk_context` | Semantic code search |
-| `dk_file_read` / `dk_file_write` | Read & write files in isolation |
+| `dk_file_read` | Read a file from session workspace |
+| `dk_file_write` | Write a file to session overlay |
+| `dk_file_list` | List files in workspace |
 | `dk_submit` | Submit a changeset |
 | `dk_verify` | Run the verification pipeline |
 | `dk_merge` | Merge verified changes to main |
+| `dk_push` | Push changes to GitHub (branch or PR) |
+| `dk_status` | Get session state and info |
+| `dk_watch` | Subscribe to real-time codebase events |
 
 </details>
 
