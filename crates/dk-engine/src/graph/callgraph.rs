@@ -108,9 +108,12 @@ impl CallGraphStore {
         Ok(rows.into_iter().map(CallEdgeRow::into_call_edge).collect())
     }
 
-    /// Delete all call edges where the caller symbol is in the given file.
-    /// This joins on the `symbols` table to resolve the caller's file path.
-    /// Returns the number of rows deleted.
+    /// Delete all call edges where any involved symbol is in the given file.
+    /// This deletes edges where the file's symbols appear as either caller OR
+    /// callee, which is required before deleting the symbols themselves —
+    /// otherwise the `call_edges_callee_id_fkey` FK constraint blocks the
+    /// symbol deletion.
+    /// Returns the total number of rows deleted.
     pub async fn delete_edges_for_file(
         &self,
         repo_id: RepoId,
@@ -120,7 +123,7 @@ impl CallGraphStore {
             r#"
             DELETE FROM call_edges ce
             USING symbols s
-            WHERE ce.caller_id = s.id
+            WHERE (ce.caller_id = s.id OR ce.callee_id = s.id)
               AND s.repo_id = $1
               AND s.file_path = $2
             "#,
