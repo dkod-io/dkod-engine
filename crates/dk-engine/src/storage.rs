@@ -23,14 +23,37 @@ impl LocalStore {
     }
 }
 
+/// Validate that a storage key does not escape the root directory.
+///
+/// Rejects keys containing path traversal (`..`), null bytes, or absolute paths.
+fn validate_key(key: &str) -> anyhow::Result<()> {
+    if key.is_empty() {
+        anyhow::bail!("storage key cannot be empty");
+    }
+    if key.starts_with('/') || key.starts_with('\\') {
+        anyhow::bail!("storage key must be relative");
+    }
+    if key.contains('\0') {
+        anyhow::bail!("storage key contains null byte");
+    }
+    for component in key.split(&['/', '\\'] as &[char]) {
+        if component == ".." {
+            anyhow::bail!("storage key contains '..' traversal");
+        }
+    }
+    Ok(())
+}
+
 #[async_trait]
 impl ObjectStore for LocalStore {
     async fn get(&self, key: &str) -> anyhow::Result<Vec<u8>> {
+        validate_key(key)?;
         let path = self.root.join(key);
         Ok(tokio::fs::read(path).await?)
     }
 
     async fn put(&self, key: &str, data: Vec<u8>) -> anyhow::Result<()> {
+        validate_key(key)?;
         let path = self.root.join(key);
         if let Some(parent) = path.parent() {
             tokio::fs::create_dir_all(parent).await?;
@@ -39,6 +62,7 @@ impl ObjectStore for LocalStore {
     }
 
     async fn delete(&self, key: &str) -> anyhow::Result<()> {
+        validate_key(key)?;
         let path = self.root.join(key);
         match tokio::fs::remove_file(path).await {
             Ok(()) => Ok(()),
@@ -48,6 +72,7 @@ impl ObjectStore for LocalStore {
     }
 
     async fn list(&self, prefix: &str) -> anyhow::Result<Vec<String>> {
+        validate_key(prefix)?;
         let dir = self.root.join(prefix);
         let mut entries = Vec::new();
         if dir.exists() {
@@ -67,6 +92,7 @@ impl ObjectStore for LocalStore {
     }
 
     async fn exists(&self, key: &str) -> anyhow::Result<bool> {
+        validate_key(key)?;
         let path = self.root.join(key);
         Ok(path.exists())
     }
@@ -75,6 +101,29 @@ impl ObjectStore for LocalStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn validate_key_rejects_traversal() {
+        assert!(validate_key("../etc/passwd").is_err());
+        assert!(validate_key("foo/../../bar").is_err());
+    }
+
+    #[test]
+    fn validate_key_rejects_absolute() {
+        assert!(validate_key("/etc/passwd").is_err());
+    }
+
+    #[test]
+    fn validate_key_rejects_null() {
+        assert!(validate_key("foo\0bar").is_err());
+    }
+
+    #[test]
+    fn validate_key_accepts_valid() {
+        assert!(validate_key("repos/abc/data.json").is_ok());
+        assert!(validate_key("sessions/123").is_ok());
+        assert!(validate_key("file.txt").is_ok());
+    }
 
     #[tokio::test]
     async fn local_store_roundtrip() {

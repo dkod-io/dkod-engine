@@ -122,6 +122,12 @@ impl AuthConfig {
             }
         };
 
+        if secret.len() < 32 {
+            return Err(Status::failed_precondition(
+                "JWT secret must be at least 32 bytes for HS256 security",
+            ));
+        }
+
         let now = jsonwebtoken::get_current_timestamp() as usize;
         let claims = DkodClaims {
             sub: agent_id.to_string(),
@@ -151,6 +157,10 @@ impl AuthConfig {
 ///
 /// Returns the `sub` claim (agent id) on success.
 fn validate_jwt(token: &str, secret: &str) -> Result<String, Status> {
+    if secret.len() < 32 {
+        return Err(Status::unauthenticated("JWT secret too short"));
+    }
+
     let mut validation = Validation::new(jsonwebtoken::Algorithm::HS256);
     validation.set_issuer(&["dkod"]);
     validation.set_required_spec_claims(&["sub", "exp", "iss"]);
@@ -171,7 +181,7 @@ fn validate_jwt(token: &str, secret: &str) -> Result<String, Status> {
 mod tests {
     use super::*;
 
-    const TEST_SECRET: &str = "test-secret-key-for-unit-tests";
+    const TEST_SECRET: &str = "test-secret-key-for-unit-tests!!";
     const TEST_AGENT: &str = "agent-42";
     const TEST_SCOPE: &str = "read+write";
     const TTL: usize = 3600; // 1 hour
@@ -200,10 +210,10 @@ mod tests {
     #[test]
     fn jwt_rejects_wrong_secret() {
         let config1 = AuthConfig::Jwt {
-            secret: "secret-one".to_string(),
+            secret: "secret-one-padding-for-32-bytes!".to_string(),
         };
         let config2 = AuthConfig::Jwt {
-            secret: "secret-two".to_string(),
+            secret: "secret-two-padding-for-32-bytes!".to_string(),
         };
         let token = config1
             .issue_token(TEST_AGENT, TEST_SCOPE, TTL)
@@ -324,5 +334,14 @@ mod tests {
             config.issue_token("agent", "read", 3600).is_err(),
             "External mode should not issue JWT tokens"
         );
+    }
+
+    #[test]
+    fn rejects_short_jwt_secret() {
+        let config = AuthConfig::Jwt {
+            secret: "short".to_string(),
+        };
+        let result = config.issue_token("agent-1", "full", 3600);
+        assert!(result.is_err());
     }
 }

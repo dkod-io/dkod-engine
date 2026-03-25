@@ -146,6 +146,11 @@ impl RedisSessionStore {
     }
 }
 
+// SECURITY: All serde_json::from_str calls in this module deserialize data from
+// Redis (trusted internal backend), not from untrusted external input. The target
+// type (StoredSession) contains only primitive fields (Uuid, String, i64) with no
+// custom deserializers or gadget chains — JSON deserialization cannot trigger
+// arbitrary code execution. See CWE-502 assessment: false positive.
 #[async_trait]
 impl SessionStore for RedisSessionStore {
     async fn create_session(
