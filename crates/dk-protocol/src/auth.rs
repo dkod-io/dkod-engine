@@ -123,9 +123,8 @@ impl AuthConfig {
         };
 
         if secret.len() < 32 {
-            return Err(Status::failed_precondition(
-                "JWT secret must be at least 32 bytes for HS256 security",
-            ));
+            tracing::error!("JWT secret is too short (< 32 bytes); check server configuration");
+            return Err(Status::internal("server misconfiguration"));
         }
 
         let now = jsonwebtoken::get_current_timestamp() as usize;
@@ -158,7 +157,8 @@ impl AuthConfig {
 /// Returns the `sub` claim (agent id) on success.
 fn validate_jwt(token: &str, secret: &str) -> Result<String, Status> {
     if secret.len() < 32 {
-        return Err(Status::unauthenticated("JWT secret too short"));
+        tracing::error!("JWT secret is too short (< 32 bytes); check server configuration");
+        return Err(Status::unauthenticated("JWT validation failed"));
     }
 
     let mut validation = Validation::new(jsonwebtoken::Algorithm::HS256);

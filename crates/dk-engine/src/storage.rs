@@ -72,7 +72,11 @@ impl ObjectStore for LocalStore {
     }
 
     async fn list(&self, prefix: &str) -> anyhow::Result<Vec<String>> {
-        validate_key(prefix)?;
+        // Empty prefix means "list root" — skip validation since there's
+        // nothing to traverse. Non-empty prefixes are validated normally.
+        if !prefix.is_empty() {
+            validate_key(prefix)?;
+        }
         let dir = self.root.join(prefix);
         let mut entries = Vec::new();
         if dir.exists() {
