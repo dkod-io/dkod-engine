@@ -805,6 +805,7 @@ dependencies = [
  "gix",
  "opendal",
  "qdrant-client",
+ "redis",
  "rmp-serde",
  "serde",
  "serde_json",

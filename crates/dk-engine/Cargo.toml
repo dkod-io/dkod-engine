@@ -33,11 +33,13 @@ sha2 = "0.10"
 async-trait.workspace = true
 opendal = { workspace = true, optional = true }
 qdrant-client = { workspace = true, optional = true }
+redis = { workspace = true, optional = true }
 
 [features]
 default = []
 s3 = ["dep:opendal"]
 qdrant = ["dep:qdrant-client"]
+valkey = ["dep:redis"]
 
 [dev-dependencies]
 tempfile = "3"

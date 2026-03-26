@@ -1,5 +1,7 @@
 pub mod cache;
 pub mod overlay;
+#[cfg(feature = "valkey")]
+pub mod valkey_cache;
 pub mod session_workspace;
 pub mod session_graph;
 pub mod session_manager;
