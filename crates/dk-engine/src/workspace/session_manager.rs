@@ -124,8 +124,8 @@ impl WorkspaceManager {
             changeset_id: ws.changeset_id,
             intent: ws.intent.clone(),
             base_commit: ws.base_commit.clone(),
-            state: format!("{:?}", ws.state),
-            mode: format!("{:?}", ws.mode),
+            state: ws.state.as_str().to_string(),
+            mode: ws.mode.as_str().to_string(),
         };
         let cache = self.cache.clone();
         tokio::spawn(async move {
