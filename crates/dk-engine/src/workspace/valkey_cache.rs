@@ -51,7 +51,9 @@ impl ValkeyCache {
     }
 
     fn file_key(id: &Uuid, path: &str) -> String {
-        format!("ws:{id}:file:{path}")
+        // Wrap path in braces to make the boundary unambiguous if path
+        // contains colons (e.g. Windows paths, URLs).
+        format!("ws:{id}:file:{{{path}}}")
     }
 
     fn files_set_key(id: &Uuid) -> String {

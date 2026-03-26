@@ -143,7 +143,11 @@ impl WorkspaceManager {
         &self,
         session_id: &SessionId,
     ) -> Option<dashmap::mapref::one::Ref<'_, SessionId, SessionWorkspace>> {
-        self.workspaces.get(session_id)
+        let result = self.workspaces.get(session_id);
+        if result.is_some() {
+            self.touch_in_cache(session_id);
+        }
+        result
     }
 
     /// Get a mutable reference to a workspace.
@@ -151,7 +155,11 @@ impl WorkspaceManager {
         &self,
         session_id: &SessionId,
     ) -> Option<dashmap::mapref::one::RefMut<'_, SessionId, SessionWorkspace>> {
-        self.workspaces.get_mut(session_id)
+        let result = self.workspaces.get_mut(session_id);
+        if result.is_some() {
+            self.touch_in_cache(session_id);
+        }
+        result
     }
 
     /// Fire-and-forget L2 cache eviction for one or more session IDs.
@@ -166,6 +174,20 @@ impl WorkspaceManager {
                     }
                 });
             }
+        }
+    }
+
+    /// Fire-and-forget L2 cache TTL refresh.
+    /// Prevents cache entries from expiring during long-lived sessions.
+    fn touch_in_cache(&self, session_id: &SessionId) {
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            let sid = *session_id;
+            let cache = self.cache.clone();
+            handle.spawn(async move {
+                if let Err(e) = cache.touch(&sid).await {
+                    tracing::warn!("L2 cache touch failed: {e}");
+                }
+            });
         }
     }
 

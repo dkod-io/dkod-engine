@@ -34,6 +34,10 @@ pub struct SessionGraph {
     /// Symbols that existed in the base and were removed in this session.
     pub removed_symbols: DashSet<SymbolId>,
 
+    /// Cached names of removed symbols (populated during serialization or
+    /// deserialization so `changed_symbol_names()` works without the base).
+    removed_symbol_names: DashMap<SymbolId, String>,
+
     /// Call edges added in this session.
     pub added_edges: DashMap<Uuid, CallEdge>,
 
@@ -53,6 +57,10 @@ struct SessionGraphSnapshot {
     modified_symbols: Vec<(SymbolId, Symbol)>,
     added_symbols: Vec<(SymbolId, Symbol)>,
     removed_symbols: Vec<SymbolId>,
+    /// Names of removed symbols, so `changed_symbol_names()` works on
+    /// deserialized graphs without requiring the base symbol table.
+    #[serde(default)]
+    removed_symbol_names: Vec<(SymbolId, String)>,
     added_edges: Vec<(Uuid, CallEdge)>,
     removed_edges: Vec<Uuid>,
 }
@@ -65,6 +73,7 @@ impl SessionGraph {
             modified_symbols: DashMap::new(),
             added_symbols: DashMap::new(),
             removed_symbols: DashSet::new(),
+            removed_symbol_names: DashMap::new(),
             added_edges: DashMap::new(),
             removed_edges: DashSet::new(),
         }
@@ -77,6 +86,7 @@ impl SessionGraph {
             modified_symbols: DashMap::new(),
             added_symbols: DashMap::new(),
             removed_symbols: DashSet::new(),
+            removed_symbol_names: DashMap::new(),
             added_edges: DashMap::new(),
             removed_edges: DashSet::new(),
         }
@@ -138,8 +148,18 @@ impl SessionGraph {
             return;
         }
 
-        // If it was modified, drop the modification.
-        self.modified_symbols.remove(&id);
+        // If it was modified, capture the name before dropping.
+        if let Some((_, sym)) = self.modified_symbols.remove(&id) {
+            self.removed_symbol_names
+                .insert(id, sym.qualified_name.clone());
+        } else if let Some(base) = &self.base_symbols {
+            // Look up name from base for the cache.
+            let snapshot = base.load();
+            if let Some(sym) = snapshot.get(&id) {
+                self.removed_symbol_names
+                    .insert(id, sym.qualified_name.clone());
+            }
+        }
 
         // Mark as removed from base.
         self.removed_symbols.insert(id);
@@ -174,13 +194,17 @@ impl SessionGraph {
             names.push(entry.value().qualified_name.clone());
         }
 
-        // For removed symbols, look up the name from the base.
-        if let Some(base) = &self.base_symbols {
-            let snapshot = base.load();
-            for id in self.removed_symbols.iter() {
-                if let Some(sym) = snapshot.get(id.key()) {
-                    names.push(sym.qualified_name.clone());
-                }
+        // For removed symbols, try the base first, then the cached names
+        // (which are populated during remove_symbol and deserialization).
+        for id in self.removed_symbols.iter() {
+            let found = self
+                .base_symbols
+                .as_ref()
+                .and_then(|base| base.load().get(id.key()).map(|s| s.qualified_name.clone()));
+            if let Some(name) = found {
+                names.push(name);
+            } else if let Some(name) = self.removed_symbol_names.get(id.key()) {
+                names.push(name.value().clone());
             }
         }
 
@@ -283,6 +307,11 @@ impl SessionGraph {
                 .map(|e| (*e.key(), e.value().clone()))
                 .collect(),
             removed_symbols: self.removed_symbols.iter().map(|r| *r).collect(),
+            removed_symbol_names: self
+                .removed_symbol_names
+                .iter()
+                .map(|e| (*e.key(), e.value().clone()))
+                .collect(),
             added_edges: self
                 .added_edges
                 .iter()
@@ -318,6 +347,11 @@ impl SessionGraph {
             removed_symbols.insert(id);
         }
 
+        let removed_symbol_names = DashMap::new();
+        for (id, name) in snapshot.removed_symbol_names {
+            removed_symbol_names.insert(id, name);
+        }
+
         let added_edges = DashMap::new();
         for (id, edge) in snapshot.added_edges {
             added_edges.insert(id, edge);
@@ -333,6 +367,7 @@ impl SessionGraph {
             modified_symbols,
             added_symbols,
             removed_symbols,
+            removed_symbol_names,
             added_edges,
             removed_edges,
         })
