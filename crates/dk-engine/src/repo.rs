@@ -17,6 +17,7 @@ use crate::graph::{
     CallGraphStore, DependencyStore, SearchIndex, SymbolStore, TypeInfoStore,
 };
 use crate::parser::ParserRegistry;
+use crate::workspace::cache::{NoOpCache, WorkspaceCache};
 use crate::workspace::session_manager::WorkspaceManager;
 
 // ── Public types ──
@@ -52,12 +53,27 @@ pub struct Engine {
 }
 
 impl Engine {
-    /// Create a new Engine instance.
+    /// Create a new Engine instance with the default no-op workspace cache.
     ///
     /// Initialises all graph stores from the provided `PgPool`, creates the
     /// `ParserRegistry` with Rust/TypeScript/Python parsers, and opens (or
     /// creates) a Tantivy `SearchIndex` at `storage_path/search_index`.
+    ///
+    /// Delegates to [`Engine::with_cache`] with [`NoOpCache`].
     pub fn new(storage_path: PathBuf, db: PgPool) -> Result<Self> {
+        Self::with_cache(storage_path, db, Arc::new(NoOpCache))
+    }
+
+    /// Create a new Engine with an explicit workspace cache implementation.
+    ///
+    /// This is the primary constructor. [`Engine::new`] delegates here with
+    /// [`NoOpCache`]. Pass a `ValkeyCache` (or any [`WorkspaceCache`] impl)
+    /// for multi-pod deployments.
+    pub fn with_cache(
+        storage_path: PathBuf,
+        db: PgPool,
+        cache: Arc<dyn WorkspaceCache>,
+    ) -> Result<Self> {
         let search_index = SearchIndex::open(&storage_path.join("search_index"))?;
         let parser = ParserRegistry::new();
         let symbol_store = SymbolStore::new(db.clone());
@@ -66,7 +82,7 @@ impl Engine {
         let type_info_store = TypeInfoStore::new(db.clone());
         let changeset_store = ChangesetStore::new(db.clone());
         let pipeline_store = PipelineStore::new(db.clone());
-        let workspace_manager = WorkspaceManager::new(db.clone());
+        let workspace_manager = WorkspaceManager::with_cache(db.clone(), cache);
 
         Ok(Self {
             db,
