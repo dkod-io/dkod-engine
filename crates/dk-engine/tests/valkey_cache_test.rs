@@ -17,7 +17,7 @@ use dk_engine::workspace::valkey_cache::ValkeyCache;
 use uuid::Uuid;
 
 const REDIS_URL: &str = "redis://127.0.0.1:6379";
-const TTL_SECS: u64 = 60;
+const TTL_SECS: u32 = 60;
 
 // ── Helpers ──────────────────────────────────────────────────────────
 

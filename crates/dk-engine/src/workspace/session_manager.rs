@@ -157,13 +157,17 @@ impl WorkspaceManager {
     /// Remove and drop a workspace.
     pub fn destroy_workspace(&self, session_id: &SessionId) -> Option<SessionWorkspace> {
         // Evict from L2 cache (fire-and-forget).
-        let sid = *session_id;
-        let cache = self.cache.clone();
-        tokio::spawn(async move {
-            if let Err(e) = cache.evict(&sid).await {
-                tracing::warn!("L2 cache evict failed on destroy: {e}");
-            }
-        });
+        // Guard with try_current() so this stays callable from sync contexts
+        // (tests, Drop impls, shutdown paths outside a Tokio runtime).
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            let sid = *session_id;
+            let cache = self.cache.clone();
+            handle.spawn(async move {
+                if let Err(e) = cache.evict(&sid).await {
+                    tracing::warn!("L2 cache evict failed on destroy: {e}");
+                }
+            });
+        }
         self.workspaces.remove(session_id).map(|(_, ws)| ws)
     }
 

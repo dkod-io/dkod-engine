@@ -26,15 +26,15 @@ use super::cache::{CachedOverlayEntry, WorkspaceCache, WorkspaceSnapshot};
 /// cloning across concurrent tasks.
 pub struct ValkeyCache {
     conn: redis::aio::ConnectionManager,
-    ttl_secs: u64,
+    ttl_secs: u32,
 }
 
 impl ValkeyCache {
     /// Create a new `ValkeyCache` connected to the given Redis/Valkey URL.
     ///
     /// `url` is a standard Redis connection string, e.g.
-    /// `redis://127.0.0.1:6379`.
-    pub async fn new(url: &str, ttl_secs: u64) -> Result<Self, redis::RedisError> {
+    /// `redis://127.0.0.1:6379`. `ttl_secs` caps at `u32::MAX` (~136 years).
+    pub async fn new(url: &str, ttl_secs: u32) -> Result<Self, redis::RedisError> {
         let client = redis::Client::open(url)?;
         let conn = redis::aio::ConnectionManager::new(client).await?;
         Ok(Self { conn, ttl_secs })
@@ -73,7 +73,7 @@ impl WorkspaceCache for ValkeyCache {
         let bytes =
             rmp_serde::to_vec_named(snapshot).context("ValkeyCache: failed to serialize snapshot")?;
         let mut conn = self.conn.clone();
-        conn.set_ex::<_, _, ()>(&key, bytes.as_slice(), self.ttl_secs)
+        conn.set_ex::<_, _, ()>(&key, bytes.as_slice(), u64::from(self.ttl_secs))
             .await
             .context("ValkeyCache: SET meta failed")?;
         Ok(())
@@ -112,9 +112,9 @@ impl WorkspaceCache for ValkeyCache {
         let mut conn = self.conn.clone();
         redis::pipe()
             .atomic()
-            .set_ex(&file_key, bytes.as_slice(), self.ttl_secs)
+            .set_ex(&file_key, bytes.as_slice(), u64::from(self.ttl_secs))
             .sadd(&set_key, path)
-            .expire(&set_key, self.ttl_secs as i64)
+            .expire(&set_key, i64::from(self.ttl_secs))
             .query_async::<()>(&mut conn)
             .await
             .context("ValkeyCache: pipeline SET+SADD failed")?;
@@ -157,7 +157,7 @@ impl WorkspaceCache for ValkeyCache {
     async fn cache_graph(&self, workspace_id: &Uuid, graph_data: &[u8]) -> Result<()> {
         let key = Self::graph_key(workspace_id);
         let mut conn = self.conn.clone();
-        conn.set_ex::<_, _, ()>(&key, graph_data, self.ttl_secs)
+        conn.set_ex::<_, _, ()>(&key, graph_data, u64::from(self.ttl_secs))
             .await
             .context("ValkeyCache: SET graph failed")?;
         Ok(())
@@ -219,7 +219,7 @@ impl WorkspaceCache for ValkeyCache {
             .await
             .context("ValkeyCache: SMEMBERS during touch failed")?;
 
-        let ttl = self.ttl_secs as i64;
+        let ttl = i64::from(self.ttl_secs);
         let mut pipe = redis::pipe();
         pipe.atomic();
         pipe.expire(&meta_key, ttl).ignore();
