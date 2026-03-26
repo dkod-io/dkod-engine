@@ -66,10 +66,9 @@ impl Engine {
 
     /// Create a new Engine with an explicit workspace cache implementation.
     ///
-    /// Identical to [`Engine::new`] but uses
-    /// [`WorkspaceManager::with_cache`] instead of the default no-op cache.
-    /// Pass `Arc::new(NoOpCache)` to opt-out of caching, or provide a
-    /// `ValkeyCache` for multi-pod deployments.
+    /// This is the primary constructor. [`Engine::new`] delegates here with
+    /// [`NoOpCache`]. Pass a `ValkeyCache` (or any [`WorkspaceCache`] impl)
+    /// for multi-pod deployments.
     pub fn with_cache(
         storage_path: PathBuf,
         db: PgPool,
