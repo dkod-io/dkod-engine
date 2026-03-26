@@ -114,6 +114,26 @@ impl WorkspaceManager {
         )
         .await?;
 
+        // Write-through to L2 cache (fire-and-forget — Valkey failure
+        // does not block workspace creation).
+        let snapshot = crate::workspace::cache::WorkspaceSnapshot {
+            session_id: ws.session_id,
+            repo_id: ws.repo_id,
+            agent_id: ws.agent_id.clone(),
+            agent_name: ws.agent_name.clone(),
+            changeset_id: ws.changeset_id,
+            intent: ws.intent.clone(),
+            base_commit: ws.base_commit.clone(),
+            state: format!("{:?}", ws.state),
+            mode: format!("{:?}", ws.mode),
+        };
+        let cache = self.cache.clone();
+        tokio::spawn(async move {
+            if let Err(e) = cache.cache_workspace(&session_id, &snapshot).await {
+                tracing::warn!("L2 cache write failed on create: {e}");
+            }
+        });
+
         self.workspaces.insert(session_id, ws);
         Ok(session_id)
     }
@@ -136,6 +156,14 @@ impl WorkspaceManager {
 
     /// Remove and drop a workspace.
     pub fn destroy_workspace(&self, session_id: &SessionId) -> Option<SessionWorkspace> {
+        // Evict from L2 cache (fire-and-forget).
+        let sid = *session_id;
+        let cache = self.cache.clone();
+        tokio::spawn(async move {
+            if let Err(e) = cache.evict(&sid).await {
+                tracing::warn!("L2 cache evict failed on destroy: {e}");
+            }
+        });
         self.workspaces.remove(session_id).map(|(_, ws)| ws)
     }
 

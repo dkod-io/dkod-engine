@@ -71,7 +71,7 @@ impl WorkspaceCache for ValkeyCache {
     async fn cache_workspace(&self, id: &Uuid, snapshot: &WorkspaceSnapshot) -> Result<()> {
         let key = Self::meta_key(id);
         let bytes =
-            rmp_serde::to_vec(snapshot).context("ValkeyCache: failed to serialize snapshot")?;
+            rmp_serde::to_vec_named(snapshot).context("ValkeyCache: failed to serialize snapshot")?;
         let mut conn = self.conn.clone();
         conn.set_ex::<_, _, ()>(&key, bytes.as_slice(), self.ttl_secs)
             .await
@@ -107,7 +107,7 @@ impl WorkspaceCache for ValkeyCache {
         let file_key = Self::file_key(workspace_id, path);
         let set_key = Self::files_set_key(workspace_id);
         let bytes =
-            rmp_serde::to_vec(entry).context("ValkeyCache: failed to serialize overlay entry")?;
+            rmp_serde::to_vec_named(entry).context("ValkeyCache: failed to serialize overlay entry")?;
 
         let mut conn = self.conn.clone();
         redis::pipe()
@@ -182,13 +182,14 @@ impl WorkspaceCache for ValkeyCache {
 
         let mut conn = self.conn.clone();
 
-        // Collect all file paths from the set so we can delete their keys.
+        // Collect file paths then delete all keys in a pipeline.
+        // NOTE: TOCTOU race — files added between SMEMBERS and DEL are orphaned
+        // until TTL expires. Acceptable: TTL is the backstop and this avoids the
+        // complexity of a Lua script for an infrequent operation.
         let file_paths: Vec<String> = conn
             .smembers(&set_key)
             .await
             .context("ValkeyCache: SMEMBERS during evict failed")?;
-
-        // Build a single DEL pipeline for all keys.
         let mut pipe = redis::pipe();
         pipe.atomic();
         pipe.del(&meta_key);
@@ -211,7 +212,8 @@ impl WorkspaceCache for ValkeyCache {
 
         let mut conn = self.conn.clone();
 
-        // Collect all file paths so we can refresh their TTLs.
+        // Collect file paths then refresh TTLs in a pipeline.
+        // NOTE: Same TOCTOU race as evict — see comment there.
         let file_paths: Vec<String> = conn
             .smembers(&set_key)
             .await
