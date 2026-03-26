@@ -1,3 +1,4 @@
+pub mod cache;
 pub mod overlay;
 pub mod session_workspace;
 pub mod session_graph;

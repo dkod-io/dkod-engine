@@ -5,6 +5,7 @@
 //! multiple agent sessions.
 
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 
 use dashmap::DashMap;
 use dk_core::{AgentId, RepoId, Result};
@@ -13,6 +14,7 @@ use sqlx::PgPool;
 use tokio::time::Instant;
 use uuid::Uuid;
 
+use crate::workspace::cache::{NoOpCache, WorkspaceCache};
 use crate::workspace::session_workspace::{
     SessionId, SessionWorkspace, WorkspaceMode,
 };
@@ -38,20 +40,40 @@ pub struct SessionInfo {
 ///
 /// Thread-safe via `DashMap`; every public method is either `&self` or
 /// returns a scoped reference guard.
+///
+/// The optional `cache` field holds an [`Arc`]-wrapped [`WorkspaceCache`]
+/// implementation. In single-pod deployments the default [`NoOpCache`] is
+/// used. Multi-pod deployments can supply a `ValkeyCache` (or any other
+/// implementation) via [`WorkspaceManager::with_cache`].
 pub struct WorkspaceManager {
     workspaces: DashMap<SessionId, SessionWorkspace>,
     agent_counters: DashMap<Uuid, AtomicU32>,
     db: PgPool,
+    cache: Arc<dyn WorkspaceCache>,
 }
 
 impl WorkspaceManager {
-    /// Create a new, empty workspace manager.
+    /// Create a new, empty workspace manager backed by [`NoOpCache`].
     pub fn new(db: PgPool) -> Self {
+        Self::with_cache(db, Arc::new(NoOpCache))
+    }
+
+    /// Create a workspace manager with an explicit cache implementation.
+    ///
+    /// Use this constructor when a `ValkeyCache` or other L2 cache is
+    /// available. Pass `Arc::new(NoOpCache)` to opt-out of caching.
+    pub fn with_cache(db: PgPool, cache: Arc<dyn WorkspaceCache>) -> Self {
         Self {
             workspaces: DashMap::new(),
             agent_counters: DashMap::new(),
             db,
+            cache,
         }
+    }
+
+    /// Return a reference to the underlying cache implementation.
+    pub fn cache(&self) -> &dyn WorkspaceCache {
+        self.cache.as_ref()
     }
 
     /// Auto-assign the next agent name for a repository.
