@@ -5,8 +5,9 @@
 //! The trait is the seam used by multi-pod deployments to share workspace
 //! snapshots across replicas via an external store (e.g. Valkey/Redis).
 //!
-//! A future `ValkeyCache` will implement this trait for production multi-pod
-//! use. For single-pod deployments (and tests), [`NoOpCache`] is the default.
+//! Available implementations are [`NoOpCache`] (single-pod / local dev) and
+//! [`ValkeyCache`](super::valkey_cache::ValkeyCache) (production multi-pod, behind the `valkey` feature).
+//! For single-pod deployments (and tests), [`NoOpCache`] is the default.
 
 use anyhow::Result;
 use async_trait::async_trait;

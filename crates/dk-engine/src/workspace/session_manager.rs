@@ -154,20 +154,24 @@ impl WorkspaceManager {
         self.workspaces.get_mut(session_id)
     }
 
+    /// Fire-and-forget L2 cache eviction for one or more session IDs.
+    /// Safe to call from sync contexts — silently skips if no Tokio runtime.
+    fn evict_from_cache(&self, session_ids: &[SessionId]) {
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            for &sid in session_ids {
+                let cache = self.cache.clone();
+                handle.spawn(async move {
+                    if let Err(e) = cache.evict(&sid).await {
+                        tracing::warn!("L2 cache evict failed: {e}");
+                    }
+                });
+            }
+        }
+    }
+
     /// Remove and drop a workspace.
     pub fn destroy_workspace(&self, session_id: &SessionId) -> Option<SessionWorkspace> {
-        // Evict from L2 cache (fire-and-forget).
-        // Guard with try_current() so this stays callable from sync contexts
-        // (tests, Drop impls, shutdown paths outside a Tokio runtime).
-        if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            let sid = *session_id;
-            let cache = self.cache.clone();
-            handle.spawn(async move {
-                if let Err(e) = cache.evict(&sid).await {
-                    tracing::warn!("L2 cache evict failed on destroy: {e}");
-                }
-            });
-        }
+        self.evict_from_cache(&[*session_id]);
         self.workspaces.remove(session_id).map(|(_, ws)| ws)
     }
 
@@ -220,6 +224,7 @@ impl WorkspaceManager {
         for sid in &expired {
             self.workspaces.remove(sid);
         }
+        self.evict_from_cache(&expired);
 
         expired
     }
@@ -231,9 +236,10 @@ impl WorkspaceManager {
             .filter(|entry| !active_session_ids.contains(entry.key()))
             .map(|entry| *entry.key())
             .collect();
-        for sid in to_remove {
-            self.workspaces.remove(&sid);
+        for sid in &to_remove {
+            self.workspaces.remove(sid);
         }
+        self.evict_from_cache(&to_remove);
     }
 
     /// Remove workspaces that are idle beyond `idle_ttl` or alive beyond `max_ttl`.
@@ -260,6 +266,7 @@ impl WorkspaceManager {
                 true // keep
             }
         });
+        self.evict_from_cache(&expired);
 
         expired
     }
