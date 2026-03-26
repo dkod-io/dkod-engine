@@ -34,6 +34,7 @@ redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
 opendal = { version = "0.51", features = ["services-fs", "services-s3"] }
 qdrant-client = "1.12"
 serde_yml = "0.0.12"
+rmp-serde = "1"
 
 # Internal crates
 dk-core = { path = "crates/dk-core", version = "0.1.0" }

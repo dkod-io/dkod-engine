@@ -28,6 +28,7 @@ tree-sitter-python = "0.23"
 tantivy = "0.22"
 arc-swap = "1"
 dashmap = "6"
+rmp-serde.workspace = true
 sha2 = "0.10"
 async-trait.workspace = true
 opendal = { workspace = true, optional = true }

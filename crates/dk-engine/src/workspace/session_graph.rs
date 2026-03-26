@@ -11,6 +11,7 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use dashmap::{DashMap, DashSet};
 use dk_core::{CallEdge, Symbol, SymbolId};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 // ── SessionGraph ─────────────────────────────────────────────────────
@@ -25,19 +26,35 @@ pub struct SessionGraph {
     base_symbols: Option<Arc<ArcSwap<HashMap<SymbolId, Symbol>>>>,
 
     /// Symbols that existed in the base and were modified in this session.
-    modified_symbols: DashMap<SymbolId, Symbol>,
+    pub modified_symbols: DashMap<SymbolId, Symbol>,
 
     /// Symbols that are newly created in this session.
     added_symbols: DashMap<SymbolId, Symbol>,
 
     /// Symbols that existed in the base and were removed in this session.
-    removed_symbols: DashSet<SymbolId>,
+    pub removed_symbols: DashSet<SymbolId>,
 
     /// Call edges added in this session.
-    added_edges: DashMap<Uuid, CallEdge>,
+    pub added_edges: DashMap<Uuid, CallEdge>,
 
     /// Call edge IDs removed from the base in this session.
-    removed_edges: DashSet<Uuid>,
+    pub removed_edges: DashSet<Uuid>,
+}
+
+// ── Snapshot (serde bridge) ───────────────────────────────────────────
+
+/// Serializable snapshot of the session delta.
+///
+/// `DashMap`/`DashSet` are not directly serializable, so we flatten
+/// them into `Vec`s. The shared `base_symbols` is intentionally excluded
+/// — it is repo-wide state that is not owned by the session.
+#[derive(Serialize, Deserialize)]
+struct SessionGraphSnapshot {
+    modified_symbols: Vec<(SymbolId, Symbol)>,
+    added_symbols: Vec<(SymbolId, Symbol)>,
+    removed_symbols: Vec<SymbolId>,
+    added_edges: Vec<(Uuid, CallEdge)>,
+    removed_edges: Vec<Uuid>,
 }
 
 impl SessionGraph {
@@ -244,6 +261,81 @@ impl SessionGraph {
     /// Number of symbols changed (added + modified + removed).
     pub fn change_count(&self) -> usize {
         self.added_symbols.len() + self.modified_symbols.len() + self.removed_symbols.len()
+    }
+
+    // ── Serialization ─────────────────────────────────────────────────
+
+    /// Serialize the session delta (modified/added/removed symbols and edges)
+    /// to MessagePack bytes.
+    ///
+    /// The shared `base_symbols` table is NOT included — it is repo-wide
+    /// state managed independently of individual sessions.
+    pub fn to_msgpack(&self) -> anyhow::Result<Vec<u8>> {
+        let snapshot = SessionGraphSnapshot {
+            modified_symbols: self
+                .modified_symbols
+                .iter()
+                .map(|e| (*e.key(), e.value().clone()))
+                .collect(),
+            added_symbols: self
+                .added_symbols
+                .iter()
+                .map(|e| (*e.key(), e.value().clone()))
+                .collect(),
+            removed_symbols: self.removed_symbols.iter().map(|r| *r).collect(),
+            added_edges: self
+                .added_edges
+                .iter()
+                .map(|e| (*e.key(), e.value().clone()))
+                .collect(),
+            removed_edges: self.removed_edges.iter().map(|r| *r).collect(),
+        };
+
+        Ok(rmp_serde::to_vec_named(&snapshot)?)
+    }
+
+    /// Deserialize a session delta from MessagePack bytes produced by
+    /// [`Self::to_msgpack`].
+    ///
+    /// The returned graph has no shared base (`base_symbols` is `None`).
+    /// Callers that need base-symbol lookups must call
+    /// [`Self::fork_from`] and replay the delta on top.
+    pub fn from_msgpack(bytes: &[u8]) -> anyhow::Result<Self> {
+        let snapshot: SessionGraphSnapshot = rmp_serde::from_slice(bytes)?;
+
+        let modified_symbols = DashMap::new();
+        for (id, sym) in snapshot.modified_symbols {
+            modified_symbols.insert(id, sym);
+        }
+
+        let added_symbols = DashMap::new();
+        for (id, sym) in snapshot.added_symbols {
+            added_symbols.insert(id, sym);
+        }
+
+        let removed_symbols = DashSet::new();
+        for id in snapshot.removed_symbols {
+            removed_symbols.insert(id);
+        }
+
+        let added_edges = DashMap::new();
+        for (id, edge) in snapshot.added_edges {
+            added_edges.insert(id, edge);
+        }
+
+        let removed_edges = DashSet::new();
+        for id in snapshot.removed_edges {
+            removed_edges.insert(id);
+        }
+
+        Ok(Self {
+            base_symbols: None,
+            modified_symbols,
+            added_symbols,
+            removed_symbols,
+            added_edges,
+            removed_edges,
+        })
     }
 }
 
