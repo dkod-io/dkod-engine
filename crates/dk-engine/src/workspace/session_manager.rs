@@ -45,11 +45,16 @@ pub struct SessionInfo {
 /// implementation. In single-pod deployments the default [`NoOpCache`] is
 /// used. Multi-pod deployments can supply a `ValkeyCache` (or any other
 /// implementation) via [`WorkspaceManager::with_cache`].
+/// Minimum interval between L2 cache touch calls per session.
+const TOUCH_DEBOUNCE: std::time::Duration = std::time::Duration::from_secs(30);
+
 pub struct WorkspaceManager {
     workspaces: DashMap<SessionId, SessionWorkspace>,
     agent_counters: DashMap<Uuid, AtomicU32>,
     db: PgPool,
     cache: Arc<dyn WorkspaceCache>,
+    /// Tracks when each session was last touched in L2 cache to debounce.
+    last_touched: DashMap<SessionId, Instant>,
 }
 
 impl WorkspaceManager {
@@ -68,6 +73,7 @@ impl WorkspaceManager {
             agent_counters: DashMap::new(),
             db,
             cache,
+            last_touched: DashMap::new(),
         }
     }
 
@@ -180,6 +186,15 @@ impl WorkspaceManager {
     /// Fire-and-forget L2 cache TTL refresh.
     /// Prevents cache entries from expiring during long-lived sessions.
     fn touch_in_cache(&self, session_id: &SessionId) {
+        let now = Instant::now();
+        let should_touch = self
+            .last_touched
+            .get(session_id)
+            .is_none_or(|t| now.duration_since(*t) > TOUCH_DEBOUNCE);
+        if !should_touch {
+            return;
+        }
+        self.last_touched.insert(*session_id, now);
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
             let sid = *session_id;
             let cache = self.cache.clone();

@@ -6,12 +6,15 @@
 //!
 //! ## Key schema
 //!
-//! | Pattern                   | Value                            |
-//! |---------------------------|----------------------------------|
-//! | `ws:{id}:meta`            | MessagePack `WorkspaceSnapshot`  |
-//! | `ws:{id}:graph`           | MessagePack `SessionGraph` bytes |
-//! | `ws:{id}:file:{path}`     | MessagePack `CachedOverlayEntry` |
-//! | `ws:{id}:files`           | Redis SET of file paths          |
+//! All keys use `{uuid}` as a Redis Cluster hash tag so that all keys for a
+//! given workspace are co-located in the same slot, enabling atomic pipelines.
+//!
+//! | Pattern                      | Value                            |
+//! |------------------------------|----------------------------------|
+//! | `{id}:meta`                  | MessagePack `WorkspaceSnapshot`  |
+//! | `{id}:graph`                 | MessagePack `SessionGraph` bytes |
+//! | `{id}:file:{path}`           | MessagePack `CachedOverlayEntry` |
+//! | `{id}:files`                 | Redis SET of file paths          |
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -43,21 +46,19 @@ impl ValkeyCache {
     // ── Key helpers ──────────────────────────────────────────────────
 
     fn meta_key(id: &Uuid) -> String {
-        format!("ws:{id}:meta")
+        format!("{{{id}}}:meta")
     }
 
     fn graph_key(id: &Uuid) -> String {
-        format!("ws:{id}:graph")
+        format!("{{{id}}}:graph")
     }
 
     fn file_key(id: &Uuid, path: &str) -> String {
-        // Wrap path in braces to make the boundary unambiguous if path
-        // contains colons (e.g. Windows paths, URLs).
-        format!("ws:{id}:file:{{{path}}}")
+        format!("{{{id}}}:file:{path}")
     }
 
     fn files_set_key(id: &Uuid) -> String {
-        format!("ws:{id}:files")
+        format!("{{{id}}}:files")
     }
 }
 
