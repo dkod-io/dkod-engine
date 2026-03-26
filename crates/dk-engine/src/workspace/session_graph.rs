@@ -179,6 +179,23 @@ impl SessionGraph {
         self.removed_edges.insert(edge_id);
     }
 
+    /// Look up an added edge by ID.
+    ///
+    /// Returns `None` if the edge was not added in this session or has been
+    /// removed.
+    pub fn get_edge(&self, edge_id: Uuid) -> Option<CallEdge> {
+        if self.removed_edges.contains(&edge_id) {
+            return None;
+        }
+        self.added_edges.get(&edge_id).map(|e| e.value().clone())
+    }
+
+    /// Returns `true` if the given edge ID is marked as removed in this
+    /// session.
+    pub fn is_edge_removed(&self, edge_id: Uuid) -> bool {
+        self.removed_edges.contains(&edge_id)
+    }
+
     /// Return the names of all symbols changed in this session
     /// (added, modified, or removed).
     ///

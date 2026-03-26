@@ -75,11 +75,12 @@ fn roundtrip_modified_symbols() {
     let g = SessionGraph::empty();
     let mut sym = make_symbol("my_fn");
     let id = sym.id;
-    // Insert directly into modified_symbols (simulating a base-symbol mod)
-    g.modified_symbols.insert(id, sym.clone());
+    // Use modify_symbol — since the symbol is not in added_symbols, it goes
+    // directly into modified_symbols (simulating a base-symbol modification).
+    g.modify_symbol(sym.clone());
 
     sym.name = "my_fn_v2".to_string();
-    g.modified_symbols.insert(id, sym);
+    g.modify_symbol(sym);
 
     let bytes = g.to_msgpack().expect("to_msgpack failed");
     let g2 = SessionGraph::from_msgpack(&bytes).expect("from_msgpack failed");
@@ -93,10 +94,15 @@ fn roundtrip_modified_symbols() {
 #[test]
 fn roundtrip_removed_symbols() {
     let g = SessionGraph::empty();
-    let id1 = Uuid::new_v4();
-    let id2 = Uuid::new_v4();
-    g.removed_symbols.insert(id1);
-    g.removed_symbols.insert(id2);
+    // remove_symbol on an ID that was never added puts it in removed_symbols
+    // (no added or modified entry to drop, so it falls through to the base
+    // removal path).
+    let sym1 = make_symbol("gone_fn_1");
+    let sym2 = make_symbol("gone_fn_2");
+    let id1 = sym1.id;
+    let id2 = sym2.id;
+    g.remove_symbol(id1);
+    g.remove_symbol(id2);
 
     let bytes = g.to_msgpack().expect("to_msgpack failed");
     let g2 = SessionGraph::from_msgpack(&bytes).expect("from_msgpack failed");
@@ -116,14 +122,16 @@ fn roundtrip_added_edges() {
     let sym_b = make_symbol("callee_fn");
     let edge = make_edge(sym_a.id, sym_b.id);
     let edge_id = edge.id;
+    let expected_caller = sym_a.id;
+    let expected_callee = sym_b.id;
     g.add_edge(edge);
 
     let bytes = g.to_msgpack().expect("to_msgpack failed");
     let g2 = SessionGraph::from_msgpack(&bytes).expect("from_msgpack failed");
 
-    let got = g2.added_edges.get(&edge_id).expect("edge not found after roundtrip");
-    assert_eq!(got.caller, sym_a.id);
-    assert_eq!(got.callee, sym_b.id);
+    let got = g2.get_edge(edge_id).expect("edge not found after roundtrip");
+    assert_eq!(got.caller, expected_caller);
+    assert_eq!(got.callee, expected_callee);
     assert_eq!(got.kind, CallKind::DirectCall);
 }
 
@@ -134,14 +142,15 @@ fn roundtrip_removed_edges() {
     let g = SessionGraph::empty();
     let edge_id_1 = Uuid::new_v4();
     let edge_id_2 = Uuid::new_v4();
-    g.removed_edges.insert(edge_id_1);
-    g.removed_edges.insert(edge_id_2);
+    // remove_edge on IDs not in added_edges marks them as removed from base.
+    g.remove_edge(edge_id_1);
+    g.remove_edge(edge_id_2);
 
     let bytes = g.to_msgpack().expect("to_msgpack failed");
     let g2 = SessionGraph::from_msgpack(&bytes).expect("from_msgpack failed");
 
-    assert!(g2.removed_edges.contains(&edge_id_1));
-    assert!(g2.removed_edges.contains(&edge_id_2));
+    assert!(g2.is_edge_removed(edge_id_1));
+    assert!(g2.is_edge_removed(edge_id_2));
 }
 
 // ── round-trip: mixed delta (added + modified + removed) ─────────────
@@ -156,17 +165,19 @@ fn roundtrip_mixed_delta() {
 
     let modified = make_symbol("changed_fn");
     let modified_id = modified.id;
-    g.modified_symbols.insert(modified_id, modified);
+    // modify_symbol on a symbol not in added_symbols puts it in
+    // modified_symbols (simulating a base-symbol modification).
+    g.modify_symbol(modified);
 
     let removed_id = Uuid::new_v4();
-    g.removed_symbols.insert(removed_id);
+    g.remove_symbol(removed_id);
 
     let edge = make_edge(added_id, modified_id);
     let edge_id = edge.id;
     g.add_edge(edge);
 
     let removed_edge_id = Uuid::new_v4();
-    g.removed_edges.insert(removed_edge_id);
+    g.remove_edge(removed_edge_id);
 
     let bytes = g.to_msgpack().expect("to_msgpack failed");
     let g2 = SessionGraph::from_msgpack(&bytes).expect("from_msgpack failed");
@@ -174,8 +185,8 @@ fn roundtrip_mixed_delta() {
     assert!(g2.get_symbol(added_id).is_some());
     assert!(g2.get_symbol(modified_id).is_some());
     assert!(g2.get_symbol(removed_id).is_none());
-    assert!(g2.added_edges.contains_key(&edge_id));
-    assert!(g2.removed_edges.contains(&removed_edge_id));
+    assert!(g2.get_edge(edge_id).is_some());
+    assert!(g2.is_edge_removed(removed_edge_id));
     assert_eq!(g2.change_count(), 3);
 }
 
