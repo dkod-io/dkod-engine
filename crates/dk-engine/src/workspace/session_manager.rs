@@ -36,6 +36,9 @@ pub struct SessionInfo {
 
 // ── WorkspaceManager ─────────────────────────────────────────────────
 
+/// Minimum interval between L2 cache touch calls per session.
+const TOUCH_DEBOUNCE: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// Central registry of all active session workspaces.
 ///
 /// Thread-safe via `DashMap`; every public method is either `&self` or
@@ -45,9 +48,6 @@ pub struct SessionInfo {
 /// implementation. In single-pod deployments the default [`NoOpCache`] is
 /// used. Multi-pod deployments can supply a `ValkeyCache` (or any other
 /// implementation) via [`WorkspaceManager::with_cache`].
-/// Minimum interval between L2 cache touch calls per session.
-const TOUCH_DEBOUNCE: std::time::Duration = std::time::Duration::from_secs(30);
-
 pub struct WorkspaceManager {
     workspaces: DashMap<SessionId, SessionWorkspace>,
     agent_counters: DashMap<Uuid, AtomicU32>,
@@ -208,6 +208,7 @@ impl WorkspaceManager {
 
     /// Remove and drop a workspace.
     pub fn destroy_workspace(&self, session_id: &SessionId) -> Option<SessionWorkspace> {
+        self.last_touched.remove(session_id);
         self.evict_from_cache(&[*session_id]);
         self.workspaces.remove(session_id).map(|(_, ws)| ws)
     }
@@ -259,6 +260,7 @@ impl WorkspaceManager {
         });
 
         for sid in &expired {
+            self.last_touched.remove(sid);
             self.workspaces.remove(sid);
         }
         self.evict_from_cache(&expired);
@@ -274,6 +276,7 @@ impl WorkspaceManager {
             .map(|entry| *entry.key())
             .collect();
         for sid in &to_remove {
+            self.last_touched.remove(sid);
             self.workspaces.remove(sid);
         }
         self.evict_from_cache(&to_remove);
@@ -303,6 +306,9 @@ impl WorkspaceManager {
                 true // keep
             }
         });
+        for sid in &expired {
+            self.last_touched.remove(sid);
+        }
         self.evict_from_cache(&expired);
 
         expired

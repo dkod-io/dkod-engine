@@ -26,23 +26,23 @@ pub struct SessionGraph {
     base_symbols: Option<Arc<ArcSwap<HashMap<SymbolId, Symbol>>>>,
 
     /// Symbols that existed in the base and were modified in this session.
-    pub modified_symbols: DashMap<SymbolId, Symbol>,
+    pub(crate) modified_symbols: DashMap<SymbolId, Symbol>,
 
     /// Symbols that are newly created in this session.
     added_symbols: DashMap<SymbolId, Symbol>,
 
     /// Symbols that existed in the base and were removed in this session.
-    pub removed_symbols: DashSet<SymbolId>,
+    pub(crate) removed_symbols: DashSet<SymbolId>,
 
     /// Cached names of removed symbols (populated during serialization or
     /// deserialization so `changed_symbol_names()` works without the base).
     removed_symbol_names: DashMap<SymbolId, String>,
 
     /// Call edges added in this session.
-    pub added_edges: DashMap<Uuid, CallEdge>,
+    pub(crate) added_edges: DashMap<Uuid, CallEdge>,
 
     /// Call edge IDs removed from the base in this session.
-    pub removed_edges: DashSet<Uuid>,
+    pub(crate) removed_edges: DashSet<Uuid>,
 }
 
 // ── Snapshot (serde bridge) ───────────────────────────────────────────
