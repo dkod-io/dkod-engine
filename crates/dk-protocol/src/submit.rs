@@ -171,6 +171,25 @@ pub async fn handle_submit(
     // Reuse early snapshot if available (MCP path), otherwise take it now.
     let overlay_snapshot = early_overlay_snapshot.unwrap_or_else(|| ws.overlay.list_changes());
 
+    // Reject empty changesets — there must be at least one file modification.
+    if overlay_snapshot.is_empty() && changed_files.is_empty() && errors.is_empty() {
+        warn!(
+            session_id = %req.session_id,
+            "SUBMIT: rejected — no file changes in overlay"
+        );
+        return Ok(Response::new(SubmitResponse {
+            status: SubmitStatus::Rejected.into(),
+            changeset_id: String::new(),
+            new_version: None,
+            errors: vec![SubmitError {
+                message: "No changes to submit".to_string(),
+                symbol_id: None,
+                file_path: None,
+            }],
+            conflict_block: None,
+        }));
+    }
+
     // Drop the workspace guard before further async work
     drop(ws);
 
