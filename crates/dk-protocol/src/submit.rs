@@ -172,7 +172,7 @@ pub async fn handle_submit(
     let overlay_snapshot = early_overlay_snapshot.unwrap_or_else(|| ws.overlay.list_changes());
 
     // Reject empty changesets — there must be at least one file modification.
-    if overlay_snapshot.is_empty() {
+    if overlay_snapshot.is_empty() && errors.is_empty() {
         warn!(
             session_id = %req.session_id,
             "SUBMIT: rejected — no file changes in overlay"
