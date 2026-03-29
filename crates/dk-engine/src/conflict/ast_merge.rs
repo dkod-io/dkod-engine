@@ -45,8 +45,8 @@ struct SymbolSpan {
     kind: String,
     /// The full source text of the symbol (including doc comments captured by the span).
     text: String,
-    /// Original ordering index so we can reconstruct file order.
-    order: usize,
+    /// Original ordering index (reserved for future use).
+    _order: usize,
 }
 
 /// An import line extracted from source.
@@ -117,7 +117,7 @@ fn extract_spans(
                 qualified_name: sym.qualified_name.clone(),
                 kind: sym.kind.to_string(),
                 text,
-                order,
+                _order: order,
             });
         }
     }
@@ -224,7 +224,7 @@ pub fn ast_merge(
                         qualified_name: base_s.qualified_name.clone(),
                         kind: base_s.kind.clone(),
                         text: base_s.text.clone(),
-                        order: order_counter,
+                        _order: order_counter,
                     });
                     order_counter += 1;
                 }
@@ -237,7 +237,7 @@ pub fn ast_merge(
                         qualified_name: a_s.qualified_name.clone(),
                         kind: a_s.kind.clone(),
                         text: a_s.text.clone(),
-                        order: order_counter,
+                        _order: order_counter,
                     });
                     order_counter += 1;
                 }
@@ -251,7 +251,7 @@ pub fn ast_merge(
                         qualified_name: b_s.qualified_name.clone(),
                         kind: b_s.kind.clone(),
                         text: b_s.text.clone(),
-                        order: order_counter,
+                        _order: order_counter,
                     });
                     order_counter += 1;
                 }
@@ -274,7 +274,7 @@ pub fn ast_merge(
                             qualified_name: a_s.qualified_name.clone(),
                             kind: a_s.kind.clone(),
                             text: a_s.text.clone(),
-                            order: order_counter,
+                            _order: order_counter,
                         });
                         order_counter += 1;
                     }
@@ -285,7 +285,7 @@ pub fn ast_merge(
                                 qualified_name: a_s.qualified_name.clone(),
                                 kind: a_s.kind.clone(),
                                 text: a_s.text.clone(),
-                                order: order_counter,
+                                _order: order_counter,
                             });
                             order_counter += 1;
                         } else {
@@ -302,7 +302,7 @@ pub fn ast_merge(
                                 qualified_name: a_s.qualified_name.clone(),
                                 kind: a_s.kind.clone(),
                                 text: a_s.text.clone(),
-                                order: order_counter,
+                                _order: order_counter,
                             });
                             order_counter += 1;
                         }
@@ -321,7 +321,7 @@ pub fn ast_merge(
                             qualified_name: b_s.qualified_name.clone(),
                             kind: b_s.kind.clone(),
                             text: b_s.text.clone(),
-                            order: order_counter,
+                            _order: order_counter,
                         });
                         order_counter += 1;
                     }
@@ -339,7 +339,7 @@ pub fn ast_merge(
                             qualified_name: a_s.qualified_name.clone(),
                             kind: a_s.kind.clone(),
                             text: a_s.text.clone(),
-                            order: order_counter,
+                            _order: order_counter,
                         });
                         order_counter += 1;
                     }

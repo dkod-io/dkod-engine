@@ -171,7 +171,13 @@ impl ChangesetStore {
             .trim_matches('-')
             .to_string();
         let slug = if intent_slug.len() > 50 {
-            intent_slug[..50].trim_end_matches('-').to_string()
+            let cut = intent_slug
+                .char_indices()
+                .take_while(|(i, _)| *i < 50)
+                .last()
+                .map(|(i, c)| i + c.len_utf8())
+                .unwrap_or(0);
+            intent_slug[..cut].trim_end_matches('-').to_string()
         } else {
             intent_slug
         };

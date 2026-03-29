@@ -534,9 +534,11 @@ fn test_python_merge_preserves_import_order() {
 
     let hashlib_pos = result.merged_content.find("import hashlib");
     let logging_pos = result.merged_content.find("import logging");
+    let os_pos = result.merged_content.find("import os");
     assert!(
-        hashlib_pos.is_some() && logging_pos.is_some(),
-        "Both imports must exist"
+        hashlib_pos.is_some() && logging_pos.is_some() && os_pos.is_some(),
+        "All three imports must exist; got:\n{}",
+        result.merged_content
     );
     assert!(
         hashlib_pos.unwrap() < logging_pos.unwrap(),
