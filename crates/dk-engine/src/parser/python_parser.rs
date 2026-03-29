@@ -96,18 +96,17 @@ impl PythonParser {
     }
 
     /// Collect preceding `#` comments for a node.
+    ///
+    /// Preserves the `#` prefix so that AST merge can reconstruct valid Python.
     fn doc_comments(node: &Node, source: &[u8]) -> Option<String> {
         let mut comments = Vec::new();
         let mut sibling = node.prev_sibling();
 
         while let Some(prev) = sibling {
             if prev.kind() == "comment" {
+                // Preserve the full comment text including `#` prefix
                 let text = Self::node_text(&prev, source).trim().to_string();
-                // Strip the `# ` prefix
-                let content = text
-                    .strip_prefix("# ")
-                    .unwrap_or(text.strip_prefix('#').unwrap_or(&text));
-                comments.push(content.to_string());
+                comments.push(text);
                 sibling = prev.prev_sibling();
                 continue;
             }

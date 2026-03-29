@@ -373,3 +373,173 @@ export default router;
         "default export should be preserved in merged output"
     );
 }
+
+// ── Python merge tests ──
+
+const PYTHON_BASE: &str = r#"import hashlib
+import logging
+
+# Module-level logger
+logger = logging.getLogger(__name__)
+
+# Rate limit config
+MAX_ATTEMPTS = 5
+
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def verify_password(password: str, hashed: str) -> bool:
+    return hash_password(password) == hashed
+
+def generate_token(user_id: str) -> str:
+    """Generate an authentication token."""
+    return f"{user_id}:token"
+
+def authenticate(email: str, password: str) -> bool:
+    logger.info(f"Auth attempt for {email}")
+    return True
+"#;
+
+#[test]
+fn test_python_merge_different_functions_clean() {
+    // Agent A modifies hash_password, Agent B modifies generate_token → clean merge
+    let version_a = r#"import hashlib
+import logging
+
+# Module-level logger
+logger = logging.getLogger(__name__)
+
+# Rate limit config
+MAX_ATTEMPTS = 5
+
+def hash_password(password: str) -> str:
+    """Hash using SHA-256. Added by Alpha."""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def verify_password(password: str, hashed: str) -> bool:
+    return hash_password(password) == hashed
+
+def generate_token(user_id: str) -> str:
+    """Generate an authentication token."""
+    return f"{user_id}:token"
+
+def authenticate(email: str, password: str) -> bool:
+    logger.info(f"Auth attempt for {email}")
+    return True
+"#;
+
+    let version_b = r#"import hashlib
+import logging
+
+# Module-level logger
+logger = logging.getLogger(__name__)
+
+# Rate limit config
+MAX_ATTEMPTS = 5
+
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def verify_password(password: str, hashed: str) -> bool:
+    return hash_password(password) == hashed
+
+def generate_token(user_id: str) -> str:
+    """Generate a 24-hour token. Modified by Beta."""
+    return f"{user_id}:token"
+
+def authenticate(email: str, password: str) -> bool:
+    logger.info(f"Auth attempt for {email}")
+    return True
+"#;
+
+    let result = ast_merge(&registry(), "auth.py", PYTHON_BASE, version_a, version_b)
+        .expect("ast_merge should succeed for Python");
+    assert_eq!(
+        result.status,
+        MergeStatus::Clean,
+        "Different functions should merge cleanly, got conflicts: {:?}",
+        result.conflicts
+    );
+    // Both changes preserved
+    assert!(
+        result.merged_content.contains("Added by Alpha"),
+        "Alpha's docstring should be in merged output"
+    );
+    assert!(
+        result.merged_content.contains("Modified by Beta"),
+        "Beta's docstring should be in merged output"
+    );
+}
+
+#[test]
+fn test_python_merge_preserves_comment_hash_prefix() {
+    // Comments in merged output must retain their # prefix
+    let version_a = PYTHON_BASE.replace(
+        "def hash_password(password: str) -> str:\n    return hashlib.sha256(password.encode()).hexdigest()",
+        "def hash_password(password: str) -> str:\n    \"\"\"Hash a password.\"\"\"\n    return hashlib.sha256(password.encode()).hexdigest()",
+    );
+
+    let result = ast_merge(&registry(), "auth.py", PYTHON_BASE, &version_a, PYTHON_BASE)
+        .expect("ast_merge should succeed");
+
+    // Comments must keep their # prefix
+    assert!(
+        result.merged_content.contains("# Module-level logger"),
+        "Comment must retain # prefix, got:\n{}",
+        result.merged_content
+    );
+    assert!(
+        result.merged_content.contains("# Rate limit config"),
+        "Comment must retain # prefix"
+    );
+}
+
+#[test]
+fn test_python_merge_preserves_symbol_order() {
+    // Symbols must appear in original base order, not alphabetical
+    let version_a = PYTHON_BASE.replace(
+        "def hash_password(password: str) -> str:\n    return hashlib.sha256(password.encode()).hexdigest()",
+        "def hash_password(password: str) -> str:\n    \"\"\"Hashes the password.\"\"\"\n    return hashlib.sha256(password.encode()).hexdigest()",
+    );
+
+    let result = ast_merge(&registry(), "auth.py", PYTHON_BASE, &version_a, PYTHON_BASE)
+        .expect("ast_merge should succeed");
+
+    // logger must appear BEFORE authenticate (which uses it)
+    let logger_pos = result.merged_content.find("logger = logging.getLogger");
+    let auth_pos = result.merged_content.find("def authenticate");
+    assert!(
+        logger_pos.is_some() && auth_pos.is_some(),
+        "Both logger and authenticate must exist in output"
+    );
+    assert!(
+        logger_pos.unwrap() < auth_pos.unwrap(),
+        "logger must appear before authenticate (which uses it). logger at {}, authenticate at {}.\nOutput:\n{}",
+        logger_pos.unwrap(),
+        auth_pos.unwrap(),
+        result.merged_content
+    );
+}
+
+#[test]
+fn test_python_merge_preserves_import_order() {
+    // Imports must keep original order (stdlib before local)
+    let version_a = PYTHON_BASE.replace(
+        "import hashlib\nimport logging",
+        "import hashlib\nimport logging\nimport os",
+    );
+
+    let result = ast_merge(&registry(), "auth.py", PYTHON_BASE, &version_a, PYTHON_BASE)
+        .expect("ast_merge should succeed");
+
+    let hashlib_pos = result.merged_content.find("import hashlib");
+    let logging_pos = result.merged_content.find("import logging");
+    assert!(
+        hashlib_pos.is_some() && logging_pos.is_some(),
+        "Both imports must exist"
+    );
+    assert!(
+        hashlib_pos.unwrap() < logging_pos.unwrap(),
+        "import hashlib should come before import logging (base order preserved)"
+    );
+}
