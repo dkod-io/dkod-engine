@@ -6,9 +6,8 @@
 
 set -euo pipefail
 
-# Read tool input from stdin (Claude Code passes JSON on stdin)
-INPUT=$(cat)
-FILE_PATH=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('file_path',''))" 2>/dev/null || true)
+# Read tool input from env var (consistent with other hooks in this repo)
+FILE_PATH=$(echo "${CLAUDE_TOOL_INPUT:-}" | tr -d '\n' | tr -s ' ' | sed -n 's/.*"file_path" *: *"\([^"]*\)".*/\1/p' 2>/dev/null || true)
 
 # Only act on .rs files
 if [[ ! "$FILE_PATH" == *.rs ]]; then
@@ -26,7 +25,7 @@ CRATE_PKG=""
 DIR=$(dirname "$FILE_PATH")
 while [[ "$DIR" != "/" && "$DIR" != "." ]]; do
     if [[ -f "$DIR/Cargo.toml" ]] && grep -q '^\[package\]' "$DIR/Cargo.toml" 2>/dev/null; then
-        CRATE_PKG=$(grep '^name\s*=' "$DIR/Cargo.toml" | head -1 | sed 's/^name[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/')
+        CRATE_PKG=$(grep '^name[[:space:]]*=' "$DIR/Cargo.toml" | head -1 | sed 's/^name[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/')
         break
     fi
     DIR=$(dirname "$DIR")
