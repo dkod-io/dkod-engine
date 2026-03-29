@@ -600,6 +600,19 @@ impl LanguageParser for TypeScriptParser {
             }
         }
 
+        // Deduplicate qualified_names to prevent BTreeMap key collisions in
+        // ast_merge (which silently drops earlier entries with the same key).
+        // Common case: multiple `app.use(...)` calls all resolve to "app.use".
+        let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        for sym in &mut symbols {
+            let count = seen.entry(sym.qualified_name.clone()).or_insert(0);
+            *count += 1;
+            if *count > 1 {
+                sym.qualified_name = format!("{}#{}", sym.qualified_name, count);
+                sym.name = sym.qualified_name.clone();
+            }
+        }
+
         Ok(symbols)
     }
 
