@@ -545,3 +545,130 @@ fn test_python_merge_preserves_import_order() {
         "import hashlib should come before import logging (base order preserved)"
     );
 }
+
+/// Reproduction test using the EXACT production auth.py structure:
+/// - Inline comments (`# 60 seconds` at end of assignment)
+/// - Multi-line comment blocks between variables
+/// - Module-level logger before functions
+/// - `from db import` mixed with stdlib imports
+#[test]
+fn test_python_merge_exact_production_file() {
+    let base = concat!(
+        "import datetime\n",
+        "import hashlib\n",
+        "import logging\n",
+        "import secrets\n",
+        "import time\n",
+        "from db import get_user_by_email\n",
+        "\n",
+        "logger = logging.getLogger(__name__)\n",
+        "\n",
+        "# Rate limiting: track all login attempts per email\n",
+        "# Each entry is a list of timestamps of attempts\n",
+        "_login_attempts: dict[str, list[float]] = {}\n",
+        "\n",
+        "# Global rate limit\n",
+        "_LOGIN_RATE_LIMIT_MAX = 5\n",
+        "_LOGIN_RATE_LIMIT_WINDOW = 60  # 60 seconds\n",
+        "\n",
+        "LOCKOUT_THRESHOLD = 3\n",
+        "\n",
+        "\n",
+        "def hash_password(password: str) -> str:\n",
+        "    return hashlib.sha256(password.encode()).hexdigest()\n",
+        "\n",
+        "\n",
+        "def verify_password(password: str, hashed: str) -> bool:\n",
+        "    return hash_password(password) == hashed\n",
+        "\n",
+        "\n",
+        "def generate_token(user_id: str) -> str:\n",
+        "    \"\"\"Generate an authentication token with expiry timestamp.\"\"\"\n",
+        "    expiry = datetime.datetime.utcnow() + datetime.timedelta(hours=24)\n",
+        "    return f\"{user_id}:{expiry.isoformat()}\"\n",
+        "\n",
+        "\n",
+        "def authenticate(email: str, password: str) -> dict | None:\n",
+        "    \"\"\"Authenticate a user by email and password.\"\"\"\n",
+        "    logger.info(f\"Authentication attempt for {email}\")\n",
+        "    return None\n",
+    );
+
+    // Alpha: add docstring to hash_password only
+    let version_a = base.replace(
+        "def hash_password(password: str) -> str:\n    return hashlib.sha256(password.encode()).hexdigest()",
+        "def hash_password(password: str) -> str:\n    \"\"\"Hash using SHA-256. [Alpha]\"\"\"\n    return hashlib.sha256(password.encode()).hexdigest()",
+    );
+
+    // Beta: modify generate_token docstring only
+    let version_b = base.replace(
+        "\"\"\"Generate an authentication token with expiry timestamp.\"\"\"",
+        "\"\"\"Generate a 24-hour token. [Beta]\"\"\"",
+    );
+
+    let result = ast_merge(&registry(), "auth.py", base, &version_a, &version_b)
+        .expect("ast_merge should succeed for production-like Python file");
+
+    // Print full output for debugging
+    eprintln!("=== MERGED OUTPUT ===\n{}\n=== END ===", result.merged_content);
+
+    assert_eq!(
+        result.status,
+        MergeStatus::Clean,
+        "Different functions should merge cleanly, got conflicts: {:?}",
+        result.conflicts
+    );
+
+    // Both changes preserved
+    assert!(
+        result.merged_content.contains("[Alpha]"),
+        "Alpha's docstring must be in output"
+    );
+    assert!(
+        result.merged_content.contains("[Beta]"),
+        "Beta's docstring must be in output"
+    );
+
+    // Comments must keep # prefix
+    assert!(
+        result.merged_content.contains("# Rate limiting"),
+        "Comment must retain # prefix. Output:\n{}",
+        result.merged_content
+    );
+    assert!(
+        result.merged_content.contains("# Global rate limit"),
+        "Comment must retain # prefix"
+    );
+
+    // logger must be before authenticate
+    let logger_pos = result.merged_content.find("logger = logging.getLogger");
+    let auth_pos = result.merged_content.find("def authenticate");
+    assert!(
+        logger_pos.unwrap() < auth_pos.unwrap(),
+        "logger must appear before authenticate. Output:\n{}",
+        result.merged_content
+    );
+
+    // Imports: stdlib before local
+    let hashlib_pos = result.merged_content.find("import hashlib").unwrap();
+    let from_db_pos = result.merged_content.find("from db import").unwrap();
+    assert!(
+        hashlib_pos < from_db_pos,
+        "stdlib imports must come before local imports. Output:\n{}",
+        result.merged_content
+    );
+
+    // Inline comments must stay on the same line as their assignment
+    assert!(
+        result.merged_content.contains("_LOGIN_RATE_LIMIT_WINDOW = 60  # 60 seconds"),
+        "Inline comment must stay on same line. Output:\n{}",
+        result.merged_content
+    );
+
+    // No extra blank lines between consecutive variable assignments
+    assert!(
+        !result.merged_content.contains("_LOGIN_RATE_LIMIT_MAX = 5\n\n_LOGIN_RATE_LIMIT_WINDOW"),
+        "Consecutive variables should not have blank line between them. Output:\n{}",
+        result.merged_content
+    );
+}

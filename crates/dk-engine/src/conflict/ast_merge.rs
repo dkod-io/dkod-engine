@@ -103,7 +103,26 @@ fn extract_spans(
         let start = sym.span.start_byte as usize;
         let end = sym.span.end_byte as usize;
         if end <= bytes.len() {
-            let body = String::from_utf8_lossy(&bytes[start..end]).to_string();
+            // Extend the body to include any trailing inline comment on the
+            // same line (tree-sitter Python places `# comment` as a sibling
+            // node after the expression_statement, so end_byte stops before it).
+            let extended_end = if end < bytes.len() {
+                let rest = &source[end..];
+                if let Some(nl) = rest.find('\n') {
+                    let trailing = rest[..nl].trim();
+                    if trailing.starts_with('#') || trailing.is_empty() {
+                        // Include inline comment or whitespace up to newline
+                        end + nl
+                    } else {
+                        end
+                    }
+                } else {
+                    source.len() // last line, no trailing newline
+                }
+            } else {
+                end
+            };
+            let body = String::from_utf8_lossy(&bytes[start..extended_end]).to_string();
             // Only prepend when the doc text is outside the symbol byte span.
             // TypeScript stores the full "// …" text as a sibling; Rust strips
             // the "///" prefix; Python embeds the docstring inside the body.
@@ -374,9 +393,21 @@ pub fn ast_merge(
         output.push('\n');
     }
 
-    // Then symbols, joined with double newlines
-    let symbol_texts: Vec<&str> = merged_symbols.iter().map(|s| s.text.as_str()).collect();
-    output.push_str(&symbol_texts.join("\n\n"));
+    // Join symbols with context-aware spacing:
+    // - Double newline (\n\n) before/after functions and classes
+    // - Single newline (\n) between consecutive variables
+    for (i, sym) in merged_symbols.iter().enumerate() {
+        if i > 0 {
+            let prev_is_var = merged_symbols[i - 1].kind == "variable";
+            let curr_is_var = sym.kind == "variable";
+            if prev_is_var && curr_is_var {
+                output.push('\n');
+            } else {
+                output.push_str("\n\n");
+            }
+        }
+        output.push_str(&sym.text);
+    }
 
     // Ensure trailing newline
     if !output.ends_with('\n') {

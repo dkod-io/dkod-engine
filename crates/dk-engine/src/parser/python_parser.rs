@@ -98,13 +98,25 @@ impl PythonParser {
     /// Collect preceding `#` comments for a node.
     ///
     /// Preserves the `#` prefix so that AST merge can reconstruct valid Python.
+    /// Skips inline comments that belong to a preceding statement (e.g.
+    /// `x = 60  # 60 seconds` — the `# 60 seconds` is on the same line as
+    /// `x = 60` and should not be collected as a doc comment of the next symbol).
     fn doc_comments(node: &Node, source: &[u8]) -> Option<String> {
         let mut comments = Vec::new();
         let mut sibling = node.prev_sibling();
 
         while let Some(prev) = sibling {
             if prev.kind() == "comment" {
-                // Preserve the full comment text including `#` prefix
+                // Skip inline comments: if this comment is on the same line
+                // as a preceding non-comment sibling, it belongs to that
+                // sibling, not to our node.
+                if let Some(before_comment) = prev.prev_sibling() {
+                    if before_comment.kind() != "comment"
+                        && before_comment.end_position().row == prev.start_position().row
+                    {
+                        break;
+                    }
+                }
                 let text = Self::node_text(&prev, source).trim().to_string();
                 comments.push(text);
                 sibling = prev.prev_sibling();
