@@ -368,4 +368,8 @@ export default router;
         result.merged_content.contains("[Bob]"),
         "Bob's change should be in merged output"
     );
+    assert!(
+        result.merged_content.contains("export default router"),
+        "default export should be preserved in merged output"
+    );
 }

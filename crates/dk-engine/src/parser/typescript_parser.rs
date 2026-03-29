@@ -126,8 +126,9 @@ impl TypeScriptParser {
                 let text = Self::node_text(&child, source);
                 let first_line = text.lines().next()?;
                 let name = first_line.trim();
-                if name.len() > 60 {
-                    Some(format!("{}...", &name[..57]))
+                if name.chars().count() > 60 {
+                    let truncated: String = name.chars().take(57).collect();
+                    Some(format!("{truncated}..."))
                 } else {
                     Some(name.to_string())
                 }
@@ -538,8 +539,11 @@ impl LanguageParser for TypeScriptParser {
         for node in root.children(&mut cursor) {
             match node.kind() {
                 "export_statement" => {
-                    // Exported declaration: unwrap to find the inner declaration
+                    // Exported declaration: unwrap to find the inner declaration.
+                    // Also capture bare export statements (e.g. `export default router;`)
+                    // as symbols so they survive AST merge reconstruction.
                     let mut inner_cursor = node.walk();
+                    let mut found_inner = false;
                     for child in node.children(&mut inner_cursor) {
                         if Self::map_symbol_kind(child.kind()).is_some() {
                             symbols.extend(Self::extract_symbol(
@@ -548,7 +552,31 @@ impl LanguageParser for TypeScriptParser {
                                 file_path,
                                 Visibility::Public,
                             ));
+                            found_inner = true;
                         }
+                    }
+                    if !found_inner {
+                        // Bare export (e.g. `export default router;`) — treat the
+                        // entire export_statement as a Const symbol.
+                        let text = Self::node_text(&node, source);
+                        let name = text.lines().next().unwrap_or("export").trim().to_string();
+                        symbols.push(Symbol {
+                            id: Uuid::new_v4(),
+                            name: name.clone(),
+                            qualified_name: name,
+                            kind: SymbolKind::Const,
+                            visibility: Visibility::Public,
+                            file_path: file_path.to_path_buf(),
+                            span: Span {
+                                start_byte: node.start_byte() as u32,
+                                end_byte: node.end_byte() as u32,
+                            },
+                            signature: Self::node_signature(&node, source),
+                            doc_comment: Self::doc_comments(&node, source),
+                            parent: None,
+                            last_modified_by: None,
+                            last_modified_intent: None,
+                        });
                     }
                 }
                 kind if Self::map_symbol_kind(kind).is_some() => {
