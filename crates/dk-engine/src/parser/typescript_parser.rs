@@ -557,9 +557,17 @@ impl LanguageParser for TypeScriptParser {
                     }
                     if !found_inner {
                         // Bare export (e.g. `export default router;`) — treat the
-                        // entire export_statement as a Const symbol.
-                        let text = Self::node_text(&node, source);
-                        let name = text.lines().next().unwrap_or("export").trim().to_string();
+                        // entire export_statement as a Const symbol. Extract the
+                        // exported identifier from the tree for a stable name.
+                        let name = node
+                            .child_by_field_name("declaration")
+                            .or_else(|| node.child_by_field_name("value"))
+                            .map(|n| Self::node_text(&n, source).trim().to_string())
+                            .filter(|s| !s.is_empty())
+                            .unwrap_or_else(|| {
+                                let text = Self::node_text(&node, source);
+                                text.lines().next().unwrap_or("export").trim().to_string()
+                            });
                         symbols.push(Symbol {
                             id: Uuid::new_v4(),
                             name: name.clone(),

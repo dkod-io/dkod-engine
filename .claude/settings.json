@@ -35,6 +35,10 @@
           {
             "type": "command",
             "command": ".claude/hooks/cargo-test-on-edit.sh"
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/clippy-check-post-edit.sh"
           }
         ]
       }

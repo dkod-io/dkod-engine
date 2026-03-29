@@ -104,8 +104,13 @@ fn extract_spans(
         let end = sym.span.end_byte as usize;
         if end <= bytes.len() {
             let body = String::from_utf8_lossy(&bytes[start..end]).to_string();
+            // Only prepend when the doc text is outside the symbol byte span.
+            // TypeScript stores the full "// …" text as a sibling; Rust strips
+            // the "///" prefix; Python embeds the docstring inside the body.
             let text = match &sym.doc_comment {
-                Some(doc) if !doc.is_empty() => format!("{doc}\n{body}"),
+                Some(doc) if !doc.is_empty() && !body.contains(doc.as_str()) => {
+                    format!("{doc}\n{body}")
+                }
                 _ => body,
             };
             symbol_spans.push(SymbolSpan {
