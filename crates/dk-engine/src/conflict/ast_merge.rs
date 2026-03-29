@@ -95,12 +95,19 @@ fn extract_spans(
         }
     }
 
-    // Extract symbol spans
+    // Extract symbol spans. Prepend doc comments to the symbol text so
+    // that comment changes are tracked per-symbol (e.g. adding a doc
+    // comment to a route handler is attributed to that handler's symbol,
+    // not silently dropped during AST merge).
     for (order, sym) in symbols.iter().enumerate() {
         let start = sym.span.start_byte as usize;
         let end = sym.span.end_byte as usize;
         if end <= bytes.len() {
-            let text = String::from_utf8_lossy(&bytes[start..end]).to_string();
+            let body = String::from_utf8_lossy(&bytes[start..end]).to_string();
+            let text = match &sym.doc_comment {
+                Some(doc) if !doc.is_empty() => format!("{doc}\n{body}"),
+                _ => body,
+            };
             symbol_spans.push(SymbolSpan {
                 qualified_name: sym.qualified_name.clone(),
                 kind: sym.kind.to_string(),

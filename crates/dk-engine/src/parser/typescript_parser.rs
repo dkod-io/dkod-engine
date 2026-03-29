@@ -87,7 +87,51 @@ impl TypeScriptParser {
             "type_alias_declaration" => Some(SymbolKind::TypeAlias),
             "enum_declaration" => Some(SymbolKind::Enum),
             "lexical_declaration" => Some(SymbolKind::Const),
+            "expression_statement" => Some(SymbolKind::Const),
             _ => None,
+        }
+    }
+
+    /// Derive a symbol name from a top-level expression_statement.
+    ///
+    /// Handles common patterns like:
+    /// - `router.get("/path", ...)` → "router.get:/path"
+    /// - `app.use(middleware)` → "app.use"
+    /// - `module.exports = ...` → "module.exports"
+    fn expression_statement_name(node: &Node, source: &[u8]) -> Option<String> {
+        let child = node.child(0)?;
+        match child.kind() {
+            "call_expression" => {
+                let func = child.child_by_field_name("function")?;
+                let func_text = Self::node_text(&func, source).to_string();
+                // For router.get("/path", ...), extract the route path from first arg
+                let args = child.child_by_field_name("arguments")?;
+                let mut cursor = args.walk();
+                for arg_child in args.children(&mut cursor) {
+                    if arg_child.kind() == "string" || arg_child.kind() == "template_string" {
+                        let path = Self::node_text(&arg_child, source)
+                            .trim_matches(|c| c == '"' || c == '\'' || c == '`')
+                            .to_string();
+                        return Some(format!("{func_text}:{path}"));
+                    }
+                }
+                Some(func_text)
+            }
+            "assignment_expression" => {
+                let left = child.child_by_field_name("left")?;
+                Some(Self::node_text(&left, source).to_string())
+            }
+            _ => {
+                // Fallback: use first line trimmed
+                let text = Self::node_text(&child, source);
+                let first_line = text.lines().next()?;
+                let name = first_line.trim();
+                if name.len() > 60 {
+                    Some(format!("{}...", &name[..57]))
+                } else {
+                    Some(name.to_string())
+                }
+            }
         }
     }
 
@@ -120,6 +164,31 @@ impl TypeScriptParser {
             Some(k) => k,
             None => return vec![],
         };
+
+        // For expression_statement (e.g. router.get(...)), derive name from the expression
+        if node.kind() == "expression_statement" {
+            let name = match Self::expression_statement_name(node, source) {
+                Some(n) if !n.is_empty() => n,
+                _ => return vec![],
+            };
+            return vec![Symbol {
+                id: Uuid::new_v4(),
+                name: name.clone(),
+                qualified_name: name,
+                kind: SymbolKind::Const,
+                visibility,
+                file_path: file_path.to_path_buf(),
+                span: Span {
+                    start_byte: node.start_byte() as u32,
+                    end_byte: node.end_byte() as u32,
+                },
+                signature: Self::node_signature(node, source),
+                doc_comment: Self::doc_comments(node, source),
+                parent: None,
+                last_modified_by: None,
+                last_modified_intent: None,
+            }];
+        }
 
         // For lexical_declaration (const/let/var), extract variable names
         if node.kind() == "lexical_declaration" {

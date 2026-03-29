@@ -297,3 +297,75 @@ fn test_merge_unsupported_file_extension() {
     let result = ast_merge(&registry(), "test.xyz", "base", "a", "b");
     assert!(result.is_err());
 }
+
+#[test]
+fn test_merge_ts_expression_statements_different_routes() {
+    // Two agents modify different route handlers (expression_statement nodes)
+    // in the same TypeScript file → should merge cleanly, not file-level conflict.
+    let base = r#"import { Router } from "express";
+
+const router = Router();
+
+router.get("/health", (_req, res) => {
+  res.json({ status: "ok" });
+});
+
+router.get("/notes/:id", (req, res) => {
+  const note = notes.find((n) => n.id === parseInt(req.params.id));
+  res.json({ data: note });
+});
+
+export default router;
+"#;
+
+    let version_a = r#"import { Router } from "express";
+
+const router = Router();
+
+// Health endpoint — returns service status [Alice]
+router.get("/health", (_req, res) => {
+  res.json({ status: "ok" });
+});
+
+router.get("/notes/:id", (req, res) => {
+  const note = notes.find((n) => n.id === parseInt(req.params.id));
+  res.json({ data: note });
+});
+
+export default router;
+"#;
+
+    let version_b = r#"import { Router } from "express";
+
+const router = Router();
+
+router.get("/health", (_req, res) => {
+  res.json({ status: "ok" });
+});
+
+// Fetch a single note by ID [Bob]
+router.get("/notes/:id", (req, res) => {
+  const note = notes.find((n) => n.id === parseInt(req.params.id));
+  res.json({ data: note });
+});
+
+export default router;
+"#;
+
+    let result = ast_merge(&registry(), "routes.ts", base, version_a, version_b)
+        .expect("ast_merge should succeed for TypeScript");
+    assert_eq!(
+        result.status,
+        MergeStatus::Clean,
+        "Different route handlers should merge cleanly, got conflicts: {:?}",
+        result.conflicts
+    );
+    assert!(
+        result.merged_content.contains("[Alice]"),
+        "Alice's change should be in merged output"
+    );
+    assert!(
+        result.merged_content.contains("[Bob]"),
+        "Bob's change should be in merged output"
+    );
+}
