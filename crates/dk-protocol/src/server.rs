@@ -195,4 +195,13 @@ impl crate::agent_service_server::AgentService for ProtocolServer {
         let resp = crate::push::handle_push(self, request.into_inner()).await?;
         Ok(Response::new(resp))
     }
+
+    async fn approve(
+        &self,
+        _request: Request<crate::ApproveRequest>,
+    ) -> Result<Response<crate::ApproveResponse>, Status> {
+        Err(Status::unimplemented(
+            "approve is a platform-level operation; use the managed server",
+        ))
+    }
 }

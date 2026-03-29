@@ -30,6 +30,9 @@ service AgentService {
 
   // Push merged changes to GitHub (branch or PR)
   rpc Push(PushRequest) returns (PushResponse);
+
+  // Approve a submitted changeset (platform-level state transition)
+  rpc Approve(ApproveRequest) returns (ApproveResponse);
 }
 
 // ── CONNECT ──
@@ -417,4 +420,17 @@ message PushResponse {
   string pr_url = 2;         // empty when mode = PUSH_MODE_BRANCH
   string commit_hash = 3;
   repeated string changeset_ids = 4;  // changesets included in the push
+}
+
+// --- APPROVE ---
+
+message ApproveRequest {
+  string session_id = 1;
+}
+
+message ApproveResponse {
+  bool success = 1;
+  string changeset_id = 2;
+  string new_state = 3;      // e.g. "approved"
+  string message = 4;        // human-readable status message
 }
