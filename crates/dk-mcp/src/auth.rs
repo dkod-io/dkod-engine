@@ -17,7 +17,15 @@ const POLL_TIMEOUT: Duration = Duration::from_secs(900); // 15 minutes
 #[derive(Serialize, Deserialize)]
 struct CachedToken {
     token: String,
+    /// Epoch seconds after which the cached token should be considered expired.
+    #[serde(default)]
+    valid_until: Option<u64>,
 }
+
+/// Conservative client-side TTL applied when the server does not provide an
+/// explicit expiry.  The device-flow tokens issued by Clerk last 60 days;
+/// 30 days gives plenty of margin while still avoiding silent staleness.
+const DEFAULT_TTL_SECS: u64 = 30 * 24 * 3600; // 30 days
 
 fn token_path() -> PathBuf {
     dirs::config_dir()
@@ -26,12 +34,27 @@ fn token_path() -> PathBuf {
         .join("token.json")
 }
 
+fn now_epoch() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
 fn read_cached_token() -> Option<String> {
     let path = token_path();
     let data = fs::read_to_string(&path).ok()?;
     let cached: CachedToken = serde_json::from_str(&data).ok()?;
     if cached.token.is_empty() {
         return None;
+    }
+    // Treat token as expired when valid_until is set and in the past.
+    // Legacy cache files without the field are accepted (valid_until == None).
+    if let Some(expiry) = cached.valid_until {
+        if now_epoch() >= expiry {
+            // Silently discard — the caller will trigger a fresh device flow.
+            return None;
+        }
     }
     Some(cached.token)
 }
@@ -43,6 +66,7 @@ fn save_token(token: &str) -> Result<()> {
     }
     let data = serde_json::to_string(&CachedToken {
         token: token.to_string(),
+        valid_until: Some(now_epoch() + DEFAULT_TTL_SECS),
     })?;
     fs::write(&path, &data)?;
 
@@ -139,11 +163,18 @@ async fn run_device_flow(api_base: &str) -> Result<String> {
             .await?;
 
         if resp.status == "complete" {
-            if let Some(token) = resp.token {
-                save_token(&token)?;
-                eprintln!("  Authenticated successfully!");
-                eprintln!();
-                return Ok(token);
+            match resp.token {
+                Some(token) => {
+                    save_token(&token)?;
+                    eprintln!("  Authenticated successfully!");
+                    eprintln!();
+                    return Ok(token);
+                }
+                None => {
+                    anyhow::bail!(
+                        "device flow: server returned 'complete' but no token was provided"
+                    );
+                }
             }
         }
     }
@@ -168,10 +199,13 @@ mod tests {
 
     #[tokio::test]
     async fn empty_env_token_is_skipped() {
-        // Empty env token should be treated as unset.
-        // This will fail because there's no cached token and no server,
-        // but it proves the env path was skipped.
+        // Empty env token should be treated as unset — resolve_token will
+        // either return a cached token from disk or fail on device flow.
+        // Both outcomes prove the empty env var path was skipped.
         let result = resolve_token("http://localhost:9999", Some("")).await;
-        assert!(result.is_err()); // fails connecting to device flow
+        match result {
+            Ok(t) => assert!(!t.is_empty(), "cached token should not be empty"),
+            Err(_) => {} // no cached token, device flow unreachable — expected
+        }
     }
 }

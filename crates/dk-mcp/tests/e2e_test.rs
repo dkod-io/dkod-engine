@@ -14,7 +14,7 @@ mod tests {
         let addr = "http://[::1]:50051";
         let token =
             std::env::var("DKOD_AUTH_TOKEN").expect("DKOD_AUTH_TOKEN must be set for e2e test");
-        let mut client = grpc::connect_with_auth(addr, token)
+        let mut client = grpc::connect_with_auth(addr, token.clone())
             .await
             .expect("connect to server");
 
@@ -22,7 +22,7 @@ mod tests {
         let resp = client
             .connect(ConnectRequest {
                 agent_id: "test-agent".to_string(),
-                auth_token: "dk-alpha-token".to_string(),
+                auth_token: token,
                 codebase: "demo/hello-world".to_string(),
                 intent: "Test the full flow".to_string(),
                 workspace_config: None,
