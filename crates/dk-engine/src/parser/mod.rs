@@ -1,5 +1,6 @@
 pub mod engine;
 pub mod lang_config;
+pub mod langs;
 pub mod python_parser;
 pub mod registry;
 pub mod rust_parser;
