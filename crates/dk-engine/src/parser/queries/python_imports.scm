@@ -28,3 +28,25 @@
 (import_from_statement
   module_name: (relative_import) @module
   name: (dotted_name) @import_name)
+
+; ── import X as Y ──
+; e.g. `import numpy as np`, `import tensorflow as tf`
+(import_statement
+  name: (aliased_import
+    name: (dotted_name) @module
+    alias: (identifier) @alias))
+
+; ── from X import Y as Z (dotted_name module) ──
+; e.g. `from os.path import join as j`
+(import_from_statement
+  module_name: (dotted_name) @module
+  name: (aliased_import
+    name: (dotted_name) @import_name
+    alias: (identifier) @alias))
+
+; ── from .relative import Y as Z ──
+(import_from_statement
+  module_name: (relative_import) @module
+  name: (aliased_import
+    name: (dotted_name) @import_name
+    alias: (identifier) @alias))

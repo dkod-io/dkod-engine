@@ -11,6 +11,7 @@ use dk_core::{
     CallKind, Error, FileAnalysis, Import, RawCallEdge, Result, Span, Symbol, TypeInfo,
 };
 use std::path::Path;
+use std::sync::Mutex;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Node, Parser, Query, QueryCursor, Tree};
 use uuid::Uuid;
@@ -20,6 +21,7 @@ use uuid::Uuid;
 /// One instance handles a single language, configured via [`LanguageConfig`].
 pub struct QueryDrivenParser {
     config: Box<dyn LanguageConfig>,
+    parser: Mutex<Parser>,
     symbols_query: Query,
     calls_query: Option<Query>,
     imports_query: Option<Query>,
@@ -59,8 +61,14 @@ impl QueryDrivenParser {
             }
         };
 
+        let mut parser = Parser::new();
+        parser
+            .set_language(&lang)
+            .map_err(|e| Error::ParseError(format!("Failed to set language: {e}")))?;
+
         Ok(Self {
             config,
+            parser: Mutex::new(parser),
             symbols_query,
             calls_query,
             imports_query,
@@ -70,11 +78,11 @@ impl QueryDrivenParser {
     // ── Helpers ──
 
     /// Parse source bytes into a tree-sitter syntax tree.
+    ///
+    /// Reuses the cached `Parser` instance to avoid repeated allocation
+    /// and language setup.
     fn parse_tree(&self, source: &[u8]) -> Result<tree_sitter::Tree> {
-        let mut parser = Parser::new();
-        parser
-            .set_language(&self.config.language())
-            .map_err(|e| Error::ParseError(format!("Failed to set language: {e}")))?;
+        let mut parser = self.parser.lock().unwrap();
         parser
             .parse(source, None)
             .ok_or_else(|| Error::ParseError("tree-sitter parse returned None".into()))

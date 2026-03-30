@@ -31,6 +31,7 @@
       (identifier) @alias))
   source: (string) @module)
 
-; ── Side-effect import: import 'module' ──
-(import_statement
-  source: (string) @module)
+; Side-effect imports (`import 'polyfill'`) are intentionally not captured.
+; They have no named binding, so they don't participate in symbol/conflict
+; analysis. Adding a catch-all pattern here would produce duplicates for
+; every other import form since tree-sitter field constraints are additive.
