@@ -11,6 +11,7 @@ fn test_registry_detects_language() {
     assert!(registry.supports_file(Path::new("component.jsx")));
     assert!(registry.supports_file(Path::new("script.py")));
     assert!(registry.supports_file(Path::new("main.go")));
+    assert!(registry.supports_file(Path::new("Main.java")));
     assert!(!registry.supports_file(Path::new("image.png")));
     assert!(!registry.supports_file(Path::new("data.csv")));
     assert!(!registry.supports_file(Path::new("noext")));
