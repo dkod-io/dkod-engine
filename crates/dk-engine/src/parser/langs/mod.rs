@@ -5,6 +5,7 @@ pub mod go;
 pub mod haskell;
 pub mod java;
 pub mod julia;
+pub mod kotlin;
 pub mod php;
 pub mod python;
 pub mod ruby;

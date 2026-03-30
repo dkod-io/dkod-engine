@@ -930,6 +930,7 @@ dependencies = [
  "tree-sitter-haskell",
  "tree-sitter-java",
  "tree-sitter-julia",
+ "tree-sitter-kotlin",
  "tree-sitter-php",
  "tree-sitter-python",
  "tree-sitter-ruby",
@@ -5808,6 +5809,15 @@ name = "tree-sitter-julia"
 version = "0.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4144731a178812ee867619b1e98b3b91e54c1652304b26e5ebe3175b701de323"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-kotlin"
+version = "0.4.0"
+source = "git+https://github.com/fwcd/tree-sitter-kotlin?branch=main#6032dfd418aefbc0d5085051c3c58aa07791e813"
 dependencies = [
  "cc",
  "tree-sitter-language",
