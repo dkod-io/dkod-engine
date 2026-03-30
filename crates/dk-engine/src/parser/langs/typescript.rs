@@ -134,10 +134,10 @@ impl LanguageConfig for TypeScriptConfig {
 }
 
 impl TypeScriptConfig {
-    /// Collect `//` comment lines immediately preceding a node.
+    /// Collect `//` and `/** */` comment lines immediately preceding a node.
     ///
-    /// Preserves the full comment text (including the `//` prefix) so
-    /// that AST merge can reconstruct valid TypeScript.
+    /// Preserves the full comment text (including prefix) so that AST
+    /// merge can reconstruct valid TypeScript.
     fn collect_preceding_comments(
         node: &tree_sitter::Node,
         source: &[u8],
@@ -151,7 +151,7 @@ impl TypeScriptConfig {
                     .unwrap_or("")
                     .trim()
                     .to_string();
-                if text.starts_with("//") {
+                if text.starts_with("//") || text.starts_with("/*") {
                     lines.push(text);
                     sibling = prev.prev_sibling();
                     continue;

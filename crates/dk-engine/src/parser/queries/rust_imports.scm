@@ -12,7 +12,7 @@
 
 ; ── Plain identifier: use std; ──
 (use_declaration
-  argument: (identifier) @import_name)
+  argument: (identifier) @module)
 
 ; ── Aliased: use path::Name as Alias; ──
 (use_declaration

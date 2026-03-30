@@ -8,62 +8,66 @@
 ;
 ; Visibility: declarations wrapped in `export_statement` are Public, all
 ; others are Private. The @modifiers capture is the `export_statement` itself.
+;
+; Alternation groups `[...]` ensure each node produces exactly one match
+; (first matching alternative wins), preventing spurious duplicates when
+; a declaration is both exported and matches the non-exported pattern.
 
-; ── Exported function ──
-(export_statement
+; ── Functions ──
+[
+  (export_statement
+    (function_declaration
+      name: (identifier) @name) @definition.function) @modifiers
   (function_declaration
-    name: (identifier) @name) @definition.function) @modifiers
+    name: (identifier) @name) @definition.function
+]
 
-; ── Non-exported function ──
-(function_declaration
-  name: (identifier) @name) @definition.function
-
-; ── Exported class ──
-(export_statement
+; ── Classes ──
+[
+  (export_statement
+    (class_declaration
+      name: (type_identifier) @name) @definition.class) @modifiers
   (class_declaration
-    name: (type_identifier) @name) @definition.class) @modifiers
+    name: (type_identifier) @name) @definition.class
+]
 
-; ── Non-exported class ──
-(class_declaration
-  name: (type_identifier) @name) @definition.class
-
-; ── Exported interface ──
-(export_statement
+; ── Interfaces ──
+[
+  (export_statement
+    (interface_declaration
+      name: (type_identifier) @name) @definition.interface) @modifiers
   (interface_declaration
-    name: (type_identifier) @name) @definition.interface) @modifiers
+    name: (type_identifier) @name) @definition.interface
+]
 
-; ── Non-exported interface ──
-(interface_declaration
-  name: (type_identifier) @name) @definition.interface
-
-; ── Exported type alias ──
-(export_statement
+; ── Type aliases ──
+[
+  (export_statement
+    (type_alias_declaration
+      name: (type_identifier) @name) @definition.type_alias) @modifiers
   (type_alias_declaration
-    name: (type_identifier) @name) @definition.type_alias) @modifiers
+    name: (type_identifier) @name) @definition.type_alias
+]
 
-; ── Non-exported type alias ──
-(type_alias_declaration
-  name: (type_identifier) @name) @definition.type_alias
-
-; ── Exported enum ──
-(export_statement
+; ── Enums ──
+[
+  (export_statement
+    (enum_declaration
+      name: (identifier) @name) @definition.enum) @modifiers
   (enum_declaration
-    name: (identifier) @name) @definition.enum) @modifiers
+    name: (identifier) @name) @definition.enum
+]
 
-; ── Non-exported enum ──
-(enum_declaration
-  name: (identifier) @name) @definition.enum
-
-; ── Exported const/let/var ──
-(export_statement
+; ── const/let/var ──
+[
+  (export_statement
+    (lexical_declaration
+      (variable_declarator
+        name: (identifier) @name)) @definition.const) @modifiers
   (lexical_declaration
     (variable_declarator
-      name: (identifier) @name)) @definition.const) @modifiers
-
-; ── Non-exported const/let/var ──
-(lexical_declaration
-  (variable_declarator
-    name: (identifier) @name)) @definition.const
+      name: (identifier) @name)) @definition.const
+]
 
 ; ── Exported default identifier (e.g. `export default router;`) ──
 (export_statement
