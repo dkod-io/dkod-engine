@@ -89,7 +89,7 @@ impl PythonConfig {
     /// `expression_statement` containing a `string` node.
     fn extract_docstring(node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
         let body = node.child_by_field_name("body")?;
-        let first_stmt = body.child(0)?;
+        let first_stmt = body.named_child(0)?;
 
         if first_stmt.kind() == "expression_statement" {
             let expr = first_stmt.child(0)?;

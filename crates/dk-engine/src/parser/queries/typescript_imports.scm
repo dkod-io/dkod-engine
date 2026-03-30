@@ -25,10 +25,12 @@
   source: (string) @module)
 
 ; ── Namespace import: import * as ns from 'module' ──
+; Capture the alias as both @import_name and @alias so the engine
+; doesn't fall back to deriving the name from the module path.
 (import_statement
   (import_clause
     (namespace_import
-      (identifier) @alias))
+      (identifier) @import_name @alias))
   source: (string) @module)
 
 ; Side-effect imports (`import 'polyfill'`) are intentionally not captured.

@@ -82,7 +82,7 @@ impl QueryDrivenParser {
     /// Reuses the cached `Parser` instance to avoid repeated allocation
     /// and language setup.
     fn parse_tree(&self, source: &[u8]) -> Result<tree_sitter::Tree> {
-        let mut parser = self.parser.lock().unwrap();
+        let mut parser = self.parser.lock().unwrap_or_else(|e| e.into_inner());
         parser
             .parse(source, None)
             .ok_or_else(|| Error::ParseError("tree-sitter parse returned None".into()))
@@ -137,8 +137,10 @@ impl QueryDrivenParser {
                 }
 
                 let text = Self::node_text(&prev, source).trim();
-                if text.starts_with(comment_prefix) {
-                    // Preserve the full comment text including prefix
+                if text.starts_with(comment_prefix) || text.starts_with("/*") {
+                    // Preserve the full comment text including prefix.
+                    // The `/*` branch captures JSDoc (`/** ... */`) blocks
+                    // for languages using CommentStyle::SlashSlash.
                     lines.push(text.to_string());
                     sibling = prev.prev_sibling();
                     continue;
