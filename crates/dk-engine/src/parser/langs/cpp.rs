@@ -13,6 +13,9 @@ impl LanguageConfig for CppConfig {
     }
 
     fn extensions(&self) -> &'static [&'static str] {
+        // .c and .h are parsed with the C++ grammar (a superset of C).
+        // K&R-style definitions and some C99/C11 constructs may not be
+        // captured perfectly, but coverage for modern C is acceptable.
         &["cpp", "cc", "cxx", "c", "h", "hpp", "hxx"]
     }
 
