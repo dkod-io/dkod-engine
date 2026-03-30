@@ -86,7 +86,11 @@ impl SymbolStore {
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             ON CONFLICT (repo_id, qualified_name) DO UPDATE SET
-                -- Safe: migration 014 adds ON UPDATE CASCADE to all FKs referencing symbols(id)
+                -- Safe: migration 014 adds ON UPDATE CASCADE to all FKs referencing
+                -- symbols(id) (call_edges, type_info, symbol_dependencies, parent_id).
+                -- Note: changeset_symbols.symbol_id has NO FK to symbols(id) by design
+                -- (migration 009) — it retains stale UUIDs after PK update. This is OK
+                -- because get_affected_symbols only uses qualified_name, not symbol_id.
                 id = EXCLUDED.id,
                 name = EXCLUDED.name,
                 kind = EXCLUDED.kind,

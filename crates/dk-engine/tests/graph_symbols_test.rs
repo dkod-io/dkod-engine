@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
-use dk_core::{Span, Symbol, SymbolKind, Visibility};
-use dk_engine::graph::SymbolStore;
+use dk_core::{CallEdge, CallKind, Span, Symbol, SymbolKind, Visibility};
+use dk_engine::graph::{CallGraphStore, SymbolStore};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -123,6 +123,52 @@ async fn test_upsert_updates_on_conflict() {
     assert_eq!(results[0].kind, SymbolKind::Struct);
     // id IS updated on conflict (id = EXCLUDED.id) — safe with ON UPDATE CASCADE (migration 014)
     assert_eq!(results[0].id, sym.id);
+
+    cleanup_repo(&pool, repo_id).await;
+}
+
+/// Verifies that ON UPDATE CASCADE (migration 014) propagates symbol PK
+/// changes to call_edges. This is the safety guarantee that lets
+/// upsert_symbol use `id = EXCLUDED.id`.
+#[tokio::test]
+async fn test_on_update_cascade_propagates_to_call_edges() {
+    let pool = setup_pool().await;
+    let repo_id = create_test_repo(&pool).await;
+    let sym_store = SymbolStore::new(pool.clone());
+    let edge_store = CallGraphStore::new(pool.clone());
+
+    // 1. Insert two symbols and a call edge between them.
+    let caller = make_symbol("caller_fn", SymbolKind::Function, "src/a.rs");
+    let callee = make_symbol("callee_fn", SymbolKind::Function, "src/b.rs");
+    sym_store.upsert_symbol(repo_id, &caller).await.unwrap();
+    sym_store.upsert_symbol(repo_id, &callee).await.unwrap();
+
+    let edge = CallEdge {
+        id: Uuid::new_v4(),
+        repo_id,
+        caller: caller.id,
+        callee: callee.id,
+        kind: CallKind::DirectCall,
+    };
+    edge_store.insert_edge(&edge).await.unwrap();
+
+    // 2. Re-upsert caller with a NEW UUID (simulates re-indexing).
+    let old_caller_id = caller.id;
+    let mut caller_v2 = make_symbol("caller_fn", SymbolKind::Function, "src/a.rs");
+    caller_v2.id = Uuid::new_v4();
+    assert_ne!(caller_v2.id, old_caller_id);
+
+    // This would fail without ON UPDATE CASCADE (migration 014).
+    sym_store.upsert_symbol(repo_id, &caller_v2).await.unwrap();
+
+    // 3. Verify the call_edge's caller_id was cascaded to the new UUID.
+    let callees = edge_store.find_callees(caller_v2.id).await.unwrap();
+    assert_eq!(callees.len(), 1, "call_edge should have cascaded to new caller UUID");
+    assert_eq!(callees[0].callee, callee.id, "callee_id should be unchanged");
+
+    // Old UUID should have no outgoing edges.
+    let old_callees = edge_store.find_callees(old_caller_id).await.unwrap();
+    assert!(old_callees.is_empty(), "old UUID should have no edges after cascade");
 
     cleanup_repo(&pool, repo_id).await;
 }
