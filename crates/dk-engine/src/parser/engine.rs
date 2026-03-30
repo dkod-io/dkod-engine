@@ -396,7 +396,7 @@ impl LanguageParser for QueryDrivenParser {
                 .unwrap_or_else(|| {
                     // Derive imported name from the last segment of the module path.
                     module_path
-                        .rsplit(|c| c == '/' || c == '.' || c == ':')
+                        .rsplit(['/', '.', ':'])
                         .next()
                         .unwrap_or(&module_path)
                         .to_string()
