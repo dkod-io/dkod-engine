@@ -1,0 +1,37 @@
+[package]
+name = "dk-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "dk-mcp"
+path = "src/main.rs"
+
+[dependencies]
+rmcp = { version = "0.16", features = ["server", "transport-io"] }
+tonic = { version = "0.12", features = ["transport", "tls", "tls-webpki-roots"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+prost = "0.13"
+prost-types = "0.13"
+tokio = { workspace = true }
+tokio-stream = "0.1"
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = "1"
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+reqwest = { version = "0.12", features = ["json"] }
+open = "5"
+dirs = "6"
+chrono = { workspace = true }
+async-nats = "0.38"
+
+[dev-dependencies]
+rmcp = { version = "0.16", features = ["client", "server", "transport-io"] }
+
+[build-dependencies]
+tonic-build = "0.12"

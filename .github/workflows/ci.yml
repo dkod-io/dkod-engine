@@ -147,9 +147,9 @@ jobs:
       - name: Build binaries
         run: |
           if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
-            cross build --release --target ${{ matrix.target }} -p dk-cli -p dk-server
+            cross build --release --target ${{ matrix.target }} -p dk-cli -p dk-server -p dk-mcp
           else
-            cargo build --release --target ${{ matrix.target }} -p dk-cli -p dk-server
+            cargo build --release --target ${{ matrix.target }} -p dk-cli -p dk-server -p dk-mcp
           fi
 
       - name: Package binaries
@@ -159,6 +159,7 @@ jobs:
           mkdir "$STAGING"
           cp "target/${{ matrix.target }}/release/dk" "$STAGING/"
           cp "target/${{ matrix.target }}/release/dk-server" "$STAGING/"
+          cp "target/${{ matrix.target }}/release/dk-mcp" "$STAGING/"
           cp LICENSE README.md "$STAGING/"
           tar czf "$STAGING.tar.gz" "$STAGING"
 

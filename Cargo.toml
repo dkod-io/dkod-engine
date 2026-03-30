@@ -8,6 +8,7 @@ members = [
     "crates/dk-cli",
     "crates/dk-agent-sdk",
     "crates/dk-runner",
+    "crates/dk-mcp",
 ]
 
 [workspace.package]
