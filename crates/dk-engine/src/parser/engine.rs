@@ -7,10 +7,12 @@
 
 use super::lang_config::{CommentStyle, LanguageConfig};
 use super::LanguageParser;
-use dk_core::{CallKind, Error, Import, RawCallEdge, Result, Span, Symbol, TypeInfo};
+use dk_core::{
+    CallKind, Error, FileAnalysis, Import, RawCallEdge, Result, Span, Symbol, TypeInfo,
+};
 use std::path::Path;
 use streaming_iterator::StreamingIterator;
-use tree_sitter::{Node, Parser, Query, QueryCursor};
+use tree_sitter::{Node, Parser, Query, QueryCursor, Tree};
 use uuid::Uuid;
 
 /// A language-agnostic parser driven by tree-sitter queries.
@@ -173,17 +175,14 @@ impl QueryDrivenParser {
     }
 }
 
-impl LanguageParser for QueryDrivenParser {
-    fn extensions(&self) -> &[&str] {
-        self.config.extensions()
-    }
-
-    fn extract_symbols(&self, source: &[u8], file_path: &Path) -> Result<Vec<Symbol>> {
-        if source.is_empty() {
-            return Ok(vec![]);
-        }
-
-        let tree = self.parse_tree(source)?;
+impl QueryDrivenParser {
+    /// Extract symbols from an already-parsed tree.
+    fn symbols_from_tree(
+        &self,
+        tree: &Tree,
+        source: &[u8],
+        file_path: &Path,
+    ) -> Vec<Symbol> {
         let root = tree.root_node();
         let capture_names = self.symbols_query.capture_names();
 
@@ -257,20 +256,16 @@ impl LanguageParser for QueryDrivenParser {
             symbols.push(sym);
         }
 
-        Ok(symbols)
+        symbols
     }
 
-    fn extract_calls(&self, source: &[u8], _file_path: &Path) -> Result<Vec<RawCallEdge>> {
-        if source.is_empty() {
-            return Ok(vec![]);
-        }
-
+    /// Extract call edges from an already-parsed tree.
+    fn calls_from_tree(&self, tree: &Tree, source: &[u8]) -> Vec<RawCallEdge> {
         let calls_query = match &self.calls_query {
             Some(q) => q,
-            None => return Ok(vec![]),
+            None => return vec![],
         };
 
-        let tree = self.parse_tree(source)?;
         let root = tree.root_node();
         let capture_names = calls_query.capture_names();
 
@@ -334,24 +329,16 @@ impl LanguageParser for QueryDrivenParser {
             });
         }
 
-        Ok(calls)
+        calls
     }
 
-    fn extract_types(&self, _source: &[u8], _file_path: &Path) -> Result<Vec<TypeInfo>> {
-        Ok(vec![])
-    }
-
-    fn extract_imports(&self, source: &[u8], _file_path: &Path) -> Result<Vec<Import>> {
-        if source.is_empty() {
-            return Ok(vec![]);
-        }
-
+    /// Extract imports from an already-parsed tree.
+    fn imports_from_tree(&self, tree: &Tree, source: &[u8]) -> Vec<Import> {
         let imports_query = match &self.imports_query {
             Some(q) => q,
-            None => return Ok(vec![]),
+            None => return vec![],
         };
 
-        let tree = self.parse_tree(source)?;
         let root = tree.root_node();
         let capture_names = imports_query.capture_names();
 
@@ -414,6 +401,59 @@ impl LanguageParser for QueryDrivenParser {
             });
         }
 
-        Ok(imports)
+        imports
+    }
+}
+
+impl LanguageParser for QueryDrivenParser {
+    fn extensions(&self) -> &[&str] {
+        self.config.extensions()
+    }
+
+    fn extract_symbols(&self, source: &[u8], file_path: &Path) -> Result<Vec<Symbol>> {
+        if source.is_empty() {
+            return Ok(vec![]);
+        }
+        let tree = self.parse_tree(source)?;
+        Ok(self.symbols_from_tree(&tree, source, file_path))
+    }
+
+    fn extract_calls(&self, source: &[u8], _file_path: &Path) -> Result<Vec<RawCallEdge>> {
+        if source.is_empty() {
+            return Ok(vec![]);
+        }
+        let tree = self.parse_tree(source)?;
+        Ok(self.calls_from_tree(&tree, source))
+    }
+
+    fn extract_types(&self, _source: &[u8], _file_path: &Path) -> Result<Vec<TypeInfo>> {
+        Ok(vec![])
+    }
+
+    fn extract_imports(&self, source: &[u8], _file_path: &Path) -> Result<Vec<Import>> {
+        if source.is_empty() {
+            return Ok(vec![]);
+        }
+        let tree = self.parse_tree(source)?;
+        Ok(self.imports_from_tree(&tree, source))
+    }
+
+    /// Parse once and extract all data — avoids triple-parsing the same source.
+    fn parse_file(&self, source: &[u8], file_path: &Path) -> Result<FileAnalysis> {
+        if source.is_empty() {
+            return Ok(FileAnalysis {
+                symbols: vec![],
+                calls: vec![],
+                types: vec![],
+                imports: vec![],
+            });
+        }
+        let tree = self.parse_tree(source)?;
+        Ok(FileAnalysis {
+            symbols: self.symbols_from_tree(&tree, source, file_path),
+            calls: self.calls_from_tree(&tree, source),
+            types: vec![],
+            imports: self.imports_from_tree(&tree, source),
+        })
     }
 }

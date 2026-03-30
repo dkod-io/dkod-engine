@@ -18,9 +18,19 @@
         name: (identifier) @import_name)))
   source: (string) @module)
 
+; ── Default import: import Foo from 'module' ──
+(import_statement
+  (import_clause
+    (identifier) @import_name)
+  source: (string) @module)
+
 ; ── Namespace import: import * as ns from 'module' ──
 (import_statement
   (import_clause
     (namespace_import
       (identifier) @alias))
+  source: (string) @module)
+
+; ── Side-effect import: import 'module' ──
+(import_statement
   source: (string) @module)

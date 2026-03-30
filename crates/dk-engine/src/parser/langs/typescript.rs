@@ -3,7 +3,7 @@
 use crate::parser::engine::QueryDrivenParser;
 use crate::parser::lang_config::{CommentStyle, LanguageConfig};
 use crate::parser::LanguageParser;
-use dk_core::{Import, RawCallEdge, Result, Symbol, SymbolKind, TypeInfo, Visibility};
+use dk_core::{FileAnalysis, Import, RawCallEdge, Result, Symbol, SymbolKind, TypeInfo, Visibility};
 use std::collections::HashMap;
 use std::path::Path;
 use tree_sitter::Language;
@@ -194,14 +194,9 @@ impl Default for TypeScriptParser {
     }
 }
 
-impl LanguageParser for TypeScriptParser {
-    fn extensions(&self) -> &[&str] {
-        self.inner.extensions()
-    }
-
-    fn extract_symbols(&self, source: &[u8], file_path: &Path) -> Result<Vec<Symbol>> {
-        let mut symbols = self.inner.extract_symbols(source, file_path)?;
-
+impl TypeScriptParser {
+    /// Filter nested symbols and deduplicate qualified names.
+    fn dedup_symbols(mut symbols: Vec<Symbol>) -> Vec<Symbol> {
         // Filter out nested symbols: if one symbol's span is entirely
         // inside another's, remove the inner one. This prevents extracting
         // `res.json(...)` or `const note = ...` from inside arrow functions.
@@ -212,10 +207,7 @@ impl LanguageParser for TypeScriptParser {
         symbols.retain(|sym| {
             let start = sym.span.start_byte;
             let end = sym.span.end_byte;
-            // Keep the symbol only if no OTHER symbol strictly contains it
-            !ranges.iter().any(|(rs, re)| {
-                *rs < start && end < *re
-            })
+            !ranges.iter().any(|(rs, re)| *rs < start && end < *re)
         });
 
         // Deduplicate qualified_names: append #N for duplicates.
@@ -229,7 +221,18 @@ impl LanguageParser for TypeScriptParser {
             }
         }
 
-        Ok(symbols)
+        symbols
+    }
+}
+
+impl LanguageParser for TypeScriptParser {
+    fn extensions(&self) -> &[&str] {
+        self.inner.extensions()
+    }
+
+    fn extract_symbols(&self, source: &[u8], file_path: &Path) -> Result<Vec<Symbol>> {
+        let symbols = self.inner.extract_symbols(source, file_path)?;
+        Ok(Self::dedup_symbols(symbols))
     }
 
     fn extract_calls(&self, source: &[u8], file_path: &Path) -> Result<Vec<RawCallEdge>> {
@@ -242,5 +245,11 @@ impl LanguageParser for TypeScriptParser {
 
     fn extract_imports(&self, source: &[u8], file_path: &Path) -> Result<Vec<Import>> {
         self.inner.extract_imports(source, file_path)
+    }
+
+    fn parse_file(&self, source: &[u8], file_path: &Path) -> Result<FileAnalysis> {
+        let mut analysis = self.inner.parse_file(source, file_path)?;
+        analysis.symbols = Self::dedup_symbols(analysis.symbols);
+        Ok(analysis)
     }
 }
