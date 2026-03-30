@@ -6,4 +6,5 @@ pub mod php;
 pub mod python;
 pub mod ruby;
 pub mod rust;
+pub mod swift;
 pub mod typescript;
