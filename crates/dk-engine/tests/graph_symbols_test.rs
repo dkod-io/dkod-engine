@@ -121,8 +121,8 @@ async fn test_upsert_updates_on_conflict() {
     let results = store.find_symbols(repo_id, "bar").await.unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].kind, SymbolKind::Struct);
-    // id should be updated to the new one
-    assert_eq!(results[0].id, sym.id);
+    // id should be stable — NOT updated on conflict
+    assert_ne!(results[0].id, sym.id);
 
     cleanup_repo(&pool, repo_id).await;
 }
