@@ -21,6 +21,7 @@ uuid.workspace = true
 sqlx.workspace = true
 chrono.workspace = true
 gix = { version = "0.79", features = ["max-performance", "tree-editor"] }
+streaming-iterator = "0.1"
 tree-sitter = "0.24"
 tree-sitter-rust = "0.23"
 tree-sitter-typescript = "0.23"
