@@ -719,6 +719,7 @@ impl DkodMcp {
 
         let session_id_for_task = session_id_owned.clone();
         let overflow_flag = Arc::clone(&self.watch_overflow);
+        let pending_warnings_for_watch = Arc::clone(&self.pending_warnings);
         let watch_handle = tokio::spawn(async move {
             let mut client = client;
             // repo_id is intentionally empty: the engine scopes the Watch stream
@@ -743,6 +744,28 @@ impl DkodMcp {
                         }
                         match result {
                             Ok(event) => {
+                                // Route conflict events to pending_warnings for higher
+                                // visibility (prepended to every tool response), matching
+                                // the behaviour of the NATS-based conflict subscription.
+                                // This enables real-time conflict warnings via the Watch
+                                // stream even when NATS is unavailable (e.g. stdio transport).
+                                if event.event_type.starts_with("conflict.")
+                                    && !event.details.is_empty()
+                                {
+                                    if let Some(warning_text) =
+                                        format_conflict_warning(&event.details)
+                                    {
+                                        let mut warnings =
+                                            pending_warnings_for_watch.lock().await;
+                                        let w = warnings
+                                            .entry(session_id_for_task.clone())
+                                            .or_default();
+                                        if w.len() < 50 && !w.contains(&warning_text) {
+                                            w.push(warning_text);
+                                        }
+                                        continue; // Don't also add to watch events
+                                    }
+                                }
                                 let mut map = pending_events.lock().await;
                                 let events = map.entry(session_id_for_task.clone()).or_default();
                                 // Deduplicate by event_id.
@@ -1124,7 +1147,7 @@ impl DkodMcp {
             None => "no codebase summary available".to_string(),
         };
 
-        let mut text = format!(
+        let text = format!(
             "Connected to {repo}\n\
              session_id:   {}\n\
              workspace_id: {}\n\
@@ -1159,10 +1182,13 @@ impl DkodMcp {
                 (true, false) => "NATS_OWNER_ID is not set",
                 _ => unreachable!(),
             };
-            text.push_str(&format!(
-                "\n\n\u{26a0}\u{fe0f} {} \u{2014} real-time conflict notifications are disabled.",
+            // Conflict notifications now arrive via the Watch stream, so missing
+            // NATS config is no longer a problem for agents. Log at debug level
+            // only to avoid alarming agents using stdio transport.
+            tracing::debug!(
+                "{} — conflict notifications will be delivered via Watch stream instead of direct NATS.",
                 missing,
-            ));
+            );
         }
 
         Ok(CallToolResult::success(vec![Content::text(text)]))
@@ -2321,6 +2347,17 @@ fn format_conflict_warning(payload: &str) -> Option<String> {
 /// If any of the event's symbol changes overlap with `my_symbols` (symbols this
 /// agent has modified), the event is tagged with `[AFFECTS YOUR WORK]`.
 fn format_watch_event(event: &crate::WatchEvent, my_symbols: &HashSet<String>) -> String {
+    // Route conflict events through the dedicated conflict formatter so they get
+    // the same human-readable warning text regardless of whether they arrived via
+    // NATS or the Watch stream. This path is a fallback: the watch task already
+    // redirects conflict events to `pending_warnings` (higher visibility), but if
+    // an event somehow reaches `drain_watch_events` we still format it correctly.
+    if event.event_type.starts_with("conflict.") && !event.details.is_empty() {
+        if let Some(text) = format_conflict_warning(&event.details) {
+            return text;
+        }
+    }
+
     let agent = if event.agent_id.is_empty() {
         "unknown agent"
     } else {

@@ -53,6 +53,15 @@ impl ProtocolServer {
         &self.event_bus
     }
 
+    /// Return a cloned `Arc` handle to the shared event bus.
+    ///
+    /// Callers that need to publish to the engine event bus from a spawned
+    /// task (where a borrow of `&ProtocolServer` is not available) should
+    /// use this to obtain a cheaply-clonable, ownership-safe handle.
+    pub fn event_bus_arc(&self) -> Arc<EventBus> {
+        Arc::clone(&self.event_bus)
+    }
+
     /// Borrow the shared symbol claim tracker.
     pub fn claim_tracker(&self) -> &SymbolClaimTracker {
         &self.claim_tracker
