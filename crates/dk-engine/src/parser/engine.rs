@@ -99,7 +99,9 @@ impl QueryDrivenParser {
     /// Collect doc-comment lines immediately preceding `node`.
     ///
     /// Walks backwards through previous siblings, collecting lines that
-    /// match the configured [`CommentStyle`].
+    /// match the configured [`CommentStyle`]. Preserves the original
+    /// comment prefix (e.g. `#`, `///`, `//`) so that AST merge can
+    /// reconstruct valid source code.
     fn collect_doc_comments(&self, node: &Node, source: &[u8]) -> Option<String> {
         let comment_prefix = match self.config.comment_style() {
             CommentStyle::TripleSlash => "///",
@@ -112,12 +114,22 @@ impl QueryDrivenParser {
 
         while let Some(prev) = sibling {
             if prev.kind() == "line_comment" || prev.kind() == "comment" {
+                // Skip inline comments: if this comment is on the same line
+                // as a preceding non-comment sibling, it belongs to that
+                // sibling (e.g. `x = 60  # 60 seconds`), not to our node.
+                if let Some(before_comment) = prev.prev_sibling() {
+                    if before_comment.kind() != "comment"
+                        && before_comment.kind() != "line_comment"
+                        && before_comment.end_position().row == prev.start_position().row
+                    {
+                        break;
+                    }
+                }
+
                 let text = Self::node_text(&prev, source).trim();
                 if text.starts_with(comment_prefix) {
-                    // Strip the prefix (and optional trailing space)
-                    let content = text.strip_prefix(comment_prefix).unwrap_or(text);
-                    let content = content.strip_prefix(' ').unwrap_or(content);
-                    lines.push(content.to_string());
+                    // Preserve the full comment text including prefix
+                    lines.push(text.to_string());
                     sibling = prev.prev_sibling();
                     continue;
                 }

@@ -1,3 +1,6 @@
+use super::engine::QueryDrivenParser;
+use super::lang_config::LanguageConfig;
+use super::langs;
 use super::LanguageParser;
 use dk_core::{FileAnalysis, Result};
 use std::collections::HashMap;
@@ -5,9 +8,6 @@ use std::path::Path;
 use std::sync::Arc;
 
 /// Central registry that maps file extensions to their language parsers.
-///
-/// Each parser is wrapped in an `Arc` so multiple extensions (e.g. "ts" and
-/// "tsx") can share the same parser instance without cloning.
 pub struct ParserRegistry {
     parsers: HashMap<String, Arc<dyn LanguageParser>>,
 }
@@ -17,24 +17,36 @@ impl ParserRegistry {
     pub fn new() -> Self {
         let mut parsers: HashMap<String, Arc<dyn LanguageParser>> = HashMap::new();
 
-        // Rust
-        let rust = Arc::new(super::rust_parser::RustParser::new()) as Arc<dyn LanguageParser>;
-        for ext in rust.extensions() {
-            parsers.insert(ext.to_string(), Arc::clone(&rust));
-        }
+        let mut register = |config: Box<dyn LanguageConfig>| {
+            let exts: Vec<String> = config.extensions().iter().map(|s| s.to_string()).collect();
+            match QueryDrivenParser::new(config) {
+                Ok(parser) => {
+                    let arc: Arc<dyn LanguageParser> = Arc::new(parser);
+                    for ext in exts {
+                        parsers.insert(ext, Arc::clone(&arc));
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to initialize parser: {e}");
+                }
+            }
+        };
 
-        // TypeScript / JavaScript
-        let ts = Arc::new(super::typescript_parser::TypeScriptParser::new())
-            as Arc<dyn LanguageParser>;
-        for ext in ts.extensions() {
-            parsers.insert(ext.to_string(), Arc::clone(&ts));
-        }
+        register(Box::new(langs::rust::RustConfig));
+        register(Box::new(langs::python::PythonConfig));
 
-        // Python
-        let py =
-            Arc::new(super::python_parser::PythonParser::new()) as Arc<dyn LanguageParser>;
-        for ext in py.extensions() {
-            parsers.insert(ext.to_string(), Arc::clone(&py));
+        // TypeScript uses a wrapper (TypeScriptParser) for dedup logic
+        let ts_parser = langs::typescript::TypeScriptParser::new();
+        match ts_parser {
+            Ok(parser) => {
+                let arc: Arc<dyn LanguageParser> = Arc::new(parser);
+                for ext in ["ts", "tsx", "js", "jsx"] {
+                    parsers.insert(ext.to_string(), Arc::clone(&arc));
+                }
+            }
+            Err(e) => {
+                tracing::error!("Failed to initialize TypeScript parser: {e}");
+            }
         }
 
         Self { parsers }
@@ -49,9 +61,6 @@ impl ParserRegistry {
     }
 
     /// Parse a source file, selecting the parser by file extension.
-    ///
-    /// Returns `Error::UnsupportedLanguage` when no parser is registered for
-    /// the extension (or the path has no extension).
     pub fn parse_file(&self, path: &Path, source: &[u8]) -> Result<FileAnalysis> {
         let ext = path
             .extension()

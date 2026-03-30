@@ -96,7 +96,7 @@ pub fn default_kind_mapping(capture_suffix: &str) -> Option<SymbolKind> {
         "impl" => Some(SymbolKind::Impl),
         "interface" => Some(SymbolKind::Interface),
         "type_alias" | "type" => Some(SymbolKind::TypeAlias),
-        "const" => Some(SymbolKind::Const),
+        "const" | "expression" => Some(SymbolKind::Const),
         "static" => Some(SymbolKind::Static),
         "module" => Some(SymbolKind::Module),
         "variable" => Some(SymbolKind::Variable),
