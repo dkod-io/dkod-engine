@@ -41,8 +41,12 @@ impl LanguageConfig for RubyConfig {
     }
 
     fn is_external_import(&self, module_path: &str) -> bool {
-        // require_relative paths start with '.' — they're internal.
-        // Everything else (gems, stdlib) is external.
+        // `require` imports are external (gems, stdlib).
+        // `require_relative` imports are handled by the engine's @_relative
+        // capture — they are always marked internal before this method is
+        // called. This method only runs for `require` calls.
+        //
+        // Paths starting with '.' are also internal (e.g. require './foo').
         !module_path.starts_with('.')
     }
 }

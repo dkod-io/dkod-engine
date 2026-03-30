@@ -308,6 +308,60 @@ namespace MyApp
 }
 
 #[test]
+fn test_csharp_multi_modifier_no_duplicates() {
+    let registry = ParserRegistry::new();
+    let source = br#"
+public static class Helpers
+{
+    public static void DoWork() {}
+    protected internal void Mixed() {}
+    private static void Secret() {}
+}
+"#;
+    let analysis = registry
+        .parse_file(Path::new("Helpers.cs"), source)
+        .unwrap();
+
+    // Count how many times each symbol appears — must be exactly 1
+    let helpers_count = analysis
+        .symbols
+        .iter()
+        .filter(|s| s.name == "Helpers")
+        .count();
+    assert_eq!(
+        helpers_count, 1,
+        "Helpers should appear exactly once (no duplicates from multiple modifiers), got {}",
+        helpers_count
+    );
+
+    let do_work_count = analysis
+        .symbols
+        .iter()
+        .filter(|s| s.name == "DoWork")
+        .count();
+    assert_eq!(
+        do_work_count, 1,
+        "DoWork should appear exactly once, got {}",
+        do_work_count
+    );
+
+    // Visibility should come from the first visibility modifier
+    let helpers = analysis
+        .symbols
+        .iter()
+        .find(|s| s.name == "Helpers")
+        .unwrap();
+    assert_eq!(helpers.visibility, Visibility::Public);
+
+    let secret = analysis
+        .symbols
+        .iter()
+        .find(|s| s.name == "Secret")
+        .unwrap();
+    assert_eq!(secret.visibility, Visibility::Private);
+}
+
+#[test]
 fn test_registry_supports_csharp() {
     let registry = ParserRegistry::new();
     assert!(registry.supports_file(Path::new("UserService.cs")));

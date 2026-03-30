@@ -278,6 +278,34 @@ class HomeController {
 }
 
 #[test]
+fn test_extract_php_root_namespace_imports() {
+    let registry = ParserRegistry::new();
+    let source = br#"<?php
+use SomeClass;
+use Another\Qualified\Path;
+
+class App {}
+"#;
+    let analysis = registry
+        .parse_file(Path::new("app.php"), source)
+        .unwrap();
+
+    // Root-namespace import: use SomeClass;
+    assert!(
+        analysis
+            .imports
+            .iter()
+            .any(|i| i.module_path == "SomeClass" || i.imported_name == "SomeClass"),
+        "Should capture root-namespace import 'SomeClass', got: {:?}",
+        analysis
+            .imports
+            .iter()
+            .map(|i| format!("{}:{}", i.module_path, i.imported_name))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn test_registry_supports_php() {
     let registry = ParserRegistry::new();
     assert!(registry.supports_file(Path::new("index.php")));

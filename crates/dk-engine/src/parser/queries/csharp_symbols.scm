@@ -3,37 +3,32 @@
 ; Each pattern captures:
 ;   @name              — the symbol identifier
 ;   @definition.<kind> — the entire node (used for span, signature, doc comments)
-;   @modifiers         — optional modifiers (e.g. "public", "private", "static")
 ;
-; C# visibility: check @modifiers for public/private/protected/internal keywords.
-; Default (no modifier) is private.
-;
-; The `(modifier)?` syntax produces a single match per node regardless
-; of whether modifiers are present.
+; C# visibility is resolved in `adjust_symbol` by walking the declaration
+; node's `modifier` children. Unlike Java (which has a single `modifiers`
+; container node), C# uses `repeat($.modifier)` — each keyword is a
+; separate node. Capturing `(modifier)? @modifiers` would produce one
+; match per modifier, causing duplicate symbols for multi-modifier
+; declarations (e.g. `public static class Foo`).
 
 ; ── Classes ──
 (class_declaration
-  (modifier)? @modifiers
   name: (identifier) @name) @definition.class
 
 ; ── Interfaces ──
 (interface_declaration
-  (modifier)? @modifiers
   name: (identifier) @name) @definition.interface
 
 ; ── Enums ──
 (enum_declaration
-  (modifier)? @modifiers
   name: (identifier) @name) @definition.enum
 
 ; ── Structs ──
 (struct_declaration
-  (modifier)? @modifiers
   name: (identifier) @name) @definition.struct
 
 ; ── Methods ──
 (method_declaration
-  (modifier)? @modifiers
   name: (identifier) @name) @definition.function
 
 ; ── Namespaces ──

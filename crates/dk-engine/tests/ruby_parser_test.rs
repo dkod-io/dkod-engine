@@ -240,12 +240,16 @@ end
         "Should have import 'net/http' with name 'http'"
     );
 
-    // require_relative 'helper' — internal
+    // require_relative 'helper' — internal (no ./ prefix)
     let helper = analysis
         .imports
         .iter()
         .find(|i| i.module_path == "helper");
     assert!(helper.is_some(), "Should have import 'helper'");
+    assert!(
+        !helper.unwrap().is_external,
+        "require_relative 'helper' should be internal even without './' prefix"
+    );
 
     // require_relative './utils/parser' — internal (starts with '.')
     let parser_import = analysis

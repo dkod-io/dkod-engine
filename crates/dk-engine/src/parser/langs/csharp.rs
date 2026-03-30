@@ -1,7 +1,7 @@
 //! C# language configuration for the query-driven parser.
 
 use crate::parser::lang_config::{CommentStyle, LanguageConfig};
-use dk_core::Visibility;
+use dk_core::{Symbol, Visibility};
 use tree_sitter::Language;
 
 /// C# language configuration for [`QueryDrivenParser`](crate::parser::engine::QueryDrivenParser).
@@ -40,6 +40,32 @@ impl LanguageConfig for CSharpConfig {
             // private or no modifier → Private
             _ => Visibility::Private,
         }
+    }
+
+    fn adjust_symbol(&self, sym: &mut Symbol, node: &tree_sitter::Node, source: &[u8]) {
+        // C# uses `repeat($.modifier)` — each keyword is a separate
+        // `modifier` node. Walk the declaration's children to collect all
+        // modifier texts and resolve visibility from the combined set.
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == "modifier" {
+                let text = &source[child.start_byte()..child.end_byte()];
+                let modifier = std::str::from_utf8(text).unwrap_or("");
+                match modifier {
+                    "public" | "protected" | "internal" => {
+                        sym.visibility = Visibility::Public;
+                        return;
+                    }
+                    "private" => {
+                        sym.visibility = Visibility::Private;
+                        return;
+                    }
+                    _ => {} // static, abstract, sealed, etc. — skip
+                }
+            }
+        }
+        // No visibility modifier found → default is private in C#
+        sym.visibility = Visibility::Private;
     }
 
     fn is_external_import(&self, _module_path: &str) -> bool {

@@ -36,8 +36,10 @@ impl LanguageConfig for SwiftConfig {
         match modifiers {
             Some(m) if m.contains("public") => Visibility::Public,
             Some(m) if m.contains("open") => Visibility::Public,
-            Some(m) if m.contains("private") => Visibility::Private,
+            // Check fileprivate BEFORE private — "fileprivate".contains("private")
+            // is true, so the more specific match must come first.
             Some(m) if m.contains("fileprivate") => Visibility::Private,
+            Some(m) if m.contains("private") => Visibility::Private,
             // internal (explicit or implicit) → Private
             _ => Visibility::Private,
         }

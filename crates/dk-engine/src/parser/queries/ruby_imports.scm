@@ -1,7 +1,9 @@
 ; Ruby import (require) extraction queries for QueryDrivenParser.
 ;
 ; Captures:
-;   @module — the required file/gem path (string content)
+;   @module     — the required file/gem path (string content)
+;   @_relative  — marker capture on require_relative calls so the engine
+;                  knows the import is always internal regardless of path
 ;
 ; Ruby uses `require 'foo'` and `require_relative 'bar'` for imports.
 ; These are parsed as `call` nodes with method name "require" or
@@ -18,10 +20,10 @@
       (string_content) @module))
   (#eq? @_method "require"))
 
-; ── require_relative 'bar' ──
+; ── require_relative 'bar' — always internal ──
 (call
-  method: (identifier) @_method
+  method: (identifier) @_relative
   arguments: (argument_list
     (string
       (string_content) @module))
-  (#eq? @_method "require_relative"))
+  (#eq? @_relative "require_relative"))
