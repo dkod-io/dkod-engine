@@ -381,6 +381,7 @@ impl QueryDrivenParser {
             let mut module_text: Option<String> = None;
             let mut import_name_text: Option<String> = None;
             let mut alias_text: Option<String> = None;
+            let mut is_relative_import = false;
 
             for capture in m.captures {
                 let capture_name = capture_names[capture.index as usize];
@@ -399,6 +400,11 @@ impl QueryDrivenParser {
                     }
                     "alias" => {
                         alias_text = Some(Self::node_text(&capture.node, source).to_string());
+                    }
+                    "_relative" => {
+                        // Marker capture: the import query flagged this as a
+                        // relative/internal import (e.g. Ruby require_relative).
+                        is_relative_import = true;
                     }
                     _ => {}
                 }
@@ -422,7 +428,13 @@ impl QueryDrivenParser {
 
             let alias = alias_text.filter(|s| !s.is_empty());
 
-            let is_external = self.config.is_external_import(&module_path);
+            // If the query flagged this as a relative import (e.g. Ruby
+            // require_relative), it is always internal regardless of path.
+            let is_external = if is_relative_import {
+                false
+            } else {
+                self.config.is_external_import(&module_path)
+            };
 
             imports.push(Import {
                 module_path,
