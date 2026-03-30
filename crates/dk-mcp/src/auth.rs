@@ -59,6 +59,13 @@ fn read_cached_token() -> Option<String> {
     Some(cached.token)
 }
 
+/// Remove the cached token file, forcing the next `resolve_token` call to
+/// trigger a fresh device flow.
+pub fn clear_cached_token() {
+    let path = token_path();
+    let _ = fs::remove_file(&path);
+}
+
 fn save_token(token: &str) -> Result<()> {
     let path = token_path();
     if let Some(parent) = path.parent() {

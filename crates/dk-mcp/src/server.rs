@@ -886,17 +886,22 @@ impl DkodMcp {
             .await
             .map_err(|e| McpError::internal_error(format!("auth failed: {e}"), None))?;
 
+        // Helper: create a fresh gRPC client with the given token.
+        let create_client = |addr: &str, token: String| {
+            let addr = addr.to_string();
+            async move { crate::grpc::connect_with_auth(&addr, token).await }
+        };
+
         // Reuse the cached gRPC client if one exists (all sessions share the
         // same auth token). Only create a new client for the first connect or
         // after dk_merge clears the cache.
         let needs_new_client = self.grpc_client.lock().await.is_none();
         let mut client = if needs_new_client {
-            let new_client = crate::grpc::connect_with_auth(&addr, token)
+            let new_client = create_client(&addr, token)
                 .await
                 .map_err(|e| McpError::internal_error(format!("gRPC connect failed: {e}"), None))?;
             {
                 let mut cached = self.grpc_client.lock().await;
-                // Double-check: another concurrent dk_connect may have populated it.
                 if cached.is_none() {
                     *cached = Some(new_client.clone());
                 }
@@ -912,14 +917,52 @@ impl DkodMcp {
             codebase: repo.clone(),
             intent: intent.clone(),
             workspace_config: None,
-            agent_name: agent_name.unwrap_or_default(),
+            agent_name: agent_name.clone().unwrap_or_default(),
         };
 
-        let response = client
-            .connect(request)
-            .await
-            .map_err(|e| McpError::internal_error(format!("CONNECT RPC failed: {e}"), None))?
-            .into_inner();
+        let result = client.connect(request).await;
+
+        // If the server rejects the token (expired or revoked), clear the
+        // stale cache and retry with a fresh device flow — once.
+        let response = match &result {
+            Err(status) if status.code() == tonic::Code::Unauthenticated => {
+                tracing::warn!("token rejected ({}), clearing cache and re-authenticating", status.message());
+                crate::auth::clear_cached_token();
+                {
+                    let mut conn = self.connection.write().await;
+                    conn.auth_token = None;
+                }
+                // Force a fresh device flow (env_token is now None, cached file is gone).
+                let fresh_token = crate::auth::resolve_token(&api_base, None)
+                    .await
+                    .map_err(|e| McpError::internal_error(format!("re-auth failed: {e}"), None))?;
+                let new_client = create_client(&addr, fresh_token)
+                    .await
+                    .map_err(|e| McpError::internal_error(format!("gRPC reconnect failed: {e}"), None))?;
+                {
+                    let mut cached = self.grpc_client.lock().await;
+                    *cached = Some(new_client.clone());
+                }
+                client = new_client;
+                let retry_request = crate::ConnectRequest {
+                    agent_id: "claude-code".to_string(),
+                    auth_token: String::new(),
+                    codebase: repo.clone(),
+                    intent: intent.clone(),
+                    workspace_config: None,
+                    agent_name: agent_name.unwrap_or_default(),
+                };
+                client
+                    .connect(retry_request)
+                    .await
+                    .map_err(|e| McpError::internal_error(format!("CONNECT RPC failed after re-auth: {e}"), None))?
+                    .into_inner()
+            }
+            Err(e) => {
+                return Err(McpError::internal_error(format!("CONNECT RPC failed: {e}"), None));
+            }
+            Ok(_) => result.unwrap().into_inner(),
+        };
 
         // Store session data in the session map.
         let session_data = SessionData {
@@ -2348,8 +2391,8 @@ fn format_watch_event(event: &crate::WatchEvent, my_symbols: &HashSet<String>) -
 /// `DKOD_GRPC_ADDR` to match the same address family.
 fn derive_api_base(grpc_addr: &str) -> String {
     if grpc_addr == "https://agent.dkod.io:443" {
-        // Known production gRPC endpoint → production web app for auth
-        "https://app.dkod.io".to_string()
+        // Known production gRPC endpoint → production API for device flow auth
+        "https://api.dkod.io".to_string()
     } else if grpc_addr.starts_with("https://") {
         // Any other HTTPS address: return as-is (remote services don't use the
         // local convention of gRPC-port → HTTP-port+offset). Stripping :443 if
@@ -2564,7 +2607,7 @@ mod tests {
     fn derive_api_base_production() {
         assert_eq!(
             derive_api_base("https://agent.dkod.io:443"),
-            "https://app.dkod.io"
+            "https://api.dkod.io"
         );
     }
 
