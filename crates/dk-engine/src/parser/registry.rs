@@ -34,6 +34,7 @@ impl ParserRegistry {
 
         register(Box::new(langs::rust::RustConfig));
         register(Box::new(langs::python::PythonConfig));
+        register(Box::new(langs::go::GoConfig));
 
         // TypeScript uses a wrapper (TypeScriptParser) for dedup logic
         let ts_parser = langs::typescript::TypeScriptParser::new();
