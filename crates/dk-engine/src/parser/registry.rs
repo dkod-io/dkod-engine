@@ -39,6 +39,7 @@ impl ParserRegistry {
         register(Box::new(langs::cpp::CppConfig));
         register(Box::new(langs::csharp::CSharpConfig));
         register(Box::new(langs::ruby::RubyConfig));
+        register(Box::new(langs::php::PhpConfig));
 
         // TypeScript uses a wrapper (TypeScriptParser) for dedup logic
         let ts_parser = langs::typescript::TypeScriptParser::new();
