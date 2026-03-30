@@ -1,3 +1,4 @@
+pub mod bash;
 pub mod cpp;
 pub mod csharp;
 pub mod go;
