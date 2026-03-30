@@ -18,6 +18,9 @@
 
 ; ── Module-level variable assignments ──
 ; e.g. MAX_RETRIES = 3
-(expression_statement
-  (assignment
-    left: (identifier) @name)) @definition.variable
+; Anchored to `module` root to avoid capturing local variables inside
+; function/class bodies.
+(module
+  (expression_statement
+    (assignment
+      left: (identifier) @name)) @definition.variable)

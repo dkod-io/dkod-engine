@@ -14,6 +14,9 @@
   function: (scoped_identifier) @callee) @call
 
 ; Method calls: user.save()
+; In tree-sitter-rust 0.23, method calls are `call_expression` nodes
+; with a `field_expression` as the function (there is no separate
+; `method_call_expression` node type in this grammar version).
 (call_expression
   function: (field_expression
     field: (field_identifier) @method_callee)) @call

@@ -110,8 +110,14 @@ impl QueryDrivenParser {
     ///
     /// Walks backwards through previous siblings, collecting lines that
     /// match the configured [`CommentStyle`]. Preserves the original
-    /// comment prefix (e.g. `#`, `///`, `//`) so that AST merge can
-    /// reconstruct valid source code.
+    /// comment prefix (e.g. `#`, `///`, `//`, `/** */`) so that AST merge
+    /// can reconstruct valid source code.
+    ///
+    /// **Note:** Unlike the old hand-written parsers (which stripped the
+    /// prefix), `Symbol.doc_comment` now includes the raw prefix. This is
+    /// intentional — AST merge needs the prefix to reconstruct valid
+    /// source. Consumers that display doc comments should strip prefixes
+    /// at the presentation layer.
     fn collect_doc_comments(&self, node: &Node, source: &[u8]) -> Option<String> {
         let comment_prefix = match self.config.comment_style() {
             CommentStyle::TripleSlash => "///",
@@ -161,21 +167,36 @@ impl QueryDrivenParser {
     ///
     /// Returns `"<module>"` if the node is at the top level.
     fn enclosing_function_name(&self, node: &Node, source: &[u8]) -> String {
-        let function_kinds = [
+        let named_function_kinds = [
             "function_item",
             "function_definition",
             "function_declaration",
             "method_definition",
-            "arrow_function",
         ];
+        // Anonymous function forms whose name comes from an enclosing
+        // variable_declarator (e.g. `const fn = function() {}`)
+        let anonymous_function_kinds = ["arrow_function", "function_expression", "function"];
 
         let mut current = node.parent();
         while let Some(parent) = current {
-            if function_kinds.contains(&parent.kind()) {
+            let kind = parent.kind();
+            if named_function_kinds.contains(&kind) {
                 if let Some(name_node) = parent.child_by_field_name("name") {
                     let name = Self::node_text(&name_node, source);
                     if !name.is_empty() {
                         return name.to_string();
+                    }
+                }
+            } else if anonymous_function_kinds.contains(&kind) {
+                // Check if assigned to a variable: const foo = function() {}
+                if let Some(gp) = parent.parent() {
+                    if gp.kind() == "variable_declarator" {
+                        if let Some(name_node) = gp.child_by_field_name("name") {
+                            let name = Self::node_text(&name_node, source);
+                            if !name.is_empty() {
+                                return name.to_string();
+                            }
+                        }
                     }
                 }
             }
