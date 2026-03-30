@@ -3,6 +3,7 @@ pub mod csharp;
 pub mod go;
 pub mod haskell;
 pub mod java;
+pub mod julia;
 pub mod php;
 pub mod python;
 pub mod ruby;
