@@ -749,21 +749,21 @@ impl DkodMcp {
                                 // the behaviour of the NATS-based conflict subscription.
                                 // This enables real-time conflict warnings via the Watch
                                 // stream even when NATS is unavailable (e.g. stdio transport).
-                                if event.event_type.starts_with("conflict.") {
-                                    if !event.details.is_empty() {
-                                        if let Some(warning_text) =
-                                            format_conflict_warning(&event.details)
-                                        {
-                                            let mut warnings =
-                                                pending_warnings_for_watch.lock().await;
-                                            let w = warnings
-                                                .entry(session_id_for_task.clone())
-                                                .or_default();
-                                            if w.len() < 50 && !w.contains(&warning_text) {
-                                                w.push(warning_text);
-                                            }
-                                            continue; // Don't also add to watch events
+                                if event.event_type.starts_with("conflict.")
+                                    && !event.details.is_empty()
+                                {
+                                    if let Some(warning_text) =
+                                        format_conflict_warning(&event.details)
+                                    {
+                                        let mut warnings =
+                                            pending_warnings_for_watch.lock().await;
+                                        let w = warnings
+                                            .entry(session_id_for_task.clone())
+                                            .or_default();
+                                        if w.len() < 50 && !w.contains(&warning_text) {
+                                            w.push(warning_text);
                                         }
+                                        continue; // Don't also add to watch events
                                     }
                                 }
                                 let mut map = pending_events.lock().await;
