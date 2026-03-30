@@ -7,48 +7,31 @@
 ;
 ; Java visibility: check @modifiers for public/private/protected keywords.
 ; Default (no modifier) is package-private, mapped to Private.
+;
+; The `(modifiers)?` syntax produces a single match per node regardless
+; of whether modifiers are present.
 
 ; ── Classes ──
-[
-  (class_declaration
-    (modifiers) @modifiers
-    name: (identifier) @name) @definition.class
-  (class_declaration
-    name: (identifier) @name) @definition.class
-]
+(class_declaration
+  (modifiers)? @modifiers
+  name: (identifier) @name) @definition.class
 
 ; ── Interfaces ──
-[
-  (interface_declaration
-    (modifiers) @modifiers
-    name: (identifier) @name) @definition.interface
-  (interface_declaration
-    name: (identifier) @name) @definition.interface
-]
+(interface_declaration
+  (modifiers)? @modifiers
+  name: (identifier) @name) @definition.interface
 
 ; ── Enums ──
-[
-  (enum_declaration
-    (modifiers) @modifiers
-    name: (identifier) @name) @definition.enum
-  (enum_declaration
-    name: (identifier) @name) @definition.enum
-]
+(enum_declaration
+  (modifiers)? @modifiers
+  name: (identifier) @name) @definition.enum
 
 ; ── Methods ──
-[
-  (method_declaration
-    (modifiers) @modifiers
-    name: (identifier) @name) @definition.function
-  (method_declaration
-    name: (identifier) @name) @definition.function
-]
+(method_declaration
+  (modifiers)? @modifiers
+  name: (identifier) @name) @definition.function
 
 ; ── Constructors ──
-[
-  (constructor_declaration
-    (modifiers) @modifiers
-    name: (identifier) @name) @definition.function
-  (constructor_declaration
-    name: (identifier) @name) @definition.function
-]
+(constructor_declaration
+  (modifiers)? @modifiers
+  name: (identifier) @name) @definition.function
