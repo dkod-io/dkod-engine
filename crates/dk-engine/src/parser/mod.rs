@@ -1,3 +1,4 @@
+pub mod lang_config;
 pub mod python_parser;
 pub mod registry;
 pub mod rust_parser;
