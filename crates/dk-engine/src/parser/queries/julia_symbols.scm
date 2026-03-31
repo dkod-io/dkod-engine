@@ -16,7 +16,11 @@
 
 ; ── Short functions: foo(x) = x + 1 ──
 ; These are parsed as assignment with a call_expression on the left.
+; The leading `.` anchor pins the call_expression to the first (LHS)
+; child of assignment, preventing RHS calls like `result = compute(x)`
+; from producing false function symbols.
 (assignment
+  .
   (call_expression
     .
     (identifier) @name)) @definition.function
