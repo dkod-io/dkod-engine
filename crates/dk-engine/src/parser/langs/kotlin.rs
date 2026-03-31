@@ -39,7 +39,8 @@ impl LanguageConfig for KotlinConfig {
     }
 
     fn adjust_symbol(&self, sym: &mut Symbol, node: &tree_sitter::Node, source: &[u8]) {
-        // Walk children to find `modifiers` > `visibility_modifier`.
+        // Walk children to find `modifiers` and process ALL modifier types
+        // (visibility, class_modifier, inheritance_modifier) before returning.
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             if child.kind() == "modifiers" {
@@ -60,9 +61,9 @@ impl LanguageConfig for KotlinConfig {
                             }
                             _ => {}
                         }
-                        return;
+                        // Do NOT return here — fall through so class_modifier
+                        // (enum) and the interface-keyword check still run.
                     }
-                    // Also detect interface/enum keywords to fix SymbolKind.
                     if modifier.kind() == "class_modifier" {
                         let text = &source[modifier.start_byte()..modifier.end_byte()];
                         let text_str = std::str::from_utf8(text).unwrap_or("");

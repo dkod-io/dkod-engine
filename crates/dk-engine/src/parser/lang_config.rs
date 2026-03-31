@@ -17,6 +17,8 @@ pub enum CommentStyle {
     Hash,
     /// Go / Java / TypeScript / C `//` comments.
     SlashSlash,
+    /// Haskell `--` comments.
+    DashDash,
 }
 
 // ── Language configuration trait ──

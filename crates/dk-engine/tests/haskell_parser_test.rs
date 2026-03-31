@@ -191,3 +191,21 @@ fn test_registry_supports_haskell() {
     assert!(registry.supports_file(Path::new("Main.hs")));
     assert!(!registry.supports_file(Path::new("Main.lhs")));
 }
+
+#[test]
+fn test_haskell_comment_style_is_dashdash() {
+    // Verify the Haskell config returns CommentStyle::DashDash (not
+    // SlashSlash), so that the doc-comment collector uses `--` as the
+    // prefix. tree-sitter-haskell wraps definitions in a `declaration`
+    // super-type, making prev_sibling() doc-comment collection a
+    // known limitation — but the prefix itself must be correct.
+    use dk_engine::parser::lang_config::{CommentStyle, LanguageConfig};
+    use dk_engine::parser::langs::haskell::HaskellConfig;
+
+    let config = HaskellConfig;
+    assert_eq!(
+        config.comment_style(),
+        CommentStyle::DashDash,
+        "Haskell should use DashDash comment style, not SlashSlash"
+    );
+}

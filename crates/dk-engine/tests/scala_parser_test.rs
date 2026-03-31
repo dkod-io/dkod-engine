@@ -220,3 +220,40 @@ fn test_registry_supports_scala() {
     assert!(registry.supports_file(Path::new("Main.scala")));
     assert!(registry.supports_file(Path::new("script.sc")));
 }
+
+#[test]
+fn test_extract_scala_imports() {
+    let registry = ParserRegistry::new();
+    let source = br#"
+import scala.collection.mutable.Map
+import java.util.ArrayList
+import io.netty.channel.ChannelHandler
+"#;
+    let analysis = registry
+        .parse_file(Path::new("Imports.scala"), source)
+        .unwrap();
+
+    assert!(
+        analysis.imports.len() >= 3,
+        "Expected at least 3 imports, got: {} => {:?}",
+        analysis.imports.len(),
+        analysis
+            .imports
+            .iter()
+            .map(|i| format!("{}:{}", i.module_path, i.imported_name))
+            .collect::<Vec<_>>()
+    );
+
+    assert!(
+        analysis
+            .imports
+            .iter()
+            .any(|i| i.module_path.contains("scala")),
+        "Should have import containing 'scala', got: {:?}",
+        analysis
+            .imports
+            .iter()
+            .map(|i| &i.module_path)
+            .collect::<Vec<_>>()
+    );
+}

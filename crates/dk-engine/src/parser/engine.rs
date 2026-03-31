@@ -123,6 +123,7 @@ impl QueryDrivenParser {
             CommentStyle::TripleSlash => "///",
             CommentStyle::Hash => "#",
             CommentStyle::SlashSlash => "//",
+            CommentStyle::DashDash => "--",
         };
 
         let mut lines = Vec::new();

@@ -31,13 +31,9 @@ impl LanguageConfig for HaskellConfig {
     }
 
     fn comment_style(&self) -> CommentStyle {
-        // Haskell uses `--` for line comments. The `Hash` variant strips `#`
-        // which won't match. `SlashSlash` strips `//`. Neither is perfect,
-        // but the doc-comment collector checks for the prefix `--` being
-        // "starts_with" the comment_prefix. We use `SlashSlash` style and
-        // handle the `--` prefix in the doc comment collector via the
-        // generic `comment` node type check.
-        CommentStyle::SlashSlash
+        // Haskell uses `--` for line comments and `-- |` for Haddock doc
+        // comments. The `DashDash` variant correctly strips the `--` prefix.
+        CommentStyle::DashDash
     }
 
     fn resolve_visibility(&self, _modifiers: Option<&str>, _name: &str) -> Visibility {
