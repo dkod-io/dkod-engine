@@ -9,6 +9,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
+  CARGO_INCREMENTAL: 0
 
 permissions:
   contents: write
@@ -23,6 +24,8 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - name: Install protobuf compiler
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
       - name: Proto sync check
@@ -34,6 +37,7 @@ jobs:
 
   test:
     name: Test
+    needs: [check]
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -53,12 +57,18 @@ jobs:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - name: Install protobuf compiler
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
       - name: Configure git identity
         run: |
           git config --global user.email "ci@dkod.io"
           git config --global user.name "dkod-ci"
+      - name: Build tests
+        env:
+          DATABASE_URL: postgres://dekode:dekode@localhost:5432/dekode_test
+        run: cargo test --workspace --no-run
       - name: Run tests
         env:
           DATABASE_URL: postgres://dekode:dekode@localhost:5432/dekode_test
