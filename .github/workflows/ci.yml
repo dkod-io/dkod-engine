@@ -23,9 +23,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - uses: Swatinem/rust-cache@v2
+      - name: Mount cargo target cache
+        uses: useblacksmith/stickydisk@v1
         with:
-          cache-on-failure: true
+          key: ${{ github.repository }}-cargo-target-check
+          path: target
+      - name: Mount cargo registry cache
+        uses: useblacksmith/stickydisk@v1
+        with:
+          key: ${{ github.repository }}-cargo-registry
+          path: ~/.cargo/registry
       - name: Install protobuf compiler
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
       - name: Proto sync check
@@ -56,9 +63,16 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - name: Mount cargo target cache
+        uses: useblacksmith/stickydisk@v1
         with:
-          cache-on-failure: true
+          key: ${{ github.repository }}-cargo-target-test
+          path: target
+      - name: Mount cargo registry cache
+        uses: useblacksmith/stickydisk@v1
+        with:
+          key: ${{ github.repository }}-cargo-registry
+          path: ~/.cargo/registry
       - name: Install protobuf compiler
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
       - name: Configure git identity
@@ -138,7 +152,14 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Mount cargo target cache (Linux)
+        if: runner.os == 'Linux'
+        uses: useblacksmith/stickydisk@v1
+        with:
+          key: ${{ github.repository }}-cargo-release-${{ matrix.target }}
+          path: target
       - uses: Swatinem/rust-cache@v2
+        if: runner.os == 'macOS'
         with:
           key: release-${{ matrix.target }}
 
