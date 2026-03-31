@@ -9,7 +9,7 @@ pub struct KotlinConfig;
 
 impl LanguageConfig for KotlinConfig {
     fn language(&self) -> Language {
-        tree_sitter_kotlin::LANGUAGE.into()
+        tree_sitter_kotlin_codanna::language()
     }
 
     fn extensions(&self) -> &'static [&'static str] {
