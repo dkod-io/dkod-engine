@@ -17,7 +17,7 @@ permissions:
 jobs:
   check:
     name: Check & Clippy
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -38,7 +38,7 @@ jobs:
   test:
     name: Test
     needs: [check]
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     services:
       postgres:
         image: postgres:16
@@ -76,7 +76,7 @@ jobs:
 
   version:
     name: Compute Version
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [check, test]
     if: github.ref == 'refs/heads/main'
     outputs:
@@ -120,10 +120,10 @@ jobs:
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: blacksmith-4vcpu-ubuntu-2404
             name: linux-amd64
           - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: blacksmith-4vcpu-ubuntu-2404
             name: linux-arm64
           - target: x86_64-apple-darwin
             os: macos-latest
@@ -182,7 +182,7 @@ jobs:
   release:
     name: Create Release
     needs: [version, build]
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v5
         with:
@@ -251,7 +251,7 @@ jobs:
   publish:
     name: Publish to crates.io
     needs: [version, release]
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
