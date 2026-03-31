@@ -1666,204 +1666,297 @@ impl DkodMcp {
             .await
             .map_err(|e| McpError::internal_error(format!("VERIFY RPC failed: {e}"), None))?;
 
-        // Consume the server-streaming response, summarizing output to save tokens.
+        // Consume the server-streaming response, collecting steps for grouped output.
         let mut stream = response.into_inner();
-        let mut text = String::from("Verification pipeline results:\n\n");
         let mut all_passed = true;
+        let mut stream_error: Option<String> = None;
+
+        // Collected step data for post-stream grouping.
+        struct CollectedStep {
+            step_name: String,
+            is_fail: bool,
+            is_pass: bool,
+            is_skip: bool,
+            required: bool,
+            output: String,
+            findings: Vec<crate::Finding>,
+            suggestions: Vec<crate::Suggestion>,
+        }
+
+        let mut collected_steps: Vec<CollectedStep> = Vec::new();
 
         while let Some(step_result) = stream.next().await {
             match step_result {
                 Ok(step) => {
                     let status_lower = step.status.to_lowercase();
                     let is_fail = status_lower == "fail" || status_lower == "failed";
-                    let status_icon = if status_lower.starts_with("run") {
-                        "..."
-                    } else if status_lower == "pass" || status_lower == "passed" {
-                        "[PASS]"
-                    } else if is_fail {
+                    let is_pass = status_lower == "pass" || status_lower == "passed";
+                    let is_skip = status_lower == "skip" || status_lower == "skipped";
+                    if is_fail {
                         all_passed = false;
-                        "[FAIL]"
-                    } else if status_lower == "skip" || status_lower == "skipped" {
-                        "[SKIP]"
-                    } else {
-                        "[????]"
-                    };
-                    let required_tag = if step.required { " (required)" } else { "" };
-                    text.push_str(&format!(
-                        "  Step {}: {} {}{required_tag}\n",
-                        step.step_order, status_icon, step.step_name,
-                    ));
-
-                    // Summarize output to save tokens.
-                    if !step.output.is_empty() {
-                        let output = &step.output;
-                        if is_fail {
-                            // Extract the final "test result:" line (the summary) and
-                            // unique error messages. Deduplicate repeated panics.
-                            let mut failed_count = 0u32;
-                            let mut unique_errors: Vec<String> = Vec::new();
-                            let mut seen_errors = std::collections::HashSet::new();
-                            let mut final_result_line: Option<&str> = None;
-                            let mut error_lines: Vec<&str> = Vec::new();
-
-                            for line in output.lines() {
-                                let trimmed = line.trim();
-                                if trimmed.starts_with("test result:") {
-                                    final_result_line = Some(trimmed);
-                                } else if trimmed.starts_with("test ")
-                                    && trimmed.ends_with("FAILED")
-                                {
-                                    failed_count += 1;
-                                } else if trimmed.contains("panicked at") {
-                                    // Extract the panic message for dedup
-                                    if let Some(msg) = trimmed.split("panicked at").nth(1) {
-                                        let key = msg.trim().to_string();
-                                        if seen_errors.insert(key.clone()) {
-                                            unique_errors.push(key);
-                                        }
-                                    }
-                                } else if trimmed.starts_with("error[") {
-                                    // Compiler errors (error[E0...])
-                                    error_lines.push(trimmed);
-                                } else if trimmed.starts_with("error:") {
-                                    error_lines.push(trimmed);
-                                }
-                            }
-
-                            // Show the summary result line
-                            if let Some(result) = final_result_line {
-                                text.push_str(&format!("    {result}\n"));
-                            }
-                            // Show failed count
-                            if failed_count > 0 {
-                                text.push_str(&format!("    {failed_count} test(s) failed\n"));
-                            }
-                            // Show unique error causes (max 5)
-                            for (i, err) in unique_errors.iter().enumerate() {
-                                if i >= 5 {
-                                    text.push_str(&format!(
-                                        "    ... and {} more unique error(s)\n",
-                                        unique_errors.len() - 5
-                                    ));
-                                    break;
-                                }
-                                text.push_str(&format!("    panic: {err}\n"));
-                            }
-                            // Show compiler errors (max 5)
-                            for (i, err) in error_lines.iter().enumerate() {
-                                if i >= 5 {
-                                    text.push_str(&format!(
-                                        "    ... and {} more error(s)\n",
-                                        error_lines.len() - 5
-                                    ));
-                                    break;
-                                }
-                                text.push_str(&format!("    {err}\n"));
-                            }
-                            // Fallback if we found nothing useful
-                            if final_result_line.is_none()
-                                && failed_count == 0
-                                && unique_errors.is_empty()
-                                && error_lines.is_empty()
-                            {
-                                let lines: Vec<&str> = output.lines().collect();
-                                let start = lines.len().saturating_sub(5);
-                                for line in &lines[start..] {
-                                    text.push_str(&format!("    {}\n", line.trim()));
-                                }
-                            }
-                        } else {
-                            // For passing steps, aggregate test result summaries
-                            let mut total_passed = 0u32;
-                            let mut total_ignored = 0u32;
-                            let mut found_summary = false;
-                            for line in output.lines() {
-                                let trimmed = line.trim();
-                                if trimmed.starts_with("test result:") {
-                                    found_summary = true;
-                                    // Parse "test result: ok. N passed; ..."
-                                    if let Some(rest) = trimmed.strip_prefix("test result: ok.") {
-                                        for part in rest.split(';') {
-                                            let part = part.trim();
-                                            if part.ends_with("passed") {
-                                                if let Ok(n) = part
-                                                    .split_whitespace()
-                                                    .next()
-                                                    .unwrap_or("0")
-                                                    .parse::<u32>()
-                                                {
-                                                    total_passed += n;
-                                                }
-                                            } else if part.ends_with("ignored") {
-                                                if let Ok(n) = part
-                                                    .split_whitespace()
-                                                    .next()
-                                                    .unwrap_or("0")
-                                                    .parse::<u32>()
-                                                {
-                                                    total_ignored += n;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            if found_summary {
-                                let ignored_note = if total_ignored > 0 {
-                                    format!(", {total_ignored} ignored")
-                                } else {
-                                    String::new()
-                                };
-                                text.push_str(&format!(
-                                    "    {total_passed} passed{ignored_note}\n"
-                                ));
-                            } else {
-                                let line_count = output.lines().count();
-                                text.push_str(&format!("    ({line_count} lines of output)\n"));
-                            }
-                        }
                     }
-                    // Format findings and inline suggestions for this step.
-                    if !step.findings.is_empty() {
-                        for (i, finding) in step.findings.iter().enumerate() {
-                            let severity_upper = finding.severity.to_uppercase();
-                            let loc = match (&finding.file_path, finding.line) {
-                                (Some(fp), Some(ln)) => format!(" {}:{}", fp, ln),
-                                (Some(fp), None) => format!(" {}", fp),
-                                _ => String::new(),
-                            };
-                            text.push_str(&format!(
-                                "    {} {} — {}{}\n",
-                                severity_upper, finding.check_name, finding.message, loc
-                            ));
-                            // Show inline suggestion linked to this finding.
-                            for suggestion in &step.suggestions {
-                                if suggestion.finding_index == i as u32 {
-                                    text.push_str(&format!(
-                                        "      -> Fix: {}\n",
-                                        suggestion.description
-                                    ));
-                                }
-                            }
-                        }
+                    // Skip "running" status updates — they are progress, not results.
+                    if status_lower.starts_with("run") {
+                        continue;
                     }
-
-                    text.push('\n');
+                    collected_steps.push(CollectedStep {
+                        step_name: step.step_name,
+                        is_fail,
+                        is_pass,
+                        is_skip,
+                        required: step.required,
+                        output: step.output,
+                        findings: step.findings,
+                        suggestions: step.suggestions,
+                    });
                 }
                 Err(e) => {
                     all_passed = false;
-                    text.push_str(&format!("  Stream error: {e}\n"));
+                    stream_error = Some(format!("{e}"));
                     break;
                 }
             }
         }
 
-        let summary = if all_passed {
-            "ALL PASSED"
+        // ── Group steps by language prefix ──
+        // Step names use "lang:step" convention (e.g. "rust:check", "node:test").
+        // Steps without a colon are grouped under "general".
+
+        // Maintain insertion order via a Vec of language keys.
+        let mut lang_order: Vec<String> = Vec::new();
+        let mut lang_groups: HashMap<String, Vec<usize>> = HashMap::new();
+
+        for (idx, step) in collected_steps.iter().enumerate() {
+            let lang = if let Some(colon_pos) = step.step_name.find(':') {
+                step.step_name[..colon_pos].to_string()
+            } else {
+                "general".to_string()
+            };
+            let entry = lang_groups.entry(lang.clone()).or_default();
+            if entry.is_empty() {
+                lang_order.push(lang);
+            }
+            entry.push(idx);
+        }
+
+        // ── Format output grouped by language ──
+
+        let mut text = String::from("Verification pipeline results:\n\n");
+
+        let mut langs_failed = 0u32;
+        let total_langs = lang_order.len() as u32;
+
+        for lang in &lang_order {
+            let step_indices = &lang_groups[lang];
+            let step_count = step_indices.len();
+            let lang_has_failure = step_indices
+                .iter()
+                .any(|&i| collected_steps[i].is_fail);
+
+            if lang_has_failure {
+                langs_failed += 1;
+            }
+
+            let lang_status = if lang_has_failure { "FAIL" } else { "PASS" };
+            text.push_str(&format!(
+                "[{lang}] {lang_status} ({step_count} step{})\n",
+                if step_count == 1 { "" } else { "s" }
+            ));
+
+            for &idx in step_indices {
+                let step = &collected_steps[idx];
+                let short_name = if let Some(colon_pos) = step.step_name.find(':') {
+                    &step.step_name[colon_pos + 1..]
+                } else {
+                    &step.step_name
+                };
+
+                let icon = if step.is_pass {
+                    "\u{2713}" // ✓
+                } else if step.is_fail {
+                    "\u{2717}" // ✗
+                } else if step.is_skip {
+                    "-"
+                } else {
+                    "?"
+                };
+
+                let required_tag = if step.required { " (required)" } else { "" };
+                text.push_str(&format!("  {icon} {short_name}{required_tag}\n"));
+
+                // Summarize output to save tokens.
+                if !step.output.is_empty() {
+                    let output = &step.output;
+                    if step.is_fail {
+                        // Extract the final "test result:" line (the summary) and
+                        // unique error messages. Deduplicate repeated panics.
+                        let mut failed_count = 0u32;
+                        let mut unique_errors: Vec<String> = Vec::new();
+                        let mut seen_errors = HashSet::new();
+                        let mut final_result_line: Option<&str> = None;
+                        let mut error_lines: Vec<&str> = Vec::new();
+
+                        for line in output.lines() {
+                            let trimmed = line.trim();
+                            if trimmed.starts_with("test result:") {
+                                final_result_line = Some(trimmed);
+                            } else if trimmed.starts_with("test ")
+                                && trimmed.ends_with("FAILED")
+                            {
+                                failed_count += 1;
+                            } else if trimmed.contains("panicked at") {
+                                // Extract the panic message for dedup
+                                if let Some(msg) = trimmed.split("panicked at").nth(1) {
+                                    let key = msg.trim().to_string();
+                                    if seen_errors.insert(key.clone()) {
+                                        unique_errors.push(key);
+                                    }
+                                }
+                            } else if trimmed.starts_with("error[") {
+                                // Compiler errors (error[E0...])
+                                error_lines.push(trimmed);
+                            } else if trimmed.starts_with("error:") {
+                                error_lines.push(trimmed);
+                            }
+                        }
+
+                        // Show the summary result line
+                        if let Some(result) = final_result_line {
+                            text.push_str(&format!("    {result}\n"));
+                        }
+                        // Show failed count
+                        if failed_count > 0 {
+                            text.push_str(&format!("    {failed_count} test(s) failed\n"));
+                        }
+                        // Show unique error causes (max 5)
+                        for (i, err) in unique_errors.iter().enumerate() {
+                            if i >= 5 {
+                                text.push_str(&format!(
+                                    "    ... and {} more unique error(s)\n",
+                                    unique_errors.len() - 5
+                                ));
+                                break;
+                            }
+                            text.push_str(&format!("    panic: {err}\n"));
+                        }
+                        // Show compiler errors (max 5)
+                        for (i, err) in error_lines.iter().enumerate() {
+                            if i >= 5 {
+                                text.push_str(&format!(
+                                    "    ... and {} more error(s)\n",
+                                    error_lines.len() - 5
+                                ));
+                                break;
+                            }
+                            text.push_str(&format!("    {err}\n"));
+                        }
+                        // Fallback if we found nothing useful
+                        if final_result_line.is_none()
+                            && failed_count == 0
+                            && unique_errors.is_empty()
+                            && error_lines.is_empty()
+                        {
+                            let lines: Vec<&str> = output.lines().collect();
+                            let start = lines.len().saturating_sub(5);
+                            for line in &lines[start..] {
+                                text.push_str(&format!("    {}\n", line.trim()));
+                            }
+                        }
+                    } else {
+                        // For passing steps, aggregate test result summaries
+                        let mut total_passed = 0u32;
+                        let mut total_ignored = 0u32;
+                        let mut found_summary = false;
+                        for line in output.lines() {
+                            let trimmed = line.trim();
+                            if trimmed.starts_with("test result:") {
+                                found_summary = true;
+                                // Parse "test result: ok. N passed; ..."
+                                if let Some(rest) = trimmed.strip_prefix("test result: ok.") {
+                                    for part in rest.split(';') {
+                                        let part = part.trim();
+                                        if part.ends_with("passed") {
+                                            if let Ok(n) = part
+                                                .split_whitespace()
+                                                .next()
+                                                .unwrap_or("0")
+                                                .parse::<u32>()
+                                            {
+                                                total_passed += n;
+                                            }
+                                        } else if part.ends_with("ignored") {
+                                            if let Ok(n) = part
+                                                .split_whitespace()
+                                                .next()
+                                                .unwrap_or("0")
+                                                .parse::<u32>()
+                                            {
+                                                total_ignored += n;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if found_summary {
+                            let ignored_note = if total_ignored > 0 {
+                                format!(", {total_ignored} ignored")
+                            } else {
+                                String::new()
+                            };
+                            text.push_str(&format!(
+                                "    {total_passed} passed{ignored_note}\n"
+                            ));
+                        } else {
+                            let line_count = output.lines().count();
+                            text.push_str(&format!("    ({line_count} lines of output)\n"));
+                        }
+                    }
+                }
+                // Format findings and inline suggestions for this step.
+                if !step.findings.is_empty() {
+                    for (i, finding) in step.findings.iter().enumerate() {
+                        let severity_upper = finding.severity.to_uppercase();
+                        let loc = match (&finding.file_path, finding.line) {
+                            (Some(fp), Some(ln)) => format!(" {}:{}", fp, ln),
+                            (Some(fp), None) => format!(" {}", fp),
+                            _ => String::new(),
+                        };
+                        text.push_str(&format!(
+                            "    {} {} \u{2014} {}{}\n",
+                            severity_upper, finding.check_name, finding.message, loc
+                        ));
+                        // Show inline suggestion linked to this finding.
+                        for suggestion in &step.suggestions {
+                            if suggestion.finding_index == i as u32 {
+                                text.push_str(&format!(
+                                    "      -> Fix: {}\n",
+                                    suggestion.description
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+
+            text.push('\n');
+        }
+
+        if let Some(err) = stream_error {
+            text.push_str(&format!("Stream error: {err}\n\n"));
+        }
+
+        // Overall summary
+        if all_passed {
+            text.push_str("Overall: ALL PASSED\n");
+        } else if total_langs > 0 {
+            text.push_str(&format!(
+                "Overall: FAIL ({langs_failed} of {total_langs} language{} failed)\n",
+                if total_langs == 1 { "" } else { "s" }
+            ));
         } else {
-            "SOME FAILED"
+            text.push_str("Overall: SOME FAILED\n");
         };
-        text.push_str(&format!("Overall: {summary}\n"));
 
         let prefix = self
             .drain_notifications(&session_id)
