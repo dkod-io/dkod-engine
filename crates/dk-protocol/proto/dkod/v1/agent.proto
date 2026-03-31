@@ -33,6 +33,9 @@ service AgentService {
 
   // Approve a submitted changeset (platform-level state transition)
   rpc Approve(ApproveRequest) returns (ApproveResponse);
+
+  // Resolve conflicts on a changeset
+  rpc Resolve(ResolveRequest) returns (ResolveResponse);
 }
 
 // ── CONNECT ──
@@ -433,4 +436,22 @@ message ApproveResponse {
   string changeset_id = 2;
   string new_state = 3;      // e.g. "approved"
   string message = 4;        // human-readable status message
+}
+
+// --- RESOLVE ---
+
+message ResolveRequest {
+  string session_id = 1;
+  string resolution = 2;
+  optional string conflict_id = 3;
+  optional string manual_content = 4;
+}
+
+message ResolveResponse {
+  bool success = 1;
+  string changeset_id = 2;
+  string new_state = 3;
+  string message = 4;
+  int32 conflicts_resolved = 5;
+  int32 conflicts_remaining = 6;
 }

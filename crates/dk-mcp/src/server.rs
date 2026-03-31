@@ -153,6 +153,18 @@ struct ApproveParams {
 }
 
 #[derive(Deserialize, JsonSchema)]
+struct ResolveParams {
+    /// Session ID from dk_connect (required when multiple sessions are active)
+    session_id: Option<String>,
+    /// Resolution mode: "proceed" (accept all your changes), "keep_yours", "keep_theirs", or "manual"
+    resolution: String,
+    /// Conflict ID for per-symbol resolution (required for keep_yours, keep_theirs, manual)
+    conflict_id: Option<String>,
+    /// Custom content for "manual" resolution
+    content: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
 struct StatusParams {
     /// Session ID from dk_connect (required when multiple sessions are active)
     session_id: Option<String>,
@@ -2137,7 +2149,60 @@ impl DkodMcp {
         ))]))
     }
 
-    // ── Tool 10: dk_push ──
+    // ── Tool 10: dk_resolve ──
+
+    /// Resolve conflicts on a changeset via gRPC.
+    #[tool(
+        description = "Resolve conflicts on the current changeset. Use 'proceed' to accept all your changes and unblock merge. Use 'keep_yours' or 'keep_theirs' per conflict_id for granular resolution. Use 'manual' with content for custom resolution."
+    )]
+    async fn dk_resolve(
+        &self,
+        Parameters(params): Parameters<ResolveParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let ResolveParams {
+            session_id: param_session_id,
+            resolution,
+            conflict_id,
+            content,
+        } = params;
+
+        let session = self.resolve_session(param_session_id.as_deref()).await?;
+        let session_id = session.session_id.clone();
+
+        let mut client = self.get_client().await?;
+
+        let request = crate::ResolveRequest {
+            session_id: session_id.clone(),
+            resolution,
+            conflict_id,
+            manual_content: content,
+        };
+
+        let response = client
+            .resolve(request)
+            .await
+            .map_err(|e| McpError::internal_error(format!("RESOLVE RPC failed: {e}"), None))?
+            .into_inner();
+
+        let text = format!(
+            "Conflicts resolved!\nchangeset_id: {}\nstate: {}\nresolved: {}\nremaining: {}\n\n{}\n",
+            response.changeset_id,
+            response.new_state,
+            response.conflicts_resolved,
+            response.conflicts_remaining,
+            response.message,
+        );
+
+        let prefix = self
+            .drain_notifications(&session_id)
+            .await
+            .unwrap_or_default();
+        Ok(CallToolResult::success(vec![Content::text(format!(
+            "{prefix}{text}"
+        ))]))
+    }
+
+    // ── Tool 11: dk_push ──
 
     /// Push merged changes to GitHub as a branch or pull request.
     #[tool(
@@ -2219,7 +2284,7 @@ impl DkodMcp {
         ))]))
     }
 
-    // ── Tool 11: dk_watch ──
+    // ── Tool 12: dk_watch ──
 
     /// Subscribe to real-time codebase events from other agents.
     #[tool(
@@ -2464,8 +2529,9 @@ impl ServerHandler for DkodMcp {
                  4. dk_submit   — submit a changeset of code changes\n\
                  5. dk_verify   — run verification pipeline (lint, test, type-check)\n\
                  6. dk_approve  — approve a submitted changeset\n\
-                 7. dk_merge    — merge the verified changeset into Git\n\
-                 8. dk_push     — push to GitHub as a branch or pull request\n\n\
+                 7. dk_resolve  — resolve conflicts on a changeset\n\
+                 8. dk_merge    — merge the verified changeset into Git\n\
+                 9. dk_push     — push to GitHub as a branch or pull request\n\n\
                  Use dk_status at any time to inspect the current session.\n\
                  Use dk_watch to see real-time events from other agents working on the same codebase.\n\
                  Watch events are also included automatically in dk_status and other tool responses."

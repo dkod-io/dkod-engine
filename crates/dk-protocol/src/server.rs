@@ -213,4 +213,13 @@ impl crate::agent_service_server::AgentService for ProtocolServer {
             "approve is a platform-level operation; use the managed server",
         ))
     }
+
+    async fn resolve(
+        &self,
+        _request: Request<crate::ResolveRequest>,
+    ) -> Result<Response<crate::ResolveResponse>, Status> {
+        Err(Status::unimplemented(
+            "resolve is a platform-level operation; use the managed server",
+        ))
+    }
 }
