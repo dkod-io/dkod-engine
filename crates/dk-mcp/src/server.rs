@@ -2184,6 +2184,23 @@ impl DkodMcp {
             }
         };
 
+        // Validate mode-required fields
+        match resolution.as_str() {
+            "keep_yours" | "keep_theirs" | "manual" if conflict_id.is_none() => {
+                return Err(McpError::invalid_params(
+                    format!("conflict_id is required for resolution mode '{resolution}'"),
+                    None,
+                ));
+            }
+            "manual" if content.is_none() => {
+                return Err(McpError::invalid_params(
+                    "content is required for resolution mode 'manual'".to_string(),
+                    None,
+                ));
+            }
+            _ => {}
+        }
+
         let request = crate::ResolveRequest {
             session_id: session_id.clone(),
             resolution: resolution_enum,
@@ -2197,10 +2214,12 @@ impl DkodMcp {
             .map_err(|e| McpError::internal_error(format!("RESOLVE RPC failed: {e}"), None))?
             .into_inner();
 
-        let header = if response.success || response.conflicts_remaining == 0 {
+        let header = if response.success {
             "Conflicts resolved!"
-        } else {
+        } else if response.conflicts_remaining > 0 {
             "Partial resolution — conflicts remain"
+        } else {
+            "Resolution failed"
         };
 
         let text = format!(
