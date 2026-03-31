@@ -233,6 +233,11 @@ import io.netty.channel.ChannelHandler
         .parse_file(Path::new("Imports.scala"), source)
         .unwrap();
 
+    // tree-sitter-scala exposes each path segment as a separate `path:
+    // (identifier)` field, so `import scala.collection.mutable.Map`
+    // produces 4 captures: "scala", "collection", "mutable", "Map".
+    // With 3 multi-segment imports, expect at least 3 import entries
+    // (one per segment).
     assert!(
         analysis.imports.len() >= 3,
         "Expected at least 3 imports, got: {} => {:?}",
@@ -244,12 +249,39 @@ import io.netty.channel.ChannelHandler
             .collect::<Vec<_>>()
     );
 
+    // Verify that at least one segment from each import statement is captured.
     assert!(
         analysis
             .imports
             .iter()
-            .any(|i| i.module_path.contains("scala")),
-        "Should have import containing 'scala', got: {:?}",
+            .any(|i| i.module_path == "scala" || i.module_path == "Map"),
+        "Should have a segment from 'import scala.collection.mutable.Map', got: {:?}",
+        analysis
+            .imports
+            .iter()
+            .map(|i| &i.module_path)
+            .collect::<Vec<_>>()
+    );
+
+    assert!(
+        analysis
+            .imports
+            .iter()
+            .any(|i| i.module_path == "java" || i.module_path == "ArrayList"),
+        "Should have a segment from 'import java.util.ArrayList', got: {:?}",
+        analysis
+            .imports
+            .iter()
+            .map(|i| &i.module_path)
+            .collect::<Vec<_>>()
+    );
+
+    assert!(
+        analysis
+            .imports
+            .iter()
+            .any(|i| i.module_path == "io" || i.module_path == "ChannelHandler"),
+        "Should have a segment from 'import io.netty.channel.ChannelHandler', got: {:?}",
         analysis
             .imports
             .iter()

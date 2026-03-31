@@ -138,12 +138,36 @@ type Mapping k v = [(k, v)]
         .unwrap();
     assert_eq!(printable.kind, SymbolKind::Trait);
 
+    // Assert BOTH type synonyms resolve to TypeAlias.
+    // This guards against the upstream tree-sitter-haskell grammar fixing
+    // the `type_synomym` typo to `type_synonym` — if that happens, these
+    // assertions will fail, signalling that haskell_symbols.scm needs
+    // updating to match the corrected node name.
     let name_type = analysis
         .symbols
         .iter()
         .find(|s| s.name == "Name")
         .unwrap();
-    assert_eq!(name_type.kind, SymbolKind::TypeAlias);
+    assert_eq!(
+        name_type.kind,
+        SymbolKind::TypeAlias,
+        "Name should be TypeAlias — if this fails after a tree-sitter-haskell \
+         upgrade, the grammar likely fixed the `type_synomym` typo; update \
+         haskell_symbols.scm to use `type_synonym`"
+    );
+
+    let mapping_type = analysis
+        .symbols
+        .iter()
+        .find(|s| s.name == "Mapping")
+        .unwrap();
+    assert_eq!(
+        mapping_type.kind,
+        SymbolKind::TypeAlias,
+        "Mapping should be TypeAlias — if this fails after a tree-sitter-haskell \
+         upgrade, the grammar likely fixed the `type_synomym` typo; update \
+         haskell_symbols.scm to use `type_synonym`"
+    );
 }
 
 #[test]

@@ -3,12 +3,17 @@
 ; Captures:
 ;   @module — the import path identifier
 ;
-; Scala imports like `import scala.collection.mutable.Map` are parsed as
-; `import_declaration` with multiple `path` fields: each segment is a
-; separate `identifier` node with `.` separators. We capture each
-; `identifier` in the path, and the engine derives the imported name
-; from the last captured segment.
+; Scala imports like `import scala.collection.mutable.Map` are parsed by
+; tree-sitter-scala as an `import_declaration` with multiple `path` fields,
+; one per segment: `path: (identifier "scala")`, `path: (identifier
+; "collection")`, etc. This query captures each segment individually,
+; producing multiple import entries per multi-segment import. The engine
+; derives the imported name from the last captured segment (rsplit on '.').
+;
+; NOTE: `stable_identifier` exists in the grammar but is NOT used in the
+; `path` field of `import_declaration` — only `identifier` appears there.
 
-; Import path segments: import foo or import scala.collection.mutable.Map
+; Import path segments: captures each segment of multi-segment imports
+; (e.g., `import scala.collection.mutable.Map` produces 4 captures)
 (import_declaration
   path: (identifier) @module)

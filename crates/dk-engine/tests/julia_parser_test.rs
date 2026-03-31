@@ -200,6 +200,69 @@ end
 }
 
 #[test]
+fn test_extract_julia_imports() {
+    let registry = ParserRegistry::new();
+    let source = br#"
+import Foo
+using Bar
+import LinearAlgebra
+"#;
+    let analysis = registry
+        .parse_file(Path::new("imports.jl"), source)
+        .unwrap();
+
+    assert!(
+        analysis.imports.len() >= 3,
+        "Expected at least 3 imports, got: {} => {:?}",
+        analysis.imports.len(),
+        analysis
+            .imports
+            .iter()
+            .map(|i| format!("{}:{}", i.module_path, i.imported_name))
+            .collect::<Vec<_>>()
+    );
+
+    assert!(
+        analysis
+            .imports
+            .iter()
+            .any(|i| i.module_path.contains("Foo")),
+        "Should have import containing 'Foo', got: {:?}",
+        analysis
+            .imports
+            .iter()
+            .map(|i| &i.module_path)
+            .collect::<Vec<_>>()
+    );
+
+    assert!(
+        analysis
+            .imports
+            .iter()
+            .any(|i| i.module_path.contains("Bar")),
+        "Should have using containing 'Bar', got: {:?}",
+        analysis
+            .imports
+            .iter()
+            .map(|i| &i.module_path)
+            .collect::<Vec<_>>()
+    );
+
+    assert!(
+        analysis
+            .imports
+            .iter()
+            .any(|i| i.module_path.contains("LinearAlgebra")),
+        "Should have import containing 'LinearAlgebra', got: {:?}",
+        analysis
+            .imports
+            .iter()
+            .map(|i| &i.module_path)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn test_registry_supports_julia() {
     let registry = ParserRegistry::new();
     assert!(registry.supports_file(Path::new("script.jl")));
