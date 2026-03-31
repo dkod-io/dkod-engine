@@ -232,97 +232,70 @@ fn db_pipeline_to_workflow(steps: Vec<dk_engine::pipeline::PipelineStep>) -> Wor
 }
 
 /// Auto-detect verification workflow from project files in the repo.
+/// Scans for ALL known language markers and creates steps for each.
 /// Returns a no-stage workflow (auto-approve) if no known project type found.
-fn detect_workflow(repo_dir: &Path) -> Workflow {
+pub fn detect_workflow(repo_dir: &Path) -> Workflow {
+    let mut steps: Vec<Step> = Vec::new();
+
+    // ── Rust ──
     if repo_dir.join("Cargo.toml").exists() {
-        return Workflow {
-            name: "auto-rust".to_string(),
-            timeout: Duration::from_secs(180),
-            allowed_commands: vec![],
-            stages: vec![Stage {
-                name: "checks".to_string(),
-                parallel: false,
-                steps: vec![
-                    Step {
-                        name: "typecheck".to_string(),
-                        step_type: StepType::Command {
-                            run: "cargo check".to_string(),
-                        },
-                        timeout: Duration::from_secs(60),
-                        required: true,
-                        changeset_aware: true,
-                    },
-                    Step {
-                        name: "test".to_string(),
-                        step_type: StepType::Command {
-                            run: "cargo test".to_string(),
-                        },
-                        timeout: Duration::from_secs(60),
-                        required: true,
-                        changeset_aware: true,
-                    },
-                ],
-            }],
-        };
+        steps.push(Step {
+            name: "rust:check".to_string(),
+            step_type: StepType::Command { run: "cargo check".to_string() },
+            timeout: Duration::from_secs(60),
+            required: true,
+            changeset_aware: true,
+        });
+        steps.push(Step {
+            name: "rust:test".to_string(),
+            step_type: StepType::Command { run: "cargo test".to_string() },
+            timeout: Duration::from_secs(60),
+            required: true,
+            changeset_aware: true,
+        });
     }
 
+    // ── Node / Bun ──
     if repo_dir.join("package.json").exists() {
-        let is_bun = repo_dir.join("bun.lock").exists() || repo_dir.join("bun.lockb").exists();
-        let (name, install_cmd, test_cmd) = if is_bun {
-            ("auto-bun", "bun install --frozen-lockfile", "bun test")
+        let is_bun = repo_dir.join("bun.lock").exists()
+            || repo_dir.join("bun.lockb").exists();
+        let (label, install_cmd, test_cmd) = if is_bun {
+            ("bun", "bun install --frozen-lockfile", "bun test")
         } else {
-            ("auto-node", "npm ci", "npm test")
+            ("node", "npm ci", "npm test")
         };
-        return Workflow {
-            name: name.to_string(),
-            timeout: Duration::from_secs(300),
-            allowed_commands: vec![],
-            stages: vec![Stage {
-                name: "checks".to_string(),
-                parallel: false,
-                steps: vec![
-                    Step {
-                        name: "install".to_string(),
-                        step_type: StepType::Command {
-                            run: install_cmd.to_string(),
-                        },
-                        timeout: Duration::from_secs(120),
-                        required: true,
-                        changeset_aware: false,
-                    },
-                    Step {
-                        name: "test".to_string(),
-                        step_type: StepType::Command {
-                            run: test_cmd.to_string(),
-                        },
-                        timeout: Duration::from_secs(60),
-                        required: true,
-                        changeset_aware: true,
-                    },
-                ],
-            }],
-        };
+        steps.push(Step {
+            name: format!("{label}:install"),
+            step_type: StepType::Command { run: install_cmd.to_string() },
+            timeout: Duration::from_secs(120),
+            required: true,
+            changeset_aware: false,
+        });
+        steps.push(Step {
+            name: format!("{label}:test"),
+            step_type: StepType::Command { run: test_cmd.to_string() },
+            timeout: Duration::from_secs(60),
+            required: true,
+            changeset_aware: true,
+        });
     }
 
-    if repo_dir.join("pyproject.toml").exists() || repo_dir.join("requirements.txt").exists() {
-        let has_requirements = repo_dir.join("requirements.txt").exists();
-        let has_pyproject = repo_dir.join("pyproject.toml").exists();
-        let mut steps = Vec::new();
-        if has_pyproject {
+    // ── Python ──
+    if repo_dir.join("pyproject.toml").exists()
+        || repo_dir.join("requirements.txt").exists()
+    {
+        if repo_dir.join("pyproject.toml").exists() {
             steps.push(Step {
-                name: "install".to_string(),
-                step_type: StepType::Command {
-                    run: "pip install -e .".to_string(),
-                },
+                name: "python:install".to_string(),
+                step_type: StepType::Command { run: "pip install -e .".to_string() },
                 timeout: Duration::from_secs(120),
                 required: true,
                 changeset_aware: false,
             });
         }
-        // Also install requirements.txt when both files exist (common dual-file layout)
-        if has_requirements {
+        if repo_dir.join("requirements.txt").exists() {
             steps.push(Step {
-                name: "install-deps".to_string(),
+                name: "python:install-deps".to_string(),
                 step_type: StepType::Command {
                     run: "pip install -r requirements.txt".to_string(),
                 },
@@ -332,73 +305,63 @@ fn detect_workflow(repo_dir: &Path) -> Workflow {
             });
         }
         steps.push(Step {
-            name: "test".to_string(),
-            step_type: StepType::Command {
-                run: "pytest".to_string(),
-            },
+            name: "python:test".to_string(),
+            step_type: StepType::Command { run: "pytest".to_string() },
             timeout: Duration::from_secs(60),
             required: true,
             changeset_aware: true,
         });
-        return Workflow {
-            name: "auto-python".to_string(),
-            timeout: Duration::from_secs(420),
-            allowed_commands: vec![],
-            stages: vec![Stage {
-                name: "checks".to_string(),
-                parallel: false,
-                steps,
-            }],
-        };
     }
 
+    // ── Go ──
     if repo_dir.join("go.mod").exists() {
+        steps.push(Step {
+            name: "go:build".to_string(),
+            step_type: StepType::Command { run: "go build ./...".to_string() },
+            timeout: Duration::from_secs(60),
+            required: true,
+            changeset_aware: true,
+        });
+        steps.push(Step {
+            name: "go:vet".to_string(),
+            step_type: StepType::Command { run: "go vet ./...".to_string() },
+            timeout: Duration::from_secs(60),
+            required: true,
+            changeset_aware: true,
+        });
+        steps.push(Step {
+            name: "go:test".to_string(),
+            step_type: StepType::Command { run: "go test ./...".to_string() },
+            timeout: Duration::from_secs(60),
+            required: true,
+            changeset_aware: true,
+        });
+    }
+
+    if steps.is_empty() {
         return Workflow {
-            name: "auto-go".to_string(),
-            timeout: Duration::from_secs(300),
+            name: "auto-none".to_string(),
+            timeout: Duration::from_secs(30),
             allowed_commands: vec![],
-            stages: vec![Stage {
-                name: "checks".to_string(),
-                parallel: false,
-                steps: vec![
-                    Step {
-                        name: "build".to_string(),
-                        step_type: StepType::Command {
-                            run: "go build ./...".to_string(),
-                        },
-                        timeout: Duration::from_secs(60),
-                        required: true,
-                        changeset_aware: true,
-                    },
-                    Step {
-                        name: "vet".to_string(),
-                        step_type: StepType::Command {
-                            run: "go vet ./...".to_string(),
-                        },
-                        timeout: Duration::from_secs(60),
-                        required: true,
-                        changeset_aware: true,
-                    },
-                    Step {
-                        name: "test".to_string(),
-                        step_type: StepType::Command {
-                            run: "go test ./...".to_string(),
-                        },
-                        timeout: Duration::from_secs(60),
-                        required: true,
-                        changeset_aware: true,
-                    },
-                ],
-            }],
+            stages: vec![],
         };
     }
 
-    // No recognized project type — auto-approve (structured warning emitted by caller)
+    let name = if steps.iter().map(|s| s.name.split(':').next().unwrap_or("")).collect::<std::collections::HashSet<_>>().len() > 1 {
+        "auto-polyglot".to_string()
+    } else {
+        format!("auto-{}", steps[0].name.split(':').next().unwrap_or("unknown"))
+    };
+
     Workflow {
-        name: "auto-none".to_string(),
-        timeout: Duration::from_secs(30),
+        name,
+        timeout: Duration::from_secs(600),
         allowed_commands: vec![],
-        stages: vec![],
+        stages: vec![Stage {
+            name: "checks".to_string(),
+            parallel: false,
+            steps,
+        }],
     }
 }
 
@@ -672,5 +635,45 @@ mod tests {
         let wf = db_pipeline_to_workflow(steps);
         assert_eq!(wf.stages.len(), 1);
         assert_eq!(wf.stages[0].steps.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_detect_workflow_polyglot_rust_and_node() {
+        let dir = tempfile::tempdir().unwrap();
+        tokio::fs::write(dir.path().join("Cargo.toml"), b"[package]\nname = \"test\"").await.unwrap();
+        tokio::fs::write(dir.path().join("package.json"), b"{}").await.unwrap();
+        let wf = detect_workflow(dir.path());
+        assert_eq!(wf.name, "auto-polyglot");
+        assert_eq!(wf.stages.len(), 1);
+        let step_names: Vec<&str> = wf.stages[0].steps.iter().map(|s| s.name.as_str()).collect();
+        assert!(step_names.iter().any(|n| n.starts_with("rust:")), "missing rust steps");
+        assert!(step_names.iter().any(|n| n.starts_with("node:")), "missing node steps");
+    }
+
+    #[tokio::test]
+    async fn test_detect_workflow_polyglot_three_languages() {
+        let dir = tempfile::tempdir().unwrap();
+        tokio::fs::write(dir.path().join("Cargo.toml"), b"[package]\nname = \"test\"").await.unwrap();
+        tokio::fs::write(dir.path().join("package.json"), b"{}").await.unwrap();
+        tokio::fs::write(dir.path().join("pyproject.toml"), b"[project]\nname = \"test\"").await.unwrap();
+        let wf = detect_workflow(dir.path());
+        assert_eq!(wf.name, "auto-polyglot");
+        let step_names: Vec<&str> = wf.stages[0].steps.iter().map(|s| s.name.as_str()).collect();
+        assert!(step_names.iter().any(|n| n.starts_with("rust:")), "missing rust");
+        assert!(step_names.iter().any(|n| n.starts_with("node:")), "missing node");
+        assert!(step_names.iter().any(|n| n.starts_with("python:")), "missing python");
+    }
+
+    #[tokio::test]
+    async fn test_detect_workflow_polyglot_bun_and_go() {
+        let dir = tempfile::tempdir().unwrap();
+        tokio::fs::write(dir.path().join("package.json"), b"{}").await.unwrap();
+        tokio::fs::write(dir.path().join("bun.lock"), b"").await.unwrap();
+        tokio::fs::write(dir.path().join("go.mod"), b"module example.com/test").await.unwrap();
+        let wf = detect_workflow(dir.path());
+        assert_eq!(wf.name, "auto-polyglot");
+        let step_names: Vec<&str> = wf.stages[0].steps.iter().map(|s| s.name.as_str()).collect();
+        assert!(step_names.iter().any(|n| n.starts_with("bun:")), "missing bun steps");
+        assert!(step_names.iter().any(|n| n.starts_with("go:")), "missing go steps");
     }
 }
