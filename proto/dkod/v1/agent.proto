@@ -440,9 +440,17 @@ message ApproveResponse {
 
 // --- RESOLVE ---
 
+enum ResolutionMode {
+  RESOLUTION_MODE_UNSPECIFIED = 0;
+  RESOLUTION_MODE_PROCEED     = 1;
+  RESOLUTION_MODE_KEEP_YOURS  = 2;
+  RESOLUTION_MODE_KEEP_THEIRS = 3;
+  RESOLUTION_MODE_MANUAL      = 4;
+}
+
 message ResolveRequest {
   string session_id = 1;
-  string resolution = 2;
+  ResolutionMode resolution = 2;
   optional string conflict_id = 3;
   optional string manual_content = 4;
 }

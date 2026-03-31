@@ -156,7 +156,7 @@ struct ApproveParams {
 struct ResolveParams {
     /// Session ID from dk_connect (required when multiple sessions are active)
     session_id: Option<String>,
-    /// Resolution mode: "proceed" (accept all your changes), "keep_yours", "keep_theirs", or "manual"
+    /// Resolution mode: "proceed", "keep_yours", "keep_theirs", or "manual"
     resolution: String,
     /// Conflict ID for per-symbol resolution (required for keep_yours, keep_theirs, manual)
     conflict_id: Option<String>,
@@ -2171,9 +2171,22 @@ impl DkodMcp {
 
         let mut client = self.get_client().await?;
 
+        let resolution_enum = match resolution.as_str() {
+            "proceed" => crate::ResolutionMode::Proceed as i32,
+            "keep_yours" => crate::ResolutionMode::KeepYours as i32,
+            "keep_theirs" => crate::ResolutionMode::KeepTheirs as i32,
+            "manual" => crate::ResolutionMode::Manual as i32,
+            _ => {
+                return Err(McpError::invalid_params(
+                    format!("resolution must be 'proceed', 'keep_yours', 'keep_theirs', or 'manual', got '{resolution}'"),
+                    None,
+                ));
+            }
+        };
+
         let request = crate::ResolveRequest {
             session_id: session_id.clone(),
-            resolution,
+            resolution: resolution_enum,
             conflict_id,
             manual_content: content,
         };
@@ -2184,8 +2197,14 @@ impl DkodMcp {
             .map_err(|e| McpError::internal_error(format!("RESOLVE RPC failed: {e}"), None))?
             .into_inner();
 
+        let header = if response.success || response.conflicts_remaining == 0 {
+            "Conflicts resolved!"
+        } else {
+            "Partial resolution — conflicts remain"
+        };
+
         let text = format!(
-            "Conflicts resolved!\nchangeset_id: {}\nstate: {}\nresolved: {}\nremaining: {}\n\n{}\n",
+            "{header}\nchangeset_id: {}\nstate: {}\nresolved: {}\nremaining: {}\n\n{}\n",
             response.changeset_id,
             response.new_state,
             response.conflicts_resolved,
@@ -2197,9 +2216,16 @@ impl DkodMcp {
             .drain_notifications(&session_id)
             .await
             .unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "{prefix}{text}"
-        ))]))
+
+        if !response.success {
+            Ok(CallToolResult::error(vec![Content::text(format!(
+                "{prefix}{text}"
+            ))]))
+        } else {
+            Ok(CallToolResult::success(vec![Content::text(format!(
+                "{prefix}{text}"
+            ))]))
+        }
     }
 
     // ── Tool 11: dk_push ──
@@ -2528,8 +2554,8 @@ impl ServerHandler for DkodMcp {
                  3. dk_file_read / dk_file_write / dk_file_list — workspace file I/O\n\
                  4. dk_submit   — submit a changeset of code changes\n\
                  5. dk_verify   — run verification pipeline (lint, test, type-check)\n\
-                 6. dk_approve  — approve a submitted changeset\n\
-                 7. dk_resolve  — resolve conflicts on a changeset\n\
+                 6. dk_resolve  — resolve conflicts on a changeset (if needed)\n\
+                 7. dk_approve  — approve a submitted changeset\n\
                  8. dk_merge    — merge the verified changeset into Git\n\
                  9. dk_push     — push to GitHub as a branch or pull request\n\n\
                  Use dk_status at any time to inspect the current session.\n\
