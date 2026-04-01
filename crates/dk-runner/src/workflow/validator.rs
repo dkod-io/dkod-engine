@@ -86,6 +86,14 @@ pub fn validate_workflow(workflow: &Workflow) -> Result<()> {
             if let StepType::Command { run } = &step.step_type {
                 validate_command_with_allowlist(run, &workflow.allowed_commands)?;
             }
+            if let Some(ref wd) = step.work_dir {
+                if wd.components().any(|c| c == std::path::Component::ParentDir) {
+                    bail!("step '{}' work_dir '{}' contains path traversal", step.name, wd.display());
+                }
+                if wd.is_absolute() {
+                    bail!("step '{}' work_dir '{}' must be a relative path", step.name, wd.display());
+                }
+            }
         }
     }
     Ok(())
@@ -171,6 +179,7 @@ mod tests {
             timeout: Duration::from_secs(60),
             required: true,
             changeset_aware: false,
+            work_dir: None,
         }
     }
 
@@ -505,6 +514,34 @@ mod tests {
         assert!(validate_command("npx tsc --outDir=/tmp/evil").is_err());
         assert!(validate_command("bunx tsc --declarationDir /tmp/evil").is_err());
         assert!(validate_command("bunx tsc --declarationDir=/tmp/evil").is_err());
+    }
+
+    #[test]
+    fn test_work_dir_path_traversal_rejected() {
+        use std::path::PathBuf;
+        let mut step = make_cmd_step("test", "cargo test");
+        step.work_dir = Some(PathBuf::from("../escape"));
+        let wf = Workflow {
+            name: "test".into(),
+            timeout: Duration::from_secs(60),
+            stages: vec![Stage { name: "s".into(), parallel: false, steps: vec![step] }],
+            allowed_commands: vec![],
+        };
+        assert!(validate_workflow(&wf).is_err());
+    }
+
+    #[test]
+    fn test_work_dir_absolute_rejected() {
+        use std::path::PathBuf;
+        let mut step = make_cmd_step("test", "cargo test");
+        step.work_dir = Some(PathBuf::from("/tmp/evil"));
+        let wf = Workflow {
+            name: "test".into(),
+            timeout: Duration::from_secs(60),
+            stages: vec![Stage { name: "s".into(), parallel: false, steps: vec![step] }],
+            allowed_commands: vec![],
+        };
+        assert!(validate_workflow(&wf).is_err());
     }
 
 }

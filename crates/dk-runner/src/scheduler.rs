@@ -149,13 +149,26 @@ async fn run_single_step(
     match &step.step_type {
         StepType::Command { run } => {
             let cmd = if step.changeset_aware {
-                scope_command_to_changeset(run, changeset_files)
+                let local_files: Vec<String> = if let Some(sub) = &step.work_dir {
+                    let prefix = format!("{}/", sub.display());
+                    changeset_files
+                        .iter()
+                        .filter_map(|f| f.strip_prefix(&prefix).map(|s| s.to_string()))
+                        .collect()
+                } else {
+                    changeset_files.to_vec()
+                };
+                scope_command_to_changeset(run, &local_files)
                     .unwrap_or_else(|| run.clone())
             } else {
                 run.clone()
             };
+            let step_work_dir = match &step.work_dir {
+                Some(sub) => work_dir.join(sub),
+                None => work_dir.to_path_buf(),
+            };
             let output =
-                match command::run_command_step(executor, &cmd, work_dir, step.timeout, env).await {
+                match command::run_command_step(executor, &cmd, &step_work_dir, step.timeout, env).await {
                     Ok(out) => out,
                     Err(e) => StepOutput {
                         status: StepStatus::Fail,
@@ -331,6 +344,7 @@ mod tests {
                     timeout: Duration::from_secs(5),
                     required: true,
                     changeset_aware: false,
+                    work_dir: None,
                 }],
             }],
             allowed_commands: vec![],
@@ -364,6 +378,7 @@ mod tests {
                     timeout: Duration::from_secs(5),
                     required: true,
                     changeset_aware: false,
+                    work_dir: None,
                 }],
             }],
             allowed_commands: vec![],
@@ -396,6 +411,7 @@ mod tests {
                         timeout: Duration::from_secs(5),
                         required: true,
                         changeset_aware: false,
+                        work_dir: None,
                     },
                     Step {
                         name: "echo-b".into(),
@@ -405,6 +421,7 @@ mod tests {
                         timeout: Duration::from_secs(5),
                         required: true,
                         changeset_aware: false,
+                        work_dir: None,
                     },
                 ],
             }],
