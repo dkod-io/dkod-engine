@@ -89,6 +89,7 @@ fn resolve_step(sc: StepConfig) -> Result<Step> {
         timeout,
         required: sc.required,
         changeset_aware: sc.changeset_aware,
+        work_dir: None,
     })
 }
 
@@ -154,6 +155,7 @@ fn resolve_yaml_step(sc: YamlStepConfig) -> Result<Step> {
         timeout,
         required: sc.required,
         changeset_aware: sc.changeset_aware,
+        work_dir: None,
     })
 }
 

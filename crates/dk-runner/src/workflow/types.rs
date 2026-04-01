@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use std::path::PathBuf;
 use std::time::Duration;
 
 // --- TOML deserialization types ---
@@ -132,6 +133,8 @@ pub struct Step {
     pub timeout: Duration,
     pub required: bool,
     pub changeset_aware: bool,
+    /// Optional subdirectory to run this step in, relative to the repo root.
+    pub work_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
