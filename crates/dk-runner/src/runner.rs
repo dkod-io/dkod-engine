@@ -353,9 +353,12 @@ pub fn detect_workflow(repo_dir: &Path) -> Workflow {
         format!("auto-{}", steps[0].name.split(':').next().unwrap_or("unknown"))
     };
 
+    // Derive timeout from the sum of individual step timeouts (with a floor of 60s).
+    let total_timeout_secs = steps.iter().map(|s| s.timeout.as_secs()).sum::<u64>().max(60);
+
     Workflow {
         name,
-        timeout: Duration::from_secs(600),
+        timeout: Duration::from_secs(total_timeout_secs),
         allowed_commands: vec![],
         stages: vec![Stage {
             name: "checks".to_string(),

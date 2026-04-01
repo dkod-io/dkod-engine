@@ -1949,7 +1949,7 @@ impl DkodMcp {
         // Overall summary
         if all_passed {
             text.push_str("Overall: ALL PASSED\n");
-        } else if total_langs > 0 {
+        } else if total_langs > 0 && langs_failed > 0 {
             text.push_str(&format!(
                 "Overall: FAIL ({langs_failed} of {total_langs} language{} failed)\n",
                 if total_langs == 1 { "" } else { "s" }
