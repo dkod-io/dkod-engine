@@ -1942,12 +1942,27 @@ impl DkodMcp {
             text.push('\n');
         }
 
+        let stream_error_occurred = stream_error.is_some();
         if let Some(err) = stream_error {
             text.push_str(&format!("Stream error: {err}\n\n"));
         }
 
-        // Overall summary
-        if all_passed {
+        // Overall summary.
+        if collected_steps.is_empty() {
+            // No step results received — either NATS delivery failed, the
+            // runner crashed, or a stream error occurred before any steps.
+            if stream_error_occurred {
+                text.push_str(
+                    "Overall: SOME FAILED — stream error before any results were received.\n",
+                );
+            } else {
+                text.push_str(
+                    "Overall: NO RESULTS — verification ran but produced no step results.\n",
+                );
+                text.push_str("The server will finalize the changeset status asynchronously.\n");
+                text.push_str("Check the dashboard for the final verdict.\n");
+            }
+        } else if all_passed {
             text.push_str("Overall: ALL PASSED\n");
         } else if total_langs > 0 && langs_failed > 0 {
             text.push_str(&format!(
@@ -1956,7 +1971,7 @@ impl DkodMcp {
             ));
         } else {
             text.push_str("Overall: SOME FAILED\n");
-        };
+        }
 
         let prefix = self
             .drain_notifications(&session_id)
