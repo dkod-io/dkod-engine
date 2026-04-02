@@ -1942,21 +1942,34 @@ impl DkodMcp {
             text.push('\n');
         }
 
+        // Overall summary — check for empty results BEFORE consuming stream_error.
+        if collected_steps.is_empty() && stream_error.is_none() {
+            // No step results received — NATS delivery failed or runner
+            // crashed before publishing any results. Don't claim ALL PASSED.
+            text.push_str("Overall: NO RESULTS — verification ran but produced no step results.\n");
+            text.push_str("The server will finalize the changeset status asynchronously.\n");
+            text.push_str("Check the dashboard for the final verdict.\n");
+            all_passed = false;
+        }
+
         if let Some(err) = stream_error {
             text.push_str(&format!("Stream error: {err}\n\n"));
         }
 
-        // Overall summary
-        if all_passed {
-            text.push_str("Overall: ALL PASSED\n");
-        } else if total_langs > 0 && langs_failed > 0 {
-            text.push_str(&format!(
-                "Overall: FAIL ({langs_failed} of {total_langs} language{} failed)\n",
-                if total_langs == 1 { "" } else { "s" }
-            ));
-        } else {
-            text.push_str("Overall: SOME FAILED\n");
-        };
+        // Only print pass/fail summary when we actually received step results.
+        // The NO RESULTS case is already handled above.
+        if !collected_steps.is_empty() {
+            if all_passed {
+                text.push_str("Overall: ALL PASSED\n");
+            } else if total_langs > 0 && langs_failed > 0 {
+                text.push_str(&format!(
+                    "Overall: FAIL ({langs_failed} of {total_langs} language{} failed)\n",
+                    if total_langs == 1 { "" } else { "s" }
+                ));
+            } else {
+                text.push_str("Overall: SOME FAILED\n");
+            }
+        }
 
         let prefix = self
             .drain_notifications(&session_id)
