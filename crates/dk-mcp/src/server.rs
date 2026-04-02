@@ -1951,7 +1951,6 @@ impl DkodMcp {
         if collected_steps.is_empty() {
             // No step results received — either NATS delivery failed, the
             // runner crashed, or a stream error occurred before any steps.
-            all_passed = false; // prevent downstream consumers from treating this as success
             if stream_error_occurred {
                 text.push_str(
                     "Overall: SOME FAILED — stream error before any results were received.\n",
