@@ -305,13 +305,18 @@ fn detect_symbol_changes_diffed(
         }
     }
 
-    // Detect deleted symbols
+    // Detect deleted symbols (deduplicated to avoid double-reporting overloads)
     let new_names: std::collections::HashSet<&str> = new_symbols
         .iter()
         .map(|s| s.qualified_name.as_str())
         .collect();
-    for old_sym in &old_symbols {
-        if !new_names.contains(old_sym.qualified_name.as_str()) {
+    let old_names: std::collections::HashSet<&str> = old_symbols
+        .iter()
+        .map(|s| s.qualified_name.as_str())
+        .collect();
+    for old_name in &old_names {
+        if !new_names.contains(old_name) {
+            let old_sym = old_symbols.iter().find(|s| s.qualified_name.as_str() == *old_name).unwrap();
             all_details.push(crate::SymbolChangeDetail {
                 symbol_name: old_sym.qualified_name.clone(),
                 file_path: path.to_string(),
