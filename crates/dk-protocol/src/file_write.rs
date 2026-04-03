@@ -254,7 +254,7 @@ fn detect_symbol_changes_diffed(
     for sym in &old_symbols {
         let start = sym.span.start_byte as usize;
         let end = sym.span.end_byte as usize;
-        if end <= old_content.len() {
+        if start <= end && end <= old_content.len() {
             old_symbol_text.entry(sym.qualified_name.as_str()).or_insert(&old_content[start..end]);
         }
     }
@@ -262,14 +262,21 @@ fn detect_symbol_changes_diffed(
     let mut detected_changes = Vec::new();
     let mut all_details = Vec::new();
 
-    // Compare each new symbol against its old version
+    // Deduplicate new symbols by keeping first occurrence, mirroring old-symbol handling.
+    let mut new_symbol_first: std::collections::HashMap<&str, &dk_core::Symbol> =
+        std::collections::HashMap::new();
     for sym in &new_symbols {
+        new_symbol_first.entry(sym.qualified_name.as_str()).or_insert(sym);
+    }
+
+    // Compare each deduplicated new symbol against its old version
+    for sym in new_symbol_first.values() {
         let start = sym.span.start_byte as usize;
         let end = sym.span.end_byte as usize;
-        let new_text = if end <= new_content.len() {
+        let new_text = if start <= end && end <= new_content.len() {
             &new_content[start..end]
         } else {
-            continue; // invalid span, skip
+            continue; // invalid or inverted span, skip
         };
 
         match old_symbol_text.get(sym.qualified_name.as_str()) {
@@ -316,7 +323,7 @@ fn detect_symbol_changes_diffed(
         .collect();
     for old_name in &old_names {
         if !new_names.contains(old_name) {
-            let old_sym = old_symbols.iter().find(|s| s.qualified_name.as_str() == *old_name).unwrap();
+            let old_sym = old_symbols.iter().find(|s| s.qualified_name.as_str() == *old_name).expect("old_name must map to a symbol in old_symbols");
             all_details.push(crate::SymbolChangeDetail {
                 symbol_name: old_sym.qualified_name.clone(),
                 file_path: path.to_string(),
