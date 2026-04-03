@@ -2478,47 +2478,62 @@ impl DkodMcp {
             .await
             .unwrap_or_default();
 
-        // Clean up local session state (same pattern as dk_merge success).
-        let snapshot = {
-            let mut sessions = self.sessions.write().await;
-            sessions.remove(&session_id);
-            if sessions.is_empty() {
-                let mut cached = self.grpc_client.lock().await;
-                *cached = None;
+        // Only clean up local session state when the server confirms the close.
+        if response.success {
+            let snapshot = {
+                let mut sessions = self.sessions.write().await;
+                sessions.remove(&session_id);
+                if sessions.is_empty() {
+                    let mut cached = self.grpc_client.lock().await;
+                    *cached = None;
+                }
+                sessions.clone()
+            };
+            crate::state::save_sessions(&snapshot);
+
+            // Cancel NATS task for this session.
+            {
+                let mut cancellations = self.nats_cancellations.lock().await;
+                if let Some(flag) = cancellations.remove(&session_id) {
+                    flag.store(true, std::sync::atomic::Ordering::Release);
+                }
             }
-            sessions.clone()
+            {
+                let mut tasks = self.nats_tasks.lock().await;
+                if let Some(handle) = tasks.remove(&session_id) {
+                    handle.abort();
+                }
+            }
+            {
+                let mut w = self.pending_warnings.lock().await;
+                w.remove(&session_id);
+            }
+
+            // Cancel Watch task for this session.
+            self.cleanup_watch_for_session(&session_id).await;
+        }
+
+        let text = if response.success {
+            format!(
+                "Session closed.\nsession_id: {}\n\n{}\n\nAll resources released. Call dk_connect to start a new session.",
+                response.session_id, response.message,
+            )
+        } else {
+            format!(
+                "Close failed.\nsession_id: {}\n\n{}",
+                response.session_id, response.message,
+            )
         };
-        crate::state::save_sessions(&snapshot);
 
-        // Cancel NATS task for this session.
-        {
-            let mut cancellations = self.nats_cancellations.lock().await;
-            if let Some(flag) = cancellations.remove(&session_id) {
-                flag.store(true, std::sync::atomic::Ordering::Release);
-            }
+        if !response.success {
+            Ok(CallToolResult::error(vec![Content::text(format!(
+                "{prefix}{text}"
+            ))]))
+        } else {
+            Ok(CallToolResult::success(vec![Content::text(format!(
+                "{prefix}{text}"
+            ))]))
         }
-        {
-            let mut tasks = self.nats_tasks.lock().await;
-            if let Some(handle) = tasks.remove(&session_id) {
-                handle.abort();
-            }
-        }
-        {
-            let mut w = self.pending_warnings.lock().await;
-            w.remove(&session_id);
-        }
-
-        // Cancel Watch task for this session.
-        self.cleanup_watch_for_session(&session_id).await;
-
-        let text = format!(
-            "Session closed.\nsession_id: {}\n\n{}\n\nAll resources released. Call dk_connect to start a new session.",
-            response.session_id, response.message,
-        );
-
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "{prefix}{text}"
-        ))]))
     }
 
     // ── Tool 13: dk_watch ──
