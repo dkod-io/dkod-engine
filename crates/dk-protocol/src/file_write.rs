@@ -38,18 +38,18 @@ pub async fn handle_file_write(
         .get_workspace(&sid)
         .ok_or_else(|| Status::not_found("Workspace not found for session"))?;
 
-    // Determine if the file is new (not in base tree) synchronously,
-    // then drop the git_repo before async work to keep future Send.
-    // Capture repo_id here to avoid a redundant second get_repo call later.
-    let (repo_id, is_new) = {
+    // Determine if the file is new (not in base tree) and read old content
+    // in a single get_repo call. Drop git_repo before async work to keep
+    // future Send.
+    let (repo_id, is_new, old_content) = {
         let (rid, git_repo) = engine
             .get_repo(&session.codebase)
             .await
             .map_err(|e| Status::internal(format!("Repo error: {e}")))?;
-        let new = git_repo
-            .read_tree_entry(&ws.base_commit, &req.path)
-            .is_err();
-        (rid, new)
+        match git_repo.read_tree_entry(&ws.base_commit, &req.path) {
+            Ok(bytes) => (rid, false, bytes),
+            Err(_) => (rid, true, Vec::new()),
+        }
     };
     let repo_id_str = repo_id.to_string();
 
@@ -73,26 +73,6 @@ pub async fn handle_file_write(
         .changeset_store()
         .upsert_file(changeset_id, &req.path, op, content_str)
         .await;
-
-    // Fetch old file content from base commit for per-symbol text diffing.
-    // If file is new, old_content is empty — all symbols are "added".
-    let old_content: Vec<u8> = if is_new {
-        Vec::new()
-    } else {
-        let (_rid, git_repo) = engine
-            .get_repo(&session.codebase)
-            .await
-            .map_err(|e| Status::internal(format!("Repo error: {e}")))?;
-        let ws = engine
-            .workspace_manager()
-            .get_workspace(&sid)
-            .ok_or_else(|| Status::not_found("Workspace not found"))?;
-        let base = ws.base_commit.clone();
-        drop(ws);
-        git_repo
-            .read_tree_entry(&base, &req.path)
-            .unwrap_or_default()
-    };
 
     // Detect symbol changes by diffing old vs new file content.
     // Only symbols whose source text actually changed are reported.
@@ -267,19 +247,17 @@ fn detect_symbol_changes_diffed(
         }
     };
 
-    // Build a map of old symbol qualified_name → source text
-    let old_symbol_text: std::collections::HashMap<&str, &[u8]> = old_symbols
-        .iter()
-        .filter_map(|sym| {
-            let start = sym.span.start_byte as usize;
-            let end = sym.span.end_byte as usize;
-            if end <= old_content.len() {
-                Some((sym.qualified_name.as_str(), &old_content[start..end]))
-            } else {
-                None
-            }
-        })
-        .collect();
+    // Build a map of old symbol qualified_name → source text.
+    // Use entry().or_insert() to keep the first occurrence when duplicate
+    // qualified names exist (e.g., overloaded methods in Java/Kotlin/C#).
+    let mut old_symbol_text: std::collections::HashMap<&str, &[u8]> = std::collections::HashMap::new();
+    for sym in &old_symbols {
+        let start = sym.span.start_byte as usize;
+        let end = sym.span.end_byte as usize;
+        if end <= old_content.len() {
+            old_symbol_text.entry(sym.qualified_name.as_str()).or_insert(&old_content[start..end]);
+        }
+    }
 
     let mut detected_changes = Vec::new();
     let mut all_details = Vec::new();
