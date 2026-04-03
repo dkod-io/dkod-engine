@@ -222,4 +222,13 @@ impl crate::agent_service_server::AgentService for ProtocolServer {
             "resolve is a platform-level operation; use the managed server",
         ))
     }
+
+    async fn close(
+        &self,
+        _request: Request<crate::CloseRequest>,
+    ) -> Result<Response<crate::CloseResponse>, Status> {
+        Err(Status::unimplemented(
+            "close is a platform-level operation; use the managed server",
+        ))
+    }
 }

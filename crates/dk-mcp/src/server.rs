@@ -185,6 +185,12 @@ struct PushParams {
 }
 
 #[derive(Deserialize, JsonSchema)]
+struct CloseParams {
+    /// Session ID from dk_connect (required when multiple sessions are active)
+    session_id: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
 struct WatchParams {
     /// Session ID from dk_connect (required when multiple sessions are active)
     session_id: Option<String>,
@@ -2437,7 +2443,85 @@ impl DkodMcp {
         ))]))
     }
 
-    // ── Tool 12: dk_watch ──
+    // ── Tool 12: dk_close ──
+
+    /// Close the current session, destroy its workspace, and release all resources.
+    #[tool(
+        description = "Close the current session and abandon any pending changeset. Releases symbol claims and resolves conflicts. Use when a changeset is stuck or no longer needed."
+    )]
+    async fn dk_close(
+        &self,
+        Parameters(params): Parameters<CloseParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let CloseParams {
+            session_id: param_session_id,
+        } = params;
+
+        let session = self.resolve_session(param_session_id.as_deref()).await?;
+        let session_id = session.session_id.clone();
+
+        let mut client = self.get_client().await?;
+
+        let request = crate::CloseRequest {
+            session_id: session_id.clone(),
+        };
+
+        let response = client
+            .close(request)
+            .await
+            .map_err(|e| McpError::internal_error(format!("CLOSE RPC failed: {e}"), None))?
+            .into_inner();
+
+        // Drain warnings BEFORE removing session so they appear in the response.
+        let prefix = self
+            .drain_notifications(&session_id)
+            .await
+            .unwrap_or_default();
+
+        // Clean up local session state (same pattern as dk_merge success).
+        let snapshot = {
+            let mut sessions = self.sessions.write().await;
+            sessions.remove(&session_id);
+            if sessions.is_empty() {
+                let mut cached = self.grpc_client.lock().await;
+                *cached = None;
+            }
+            sessions.clone()
+        };
+        crate::state::save_sessions(&snapshot);
+
+        // Cancel NATS task for this session.
+        {
+            let mut cancellations = self.nats_cancellations.lock().await;
+            if let Some(flag) = cancellations.remove(&session_id) {
+                flag.store(true, std::sync::atomic::Ordering::Release);
+            }
+        }
+        {
+            let mut tasks = self.nats_tasks.lock().await;
+            if let Some(handle) = tasks.remove(&session_id) {
+                handle.abort();
+            }
+        }
+        {
+            let mut w = self.pending_warnings.lock().await;
+            w.remove(&session_id);
+        }
+
+        // Cancel Watch task for this session.
+        self.cleanup_watch_for_session(&session_id).await;
+
+        let text = format!(
+            "Session closed.\nsession_id: {}\n\n{}\n\nAll resources released. Call dk_connect to start a new session.",
+            response.session_id, response.message,
+        );
+
+        Ok(CallToolResult::success(vec![Content::text(format!(
+            "{prefix}{text}"
+        ))]))
+    }
+
+    // ── Tool 13: dk_watch ──
 
     /// Subscribe to real-time codebase events from other agents.
     #[tool(

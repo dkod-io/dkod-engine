@@ -36,6 +36,9 @@ service AgentService {
 
   // Resolve conflicts on a changeset
   rpc Resolve(ResolveRequest) returns (ResolveResponse);
+
+  // Close a session and destroy its workspace
+  rpc Close(CloseRequest) returns (CloseResponse);
 }
 
 // ── CONNECT ──
@@ -462,4 +465,16 @@ message ResolveResponse {
   string message = 4;
   int32 conflicts_resolved = 5;
   int32 conflicts_remaining = 6;
+}
+
+// --- CLOSE ---
+
+message CloseRequest {
+  string session_id = 1;
+}
+
+message CloseResponse {
+  bool success = 1;
+  string message = 2;
+  string session_id = 3;
 }
