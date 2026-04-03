@@ -48,7 +48,17 @@ pub async fn handle_file_write(
             .map_err(|e| Status::internal(format!("Repo error: {e}")))?;
         match git_repo.read_tree_entry(&ws.base_commit, &req.path) {
             Ok(bytes) => (rid, false, bytes),
-            Err(_) => (rid, true, Vec::new()),
+            Err(e) => {
+                // File not in base tree — treat as new. Log the error in case
+                // it's a transient git failure rather than a genuine "not found".
+                warn!(
+                    path = %req.path,
+                    base_commit = %ws.base_commit,
+                    error = %e,
+                    "read_tree_entry failed — treating file as new"
+                );
+                (rid, true, Vec::new())
+            }
         }
     };
     let repo_id_str = repo_id.to_string();
@@ -262,15 +272,14 @@ fn detect_symbol_changes_diffed(
     let mut detected_changes = Vec::new();
     let mut all_details = Vec::new();
 
-    // Deduplicate new symbols by keeping first occurrence, mirroring old-symbol handling.
-    let mut new_symbol_first: std::collections::HashMap<&str, &dk_core::Symbol> =
-        std::collections::HashMap::new();
-    for sym in &new_symbols {
-        new_symbol_first.entry(sym.qualified_name.as_str()).or_insert(sym);
-    }
+    // Deduplicate new symbols while preserving original parse order.
+    let mut seen_new: std::collections::HashSet<&str> = std::collections::HashSet::new();
 
     // Compare each deduplicated new symbol against its old version
-    for sym in new_symbol_first.values() {
+    for sym in &new_symbols {
+        if !seen_new.insert(sym.qualified_name.as_str()) {
+            continue; // duplicate qualified name — already handled
+        }
         let start = sym.span.start_byte as usize;
         let end = sym.span.end_byte as usize;
         let new_text = if start <= end && end <= new_content.len() {
@@ -323,13 +332,14 @@ fn detect_symbol_changes_diffed(
         .collect();
     for old_name in &old_names {
         if !new_names.contains(old_name) {
-            let old_sym = old_symbols.iter().find(|s| s.qualified_name.as_str() == *old_name).expect("old_name must map to a symbol in old_symbols");
-            all_details.push(crate::SymbolChangeDetail {
-                symbol_name: old_sym.qualified_name.clone(),
-                file_path: path.to_string(),
-                change_type: "deleted".to_string(),
-                kind: old_sym.kind.to_string(),
-            });
+            if let Some(old_sym) = old_symbols.iter().find(|s| s.qualified_name.as_str() == *old_name) {
+                all_details.push(crate::SymbolChangeDetail {
+                    symbol_name: old_sym.qualified_name.clone(),
+                    file_path: path.to_string(),
+                    change_type: "deleted".to_string(),
+                    kind: old_sym.kind.to_string(),
+                });
+            }
         }
     }
 
