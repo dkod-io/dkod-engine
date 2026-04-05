@@ -242,6 +242,8 @@ message MergeRequest {
   string changeset_id = 2;
   string commit_message = 3;
   bool force = 4;
+  string author_name = 5;   // Git commit author name (falls back to agent name if empty)
+  string author_email = 6;  // Git commit author email (falls back to {agent}@dkod.dev if empty)
 }
 
 message MergeResponse {

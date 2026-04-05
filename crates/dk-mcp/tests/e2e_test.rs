@@ -82,6 +82,8 @@ mod tests {
                 changeset_id,
                 commit_message: "Added greeting function".to_string(),
                 force: false,
+                author_name: String::new(),
+                author_email: String::new(),
             })
             .await
             .expect("MERGE should succeed");

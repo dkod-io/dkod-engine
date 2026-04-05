@@ -2024,6 +2024,8 @@ impl DkodMcp {
             changeset_id,
             commit_message: message.unwrap_or_default(),
             force: force.unwrap_or(false),
+            author_name: String::new(),
+            author_email: String::new(),
         };
 
         let response = client
