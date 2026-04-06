@@ -63,17 +63,8 @@ pub async fn handle_merge(
 
     let agent = changeset.agent_id.as_deref().unwrap_or("agent");
 
-    // Fall back to agent identity when the caller doesn't supply author info
-    let effective_name: String = if req.author_name.is_empty() {
-        agent.to_string()
-    } else {
-        req.author_name.clone()
-    };
-    let effective_email: String = if req.author_email.is_empty() {
-        format!("{}@dkod.dev", agent)
-    } else {
-        req.author_email.clone()
-    };
+    let (effective_name, effective_email) =
+        dk_core::resolve_author(&req.author_name, &req.author_email, agent);
 
     // Capture affected files from workspace overlay before merge/drop
     let affected_files: Vec<crate::FileChange> = ws.overlay.list_changes()

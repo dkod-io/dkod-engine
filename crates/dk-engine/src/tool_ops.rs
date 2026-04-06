@@ -638,10 +638,8 @@ impl Engine {
         let agent = changeset.agent_id.as_deref().unwrap_or("agent");
         let commit_message = message.unwrap_or("merge changeset");
 
-        // Fall back to agent identity when the caller doesn't supply author info
-        let effective_name = if author_name.is_empty() { agent } else { author_name };
-        let fallback_email = format!("{agent}@dkod.dev");
-        let effective_email = if author_email.is_empty() { &fallback_email } else { author_email };
+        let (effective_name, effective_email) =
+            dk_core::resolve_author(author_name, author_email, agent);
 
         let (_, git_repo) = self.get_repo_by_db_id(repo_id).await?;
 
