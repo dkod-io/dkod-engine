@@ -654,8 +654,8 @@ impl Engine {
                 &git_repo,
                 self.parser(),
                 commit_message,
-                effective_name,
-                effective_email,
+                &effective_name,
+                &effective_email,
             )?
         };
         drop(git_repo);

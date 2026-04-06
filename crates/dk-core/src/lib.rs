@@ -31,3 +31,29 @@ pub fn resolve_author(name: &str, email: &str, agent: &str) -> (String, String) 
     };
     (effective_name, effective_email)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_author_uses_supplied_values() {
+        let (name, email) = resolve_author("Alice", "alice@example.com", "agent-1");
+        assert_eq!(name, "Alice");
+        assert_eq!(email, "alice@example.com");
+    }
+
+    #[test]
+    fn resolve_author_falls_back_to_agent() {
+        let (name, email) = resolve_author("", "", "agent-1");
+        assert_eq!(name, "agent-1");
+        assert_eq!(email, "agent-1@dkod.dev");
+    }
+
+    #[test]
+    fn resolve_author_sanitizes_newlines_and_nulls() {
+        let (name, email) = resolve_author("Al\nice\0", "al\rice@\nex.com", "agent-1");
+        assert_eq!(name, "Alice");
+        assert_eq!(email, "alice@ex.com");
+    }
+}
