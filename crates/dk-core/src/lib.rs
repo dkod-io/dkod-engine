@@ -19,13 +19,14 @@ fn sanitize_author_field(s: &str) -> String {
 /// Resolve the effective git author name and email for a merge commit.
 /// Falls back to the agent identity when the caller supplies empty strings.
 pub fn resolve_author(name: &str, email: &str, agent: &str) -> (String, String) {
+    let safe_agent = sanitize_author_field(agent);
     let effective_name = if name.is_empty() {
-        agent.to_string()
+        safe_agent.clone()
     } else {
         sanitize_author_field(name)
     };
     let effective_email = if email.is_empty() {
-        format!("{}@dkod.dev", agent)
+        format!("{}@dkod.dev", safe_agent)
     } else {
         sanitize_author_field(email)
     };
