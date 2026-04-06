@@ -154,7 +154,7 @@ enum ChangeType {
 
 message ReviewSummary {
   string tier = 1;
-  int32 score = 2;
+  optional int32 score = 2;
   int32 findings_count = 3;
   string top_severity = 4;
 }

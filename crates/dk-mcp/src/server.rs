@@ -2691,7 +2691,7 @@ impl DkodMcp {
                         f.category.to_uppercase(),
                         f.file_path,
                         line_info,
-                        (f.confidence * 100.0) as u32,
+                        (f.confidence.clamp(0.0, 1.0) * 100.0) as u32,
                         dismissed,
                         f.message,
                     ));
