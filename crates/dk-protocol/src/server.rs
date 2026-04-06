@@ -231,4 +231,13 @@ impl crate::agent_service_server::AgentService for ProtocolServer {
             "close is a platform-level operation; use the managed server",
         ))
     }
+
+    async fn review(
+        &self,
+        _request: Request<crate::ReviewRequest>,
+    ) -> Result<Response<crate::ReviewResponse>, Status> {
+        Err(Status::unimplemented(
+            "review is a platform-level operation; use the managed server",
+        ))
+    }
 }

@@ -198,6 +198,14 @@ struct WatchParams {
     filter: Option<String>,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+struct ReviewParams {
+    /// Session ID from dk_connect (required when multiple sessions are active)
+    session_id: Option<String>,
+    /// The changeset ID to get review results for. If omitted, uses the current session's changeset.
+    changeset_id: Option<String>,
+}
+
 /// MCP server that bridges Claude Code to the dkod Agent Protocol via gRPC.
 #[derive(Clone)]
 pub struct DkodMcp {
@@ -2615,6 +2623,87 @@ impl DkodMcp {
         Ok(CallToolResult::success(vec![Content::text(format!(
             "{prefix}{text}"
         ))]))
+    }
+
+    // ── Tool 14: dk_review ──
+
+    #[tool(description = "Get code review results for a changeset. Returns review score (1-5), findings with severity/category/message/suggestion, and confidence levels. Call after dk_submit to see full review details, or at any time to query an older changeset's review.")]
+    async fn dk_review(
+        &self,
+        Parameters(params): Parameters<ReviewParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let ReviewParams {
+            session_id: param_session_id,
+            changeset_id: param_changeset_id,
+        } = params;
+
+        let session = self.resolve_session(param_session_id.as_deref()).await?;
+        let changeset_id = param_changeset_id.unwrap_or_else(|| session.changeset_id.clone());
+
+        let mut client = self.get_client().await?;
+
+        let request = crate::ReviewRequest {
+            session_id: session.session_id.clone(),
+            changeset_id: changeset_id.clone(),
+        };
+
+        let response = client
+            .review(request)
+            .await
+            .map_err(|e| McpError::internal_error(format!("REVIEW RPC failed: {e}"), None))?
+            .into_inner();
+
+        if response.reviews.is_empty() {
+            return Ok(CallToolResult::success(vec![Content::text(
+                "No review data yet. Review runs automatically after dk_submit.",
+            )]));
+        }
+
+        let mut output = String::new();
+        for review in &response.reviews {
+            let score_str = review
+                .score
+                .map(|s| format!("{}/5", s))
+                .unwrap_or_else(|| "--".to_string());
+            output.push_str(&format!(
+                "## {} Review — Score: {}\n\n",
+                review.tier.to_uppercase(),
+                score_str
+            ));
+
+            if let Some(summary) = &review.summary {
+                output.push_str(&format!("{}\n\n", summary));
+            }
+
+            if review.findings.is_empty() {
+                output.push_str("No findings.\n\n");
+            } else {
+                for f in &review.findings {
+                    let line_info = match (f.line_start, f.line_end) {
+                        (Some(s), Some(e)) if s != e => format!(":{}–{}", s, e),
+                        (Some(s), _) => format!(":{}", s),
+                        _ => String::new(),
+                    };
+                    let dismissed = if f.dismissed { " [DISMISSED]" } else { "" };
+                    output.push_str(&format!(
+                        "- **{}** `{}` {}{} ({}% confidence){}\n  {}\n",
+                        f.severity.to_uppercase(),
+                        f.category.to_uppercase(),
+                        f.file_path,
+                        line_info,
+                        (f.confidence.clamp(0.0, 1.0) * 100.0) as u32,
+                        dismissed,
+                        f.message,
+                    ));
+                    if let Some(suggestion) = &f.suggestion {
+                        output.push_str(&format!("  → {}\n", suggestion));
+                    }
+                }
+                output.push('\n');
+            }
+        }
+
+        Ok(CallToolResult::success(vec![Content::text(output)]))
     }
 }
 

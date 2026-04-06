@@ -39,6 +39,9 @@ service AgentService {
 
   // Close a session and destroy its workspace
   rpc Close(CloseRequest) returns (CloseResponse);
+
+  // Get code review results for a changeset
+  rpc Review(ReviewRequest) returns (ReviewResponse);
 }
 
 // ── CONNECT ──
@@ -149,12 +152,20 @@ enum ChangeType {
   ADD_DEPENDENCY = 5;
 }
 
+message ReviewSummary {
+  string tier = 1;
+  optional int32 score = 2;
+  int32 findings_count = 3;
+  string top_severity = 4;
+}
+
 message SubmitResponse {
   SubmitStatus status = 1;
   string changeset_id = 2;
   optional string new_version = 3;
   repeated SubmitError errors = 4;
   optional SubmitConflictBlock conflict_block = 5;
+  optional ReviewSummary review_summary = 6;
 }
 
 message SubmitSymbolVersion {
@@ -311,6 +322,39 @@ message WatchEvent {
   repeated SymbolChangeDetail symbol_changes = 8;
   string repo_id = 9;
   string event_id = 10;  // UUID for deduplication
+}
+
+// ── Code Review ──
+
+message ReviewRequest {
+  string session_id = 1;
+  string changeset_id = 2;
+}
+
+message ReviewFindingProto {
+  string id = 1;
+  string file_path = 2;
+  optional int32 line_start = 3;
+  optional int32 line_end = 4;
+  string severity = 5;
+  string category = 6;
+  string message = 7;
+  optional string suggestion = 8;
+  float confidence = 9;
+  bool dismissed = 10;
+}
+
+message ReviewResultProto {
+  string id = 1;
+  string tier = 2;
+  optional int32 score = 3;
+  optional string summary = 4;
+  repeated ReviewFindingProto findings = 5;
+  string created_at = 6;
+}
+
+message ReviewResponse {
+  repeated ReviewResultProto reviews = 1;
 }
 
 // --- FILE OPERATIONS ---

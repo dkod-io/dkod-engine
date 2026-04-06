@@ -187,6 +187,7 @@ pub async fn handle_submit(
                 file_path: None,
             }],
             conflict_block: None,
+            review_summary: None,
         }));
     }
 
@@ -231,6 +232,7 @@ pub async fn handle_submit(
             new_version: None,
             errors,
             conflict_block: None,
+            review_summary: None,
         }));
     }
 
@@ -251,6 +253,7 @@ pub async fn handle_submit(
                 file_path: None,
             }],
             conflict_block: None,
+            review_summary: None,
         }));
     }
 
@@ -372,5 +375,6 @@ pub async fn handle_submit(
         new_version: Some(new_version),
         errors: vec![],
         conflict_block: None,
+        review_summary: None,
     }))
 }
