@@ -89,7 +89,7 @@ pub async fn handle_connect(
 
     let (repo_id, version, summary) = {
         let (repo_id, git_repo) = engine
-            .get_repo(&req.codebase)
+            .get_repo(&req.codebase, None)
             .await
             .map_err(|e| Status::not_found(format!("Repository not found: {e}")))?;
 

@@ -48,7 +48,7 @@ pub async fn handle_verify(
     }
 
     // Resolve repo_id for enriched events
-    let repo_id_str = match engine.get_repo(&session.codebase).await {
+    let repo_id_str = match engine.get_repo(&session.codebase, None).await {
         Ok((rid, _)) => rid.to_string(),
         Err(_) => String::new(),
     };

@@ -194,7 +194,7 @@ impl Engine {
         session_id: Uuid,
         changeset_id: Uuid,
     ) -> dk_core::Result<ToolConnectResult> {
-        let (repo_id, git_repo) = self.get_repo(repo_name).await?;
+        let (repo_id, git_repo) = self.get_repo(repo_name, None).await?;
         let head = git_repo
             .head_hash()?
             .unwrap_or_else(|| "initial".to_string());

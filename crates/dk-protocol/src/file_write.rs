@@ -43,7 +43,7 @@ pub async fn handle_file_write(
     // future Send.
     let (repo_id, is_new, old_content) = {
         let (rid, git_repo) = engine
-            .get_repo(&session.codebase)
+            .get_repo(&session.codebase, None)
             .await
             .map_err(|e| Status::internal(format!("Repo error: {e}")))?;
         match git_repo.read_tree_entry(&ws.base_commit, &req.path) {

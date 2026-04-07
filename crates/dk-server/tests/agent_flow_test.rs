@@ -33,7 +33,7 @@ async fn test_agent_flow_connect_context_submit() {
     // Create a repo with a unique name to avoid collisions.
     let repo_name = format!("test/agent-flow-{}", uuid::Uuid::new_v4());
     let repo_id = engine.create_repo(&repo_name).await.unwrap();
-    let (_, git_repo) = engine.get_repo(&repo_name).await.unwrap();
+    let (_, git_repo) = engine.get_repo(&repo_name, None).await.unwrap();
 
     // Write a Rust source file into the repo's working directory.
     let src_dir = git_repo.path().join("src");

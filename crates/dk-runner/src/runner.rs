@@ -35,7 +35,7 @@ impl Runner {
         tx: mpsc::Sender<StepResult>,
     ) -> Result<bool> {
         let (repo_id, repo_dir) = {
-            let (repo_id, git_repo) = self.engine.get_repo(repo_name).await?;
+            let (repo_id, git_repo) = self.engine.get_repo(repo_name, None).await?;
             // GitRepository::path() already returns the working tree directory
             (repo_id, git_repo.path().to_path_buf())
         };

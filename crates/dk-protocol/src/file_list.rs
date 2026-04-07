@@ -38,7 +38,7 @@ pub async fn handle_file_list(
 
     // Get git repo for base-tree listing
     let (_repo_id, git_repo) = engine
-        .get_repo(&session.codebase)
+        .get_repo(&session.codebase, None)
         .await
         .map_err(|e| Status::internal(format!("Repo error: {e}")))?;
 

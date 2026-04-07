@@ -35,7 +35,7 @@ pub async fn handle_pre_submit_check(
 
     // Get git repo to read HEAD
     let (_repo_id, git_repo) = engine
-        .get_repo(&session.codebase)
+        .get_repo(&session.codebase, None)
         .await
         .map_err(|e| Status::internal(format!("Repo error: {e}")))?;
 

@@ -180,19 +180,23 @@ impl Engine {
 
     /// Look up a repository by name.
     ///
-    /// Tries an exact match on the `name` column first. If `name` contains
-    /// a `/` (e.g. `"owner/repo"`), also tries matching the short name
-    /// after the slash. This handles callers that pass a full GitHub name
-    /// when the DB stores only the short name.
+    /// Tries an exact match on the `name` column first. If `owner_id` is
+    /// provided **and** `name` contains a `/` (e.g. `"owner/repo"`), also
+    /// tries matching the short name after the slash — but only for repos
+    /// belonging to the given `owner_id`. This two-step lookup handles
+    /// callers that pass a full GitHub name when the DB stores only the
+    /// short name, while preventing cross-owner access.
     ///
-    /// **Note:** The short-name fallback matches on `name` alone and does
-    /// not verify the owner prefix. In a multi-tenant deployment the
-    /// platform layer must enforce owner-scoped access *before* calling
-    /// this method. The engine logs a warning when the fallback fires so
-    /// unexpected matches are observable.
+    /// Pass `None` for `owner_id` to use exact-match only (the pre-PR
+    /// behaviour). The platform layer should pass the authenticated user's
+    /// `owner_id` so the fallback is scoped to their repos.
     ///
     /// Returns the `RepoId` and an opened `GitRepository` handle.
-    pub async fn get_repo(&self, name: &str) -> Result<(RepoId, GitRepository)> {
+    pub async fn get_repo(
+        &self,
+        name: &str,
+        owner_id: Option<Uuid>,
+    ) -> Result<(RepoId, GitRepository)> {
         let row: Option<(Uuid, String)> = sqlx::query_as(
             "SELECT id, path FROM repositories WHERE name = $1",
         )
@@ -200,24 +204,28 @@ impl Engine {
         .fetch_optional(&self.db)
         .await?;
 
-        // Fallback: if the caller passed "owner/repo", try matching just "repo".
+        // Owner-scoped fallback: only fires when an owner_id is provided
+        // AND the name contains '/'. The fallback query requires the repo's
+        // owner_id to match, preventing cross-owner resolution.
         let row = match row {
             Some(r) => r,
-            None if name.contains('/') => {
+            None if name.contains('/') && owner_id.is_some() => {
+                let oid = owner_id.expect("checked is_some above");
                 let short = name.rsplit('/').next().expect("contains '/' was checked above");
-                let fallback_row: Option<(Uuid, String)> =
-                    sqlx::query_as("SELECT id, path FROM repositories WHERE name = $1")
-                        .bind(short)
-                        .fetch_optional(&self.db)
-                        .await?;
+                let fallback_row: Option<(Uuid, String)> = sqlx::query_as(
+                    "SELECT id, path FROM repositories WHERE name = $1 AND owner_id = $2",
+                )
+                .bind(short)
+                .bind(oid)
+                .fetch_optional(&self.db)
+                .await?;
                 match fallback_row {
                     Some(r) => {
-                        tracing::warn!(
+                        tracing::info!(
                             requested = %name,
                             matched = %short,
-                            "get_repo: short-name fallback matched — \
-                             caller requested full name but DB stores short name; \
-                             the owner prefix was not verified"
+                            owner_id = %oid,
+                            "get_repo: owner-scoped short-name fallback matched"
                         );
                         r
                     }

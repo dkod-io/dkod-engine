@@ -49,7 +49,7 @@ pub async fn handle_context(
 
     let (symbol_results, call_edges) = {
         let (repo_id, git_repo) = engine
-            .get_repo(&session.codebase)
+            .get_repo(&session.codebase, None)
             .await
             .map_err(|e| Status::internal(format!("Repo error: {e}")))?;
 
@@ -187,7 +187,7 @@ pub async fn handle_context(
         call_graph: call_edges,
         dependencies: if req.include_dependencies {
             let (repo_id, _git_repo) = engine
-                .get_repo(&session.codebase)
+                .get_repo(&session.codebase, None)
                 .await
                 .map_err(|e| Status::internal(format!("Repo error: {e}")))?;
 
