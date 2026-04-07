@@ -180,15 +180,30 @@ impl Engine {
 
     /// Look up a repository by name.
     ///
-    /// Returns the `RepoId` and an opened `GitRepository` handle.
+    /// Tries exact match first, then a fallback that handles mismatches
+    /// between full names (`"owner/repo"`) and short names (`"repo"`).
     pub async fn get_repo(&self, name: &str) -> Result<(RepoId, GitRepository)> {
-        let row: (Uuid, String) = sqlx::query_as(
+        // Exact match.
+        let row: Option<(Uuid, String)> = sqlx::query_as(
             "SELECT id, path FROM repositories WHERE name = $1",
         )
         .bind(name)
         .fetch_optional(&self.db)
-        .await?
-        .ok_or_else(|| Error::RepoNotFound(name.to_string()))?;
+        .await?;
+
+        // Fallback: input "owner/repo" but DB stores "repo", or vice versa.
+        let row = match row {
+            Some(r) => r,
+            None => sqlx::query_as(
+                "SELECT id, path FROM repositories \
+                 WHERE split_part(name, '/', 2) = $1 \
+                    OR name = split_part($1, '/', 2)",
+            )
+            .bind(name)
+            .fetch_optional(&self.db)
+            .await?
+            .ok_or_else(|| Error::RepoNotFound(name.to_string()))?,
+        };
 
         let (repo_id, repo_path) = row;
         let git_repo = GitRepository::open(Path::new(&repo_path))?;
