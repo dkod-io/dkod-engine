@@ -198,7 +198,7 @@ impl Engine {
         let row = match row {
             Some(r) => r,
             None if name.contains('/') => {
-                let short = name.rsplit('/').next().unwrap_or(name);
+                let short = name.rsplit('/').next().expect("contains '/' was checked above");
                 sqlx::query_as("SELECT id, path FROM repositories WHERE name = $1")
                     .bind(short)
                     .fetch_optional(&self.db)
