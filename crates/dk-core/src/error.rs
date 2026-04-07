@@ -5,6 +5,9 @@ pub enum Error {
     #[error("Repository not found: {0}")]
     RepoNotFound(String),
 
+    #[error("Ambiguous repository name: {0}")]
+    AmbiguousRepoName(String),
+
     #[error("Symbol not found: {0}")]
     SymbolNotFound(String),
 

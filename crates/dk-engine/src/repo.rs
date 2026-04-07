@@ -192,17 +192,27 @@ impl Engine {
         .await?;
 
         // Fallback: input "owner/repo" but DB stores "repo", or vice versa.
+        // Guard: the second OR branch only fires when $1 contains '/' to
+        // avoid matching empty-name rows via split_part returning ''.
+        // Uses fetch_all to detect ambiguity when multiple repos share a
+        // short name, instead of silently returning an arbitrary first row.
         let row = match row {
             Some(r) => r,
-            None => sqlx::query_as(
-                "SELECT id, path FROM repositories \
-                 WHERE split_part(name, '/', 2) = $1 \
-                    OR name = split_part($1, '/', 2)",
-            )
-            .bind(name)
-            .fetch_optional(&self.db)
-            .await?
-            .ok_or_else(|| Error::RepoNotFound(name.to_string()))?,
+            None => {
+                let mut rows: Vec<(Uuid, String)> = sqlx::query_as(
+                    "SELECT id, path FROM repositories \
+                     WHERE split_part(name, '/', 2) = $1 \
+                        OR (name = split_part($1, '/', 2) AND $1 LIKE '%/%')",
+                )
+                .bind(name)
+                .fetch_all(&self.db)
+                .await?;
+                match rows.len() {
+                    0 => return Err(Error::RepoNotFound(name.to_string())),
+                    1 => rows.remove(0),
+                    _ => return Err(Error::AmbiguousRepoName(name.to_string())),
+                }
+            }
         };
 
         let (repo_id, repo_path) = row;
