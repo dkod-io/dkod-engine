@@ -87,9 +87,18 @@ pub async fn handle_connect(
     //      the future remains Send.
     let engine = server.engine();
 
+    // Parse owner_id from the request if present. The platform passes the
+    // authenticated user's UUID so the short-name fallback is scoped to
+    // their repos, preventing cross-owner resolution.
+    let owner_id: Option<uuid::Uuid> = req
+        .owner_id
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .and_then(|s| s.parse().ok());
+
     let (repo_id, version, summary) = {
         let (repo_id, git_repo) = engine
-            .get_repo(&req.codebase, None)
+            .get_repo(&req.codebase, owner_id)
             .await
             .map_err(|e| Status::not_found(format!("Repository not found: {e}")))?;
 

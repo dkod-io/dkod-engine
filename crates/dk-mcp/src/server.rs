@@ -967,6 +967,7 @@ impl DkodMcp {
             intent: intent.clone(),
             workspace_config: None,
             agent_name: agent_name.clone().unwrap_or_default(),
+            owner_id: None,
         };
 
         let result = client.connect(request).await;
@@ -1000,6 +1001,7 @@ impl DkodMcp {
                     intent: intent.clone(),
                     workspace_config: None,
                     agent_name: agent_name.unwrap_or_default(),
+                    owner_id: None,
                 };
                 client
                     .connect(retry_request)

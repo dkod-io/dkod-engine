@@ -221,7 +221,7 @@ impl Engine {
                 .await?;
                 match fallback_row {
                     Some(r) => {
-                        tracing::info!(
+                        tracing::warn!(
                             requested = %name,
                             matched = %short,
                             owner_id = %oid,

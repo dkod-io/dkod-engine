@@ -79,6 +79,7 @@ pub fn validate_token(token: &str) -> Result<String, String> {
             intent: "Testing agent flow".into(),
             workspace_config: None,
             agent_name: String::new(),
+            owner_id: None,
         }))
         .await
         .unwrap()
@@ -214,6 +215,7 @@ async fn test_connect_invalid_auth() {
             intent: "test".into(),
             workspace_config: None,
             agent_name: String::new(),
+            owner_id: None,
         }))
         .await;
 
@@ -293,6 +295,7 @@ async fn test_submit_modify_nonexistent_file() {
             intent: "test submit error".into(),
             workspace_config: None,
             agent_name: String::new(),
+            owner_id: None,
         }))
         .await
         .unwrap()

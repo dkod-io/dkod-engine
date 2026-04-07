@@ -27,6 +27,7 @@ mod tests {
                 intent: "Test the full flow".to_string(),
                 workspace_config: None,
                 agent_name: String::new(),
+                owner_id: None,
             })
             .await
             .expect("CONNECT should succeed");
