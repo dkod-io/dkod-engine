@@ -33,7 +33,7 @@ pub async fn handle_watch(
     } else {
         // Try to resolve repo_id from the session's codebase name.
         match server.engine().get_repo(&session.codebase, None).await {
-            Ok((rid, _git_repo)) => rid.to_string(),
+            Ok((rid, _git_repo, _)) => rid.to_string(),
             Err(_) => {
                 // Fall back to subscribe_all if we can't resolve the repo.
                 String::new()

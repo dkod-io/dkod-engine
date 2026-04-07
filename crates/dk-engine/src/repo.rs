@@ -196,9 +196,9 @@ impl Engine {
         &self,
         name: &str,
         owner_id: Option<Uuid>,
-    ) -> Result<(RepoId, GitRepository)> {
-        let row: Option<(Uuid, String)> = sqlx::query_as(
-            "SELECT id, path FROM repositories WHERE name = $1",
+    ) -> Result<(RepoId, GitRepository, String)> {
+        let row: Option<(Uuid, String, String)> = sqlx::query_as(
+            "SELECT id, path, name FROM repositories WHERE name = $1",
         )
         .bind(name)
         .fetch_optional(&self.db)
@@ -212,8 +212,8 @@ impl Engine {
             None if name.contains('/') && owner_id.is_some() => {
                 let oid = owner_id.expect("checked is_some above");
                 let short = name.rsplit('/').next().expect("contains '/' was checked above");
-                let fallback_row: Option<(Uuid, String)> = sqlx::query_as(
-                    "SELECT id, path FROM repositories WHERE name = $1 AND owner_id = $2",
+                let fallback_row: Option<(Uuid, String, String)> = sqlx::query_as(
+                    "SELECT id, path, name FROM repositories WHERE name = $1 AND owner_id = $2",
                 )
                 .bind(short)
                 .bind(oid)
@@ -235,9 +235,9 @@ impl Engine {
             None => return Err(Error::RepoNotFound(name.to_string())),
         };
 
-        let (repo_id, repo_path) = row;
+        let (repo_id, repo_path, canonical_name) = row;
         let git_repo = GitRepository::open(Path::new(&repo_path))?;
-        Ok((repo_id, git_repo))
+        Ok((repo_id, git_repo, canonical_name))
     }
 
     /// Look up a repository by its UUID.

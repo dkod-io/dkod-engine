@@ -42,7 +42,7 @@ pub async fn handle_file_write(
     // in a single get_repo call. Drop git_repo before async work to keep
     // future Send.
     let (repo_id, is_new, old_content) = {
-        let (rid, git_repo) = engine
+        let (rid, git_repo, _) = engine
             .get_repo(&session.codebase, None)
             .await
             .map_err(|e| Status::internal(format!("Repo error: {e}")))?;

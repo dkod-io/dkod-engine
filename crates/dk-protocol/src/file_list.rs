@@ -37,7 +37,7 @@ pub async fn handle_file_list(
         .ok_or_else(|| Status::not_found("Workspace not found for session"))?;
 
     // Get git repo for base-tree listing
-    let (_repo_id, git_repo) = engine
+    let (_repo_id, git_repo, _) = engine
         .get_repo(&session.codebase, None)
         .await
         .map_err(|e| Status::internal(format!("Repo error: {e}")))?;

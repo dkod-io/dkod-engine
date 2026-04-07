@@ -34,7 +34,7 @@ pub async fn handle_pre_submit_check(
         .ok_or_else(|| Status::not_found("Workspace not found for session"))?;
 
     // Get git repo to read HEAD
-    let (_repo_id, git_repo) = engine
+    let (_repo_id, git_repo, _) = engine
         .get_repo(&session.codebase, None)
         .await
         .map_err(|e| Status::internal(format!("Repo error: {e}")))?;

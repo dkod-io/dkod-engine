@@ -103,8 +103,8 @@ pub async fn handle_connect(
             }).ok()
         });
 
-    let (repo_id, version, summary) = {
-        let (repo_id, git_repo) = engine
+    let (repo_id, version, summary, canonical_codebase) = {
+        let (repo_id, git_repo, canonical_name) = engine
             .get_repo(&req.codebase, owner_id)
             .await
             .map_err(|e| Status::not_found(format!("Repository not found: {e}")))?;
@@ -137,20 +137,7 @@ pub async fn handle_connect(
             .await
             .map_err(|e| Status::internal(format!("Failed to get summary: {e}")))?;
 
-        (repo_id, version, summary)
-    };
-
-    // Normalise codebase to the canonical (short) name after the fallback
-    // has resolved. This ensures all post-CONNECT handlers that call
-    // get_repo(&session.codebase, None) hit the exact-match path.
-    let canonical_codebase = if req.codebase.contains('/') && owner_id.is_some() {
-        req.codebase
-            .rsplit('/')
-            .next()
-            .unwrap_or(&req.codebase)
-            .to_string()
-    } else {
-        req.codebase.clone()
+        (repo_id, version, summary, canonical_name)
     };
 
     // 5. Create session (session_mgr is lock-free / DashMap-based).

@@ -53,7 +53,7 @@ pub async fn handle_submit(
 
     // Single get_repo call: extract work_dir and pre-compute is_new for each file
     let (repo_id, work_dir, file_checks) = {
-        let (repo_id, git_repo) = engine
+        let (repo_id, git_repo, _) = engine
             .get_repo(&session.codebase, None)
             .await
             .map_err(|e| Status::internal(format!("Repo error: {e}")))?;
@@ -350,7 +350,7 @@ pub async fn handle_submit(
 
     // Read HEAD version without holding the GitRepository across awaits.
     let new_version = {
-        let (_repo_id, git_repo) = engine
+        let (_repo_id, git_repo, _) = engine
             .get_repo(&session.codebase, None)
             .await
             .map_err(|e| Status::internal(format!("Repo error (head read): {e}")))?;

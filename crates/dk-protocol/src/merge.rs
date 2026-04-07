@@ -33,7 +33,7 @@ pub async fn handle_merge(
 
     // Resolve repo_id for enriched events
     let repo_id_str = match engine.get_repo(&session.codebase, None).await {
-        Ok((rid, _)) => rid.to_string(),
+        Ok((rid, _, _)) => rid.to_string(),
         Err(_) => String::new(),
     };
 
@@ -58,7 +58,7 @@ pub async fn handle_merge(
         .ok_or_else(|| Status::not_found("Workspace not found for session"))?;
 
     // Get git repo
-    let (_, git_repo) = engine.get_repo(&session.codebase, None).await
+    let (_, git_repo, _) = engine.get_repo(&session.codebase, None).await
         .map_err(|e| Status::internal(e.to_string()))?;
 
     let agent = changeset.agent_id.as_deref().unwrap_or("agent");
