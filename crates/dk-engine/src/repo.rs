@@ -185,6 +185,12 @@ impl Engine {
     /// after the slash. This handles callers that pass a full GitHub name
     /// when the DB stores only the short name.
     ///
+    /// **Note:** The short-name fallback matches on `name` alone and does
+    /// not verify the owner prefix. In a multi-tenant deployment the
+    /// platform layer must enforce owner-scoped access *before* calling
+    /// this method. The engine logs a warning when the fallback fires so
+    /// unexpected matches are observable.
+    ///
     /// Returns the `RepoId` and an opened `GitRepository` handle.
     pub async fn get_repo(&self, name: &str) -> Result<(RepoId, GitRepository)> {
         let row: Option<(Uuid, String)> = sqlx::query_as(
@@ -199,11 +205,24 @@ impl Engine {
             Some(r) => r,
             None if name.contains('/') => {
                 let short = name.rsplit('/').next().expect("contains '/' was checked above");
-                sqlx::query_as("SELECT id, path FROM repositories WHERE name = $1")
-                    .bind(short)
-                    .fetch_optional(&self.db)
-                    .await?
-                    .ok_or_else(|| Error::RepoNotFound(name.to_string()))?
+                let fallback_row: Option<(Uuid, String)> =
+                    sqlx::query_as("SELECT id, path FROM repositories WHERE name = $1")
+                        .bind(short)
+                        .fetch_optional(&self.db)
+                        .await?;
+                match fallback_row {
+                    Some(r) => {
+                        tracing::warn!(
+                            requested = %name,
+                            matched = %short,
+                            "get_repo: short-name fallback matched — \
+                             caller requested full name but DB stores short name; \
+                             the owner prefix was not verified"
+                        );
+                        r
+                    }
+                    None => return Err(Error::RepoNotFound(name.to_string())),
+                }
             }
             None => return Err(Error::RepoNotFound(name.to_string())),
         };
