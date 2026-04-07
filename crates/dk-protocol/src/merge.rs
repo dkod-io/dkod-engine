@@ -63,6 +63,9 @@ pub async fn handle_merge(
 
     let agent = changeset.agent_id.as_deref().unwrap_or("agent");
 
+    let (effective_name, effective_email) =
+        dk_core::resolve_author(&req.author_name, &req.author_email, agent);
+
     // Capture affected files from workspace overlay before merge/drop
     let affected_files: Vec<crate::FileChange> = ws.overlay.list_changes()
         .iter()
@@ -85,8 +88,8 @@ pub async fn handle_merge(
         &git_repo,
         engine.parser(),
         &req.commit_message,
-        agent,
-        &format!("{}@dkod.dev", agent),
+        &effective_name,
+        &effective_email,
     )
     .map_err(|e| Status::internal(format!("merge failed: {e}")))?;
 

@@ -18,6 +18,8 @@ pub async fn run(out: Output, message: Option<&str>, force: bool) -> Result<()> 
             changeset_id: state.changeset_id,
             commit_message,
             force,
+            author_name: String::new(),
+            author_email: String::new(),
         })
         .await?
         .into_inner();

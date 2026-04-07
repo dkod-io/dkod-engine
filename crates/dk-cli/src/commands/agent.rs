@@ -438,6 +438,8 @@ async fn merge_cmd(
             changeset_id: changeset,
             commit_message: message,
             force,
+            author_name: String::new(),
+            author_email: String::new(),
         })
         .await?
         .into_inner();

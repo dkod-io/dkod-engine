@@ -148,6 +148,8 @@ impl Session {
                 changeset_id: self.changeset_id.clone(),
                 commit_message: message.to_string(),
                 force,
+                author_name: String::new(),
+                author_email: String::new(),
             })
             .await?
             .into_inner();

@@ -608,10 +608,15 @@ impl Engine {
     }
 
     /// MERGE — merge the verified changeset into a Git commit.
+    ///
+    /// `author_name` / `author_email` override the Git commit author.
+    /// Pass empty strings to fall back to the agent identity.
     pub async fn tool_merge(
         &self,
         session_id: Uuid,
         message: Option<&str>,
+        author_name: &str,
+        author_email: &str,
     ) -> dk_core::Result<ToolMergeResult> {
         let (changeset_id, repo_id) = {
             let ws = self
@@ -633,6 +638,9 @@ impl Engine {
         let agent = changeset.agent_id.as_deref().unwrap_or("agent");
         let commit_message = message.unwrap_or("merge changeset");
 
+        let (effective_name, effective_email) =
+            dk_core::resolve_author(author_name, author_email, agent);
+
         let (_, git_repo) = self.get_repo_by_db_id(repo_id).await?;
 
         let merge_result = {
@@ -646,8 +654,8 @@ impl Engine {
                 &git_repo,
                 self.parser(),
                 commit_message,
-                agent,
-                &format!("{agent}@dkod.dev"),
+                &effective_name,
+                &effective_email,
             )?
         };
         drop(git_repo);
