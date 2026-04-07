@@ -180,15 +180,33 @@ impl Engine {
 
     /// Look up a repository by name.
     ///
+    /// Tries an exact match on the `name` column first. If `name` contains
+    /// a `/` (e.g. `"owner/repo"`), also tries matching the short name
+    /// after the slash. This handles callers that pass a full GitHub name
+    /// when the DB stores only the short name.
+    ///
     /// Returns the `RepoId` and an opened `GitRepository` handle.
     pub async fn get_repo(&self, name: &str) -> Result<(RepoId, GitRepository)> {
-        let row: (Uuid, String) = sqlx::query_as(
+        let row: Option<(Uuid, String)> = sqlx::query_as(
             "SELECT id, path FROM repositories WHERE name = $1",
         )
         .bind(name)
         .fetch_optional(&self.db)
-        .await?
-        .ok_or_else(|| Error::RepoNotFound(name.to_string()))?;
+        .await?;
+
+        // Fallback: if the caller passed "owner/repo", try matching just "repo".
+        let row = match row {
+            Some(r) => r,
+            None if name.contains('/') => {
+                let short = name.rsplit('/').next().unwrap_or(name);
+                sqlx::query_as("SELECT id, path FROM repositories WHERE name = $1")
+                    .bind(short)
+                    .fetch_optional(&self.db)
+                    .await?
+                    .ok_or_else(|| Error::RepoNotFound(name.to_string()))?
+            }
+            None => return Err(Error::RepoNotFound(name.to_string())),
+        };
 
         let (repo_id, repo_path) = row;
         let git_repo = GitRepository::open(Path::new(&repo_path))?;
