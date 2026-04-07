@@ -91,7 +91,12 @@ pub async fn handle_connect(
         let (repo_id, git_repo) = engine
             .get_repo(&req.codebase)
             .await
-            .map_err(|e| Status::not_found(format!("Repository not found: {e}")))?;
+            .map_err(|e| match e {
+                dk_core::Error::AmbiguousRepoName(_) => Status::invalid_argument(
+                    format!("Ambiguous repository name: use the full 'owner/repo' form ({e})"),
+                ),
+                _ => Status::not_found(format!("Repository not found: {e}")),
+            })?;
 
         // HEAD commit hash (or "initial" for empty repos).
         let version = git_repo
