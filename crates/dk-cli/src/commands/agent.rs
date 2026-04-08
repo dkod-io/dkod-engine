@@ -5,9 +5,10 @@ use clap::Subcommand;
 use colored::Colorize;
 use dk_protocol::agent_service_client::AgentServiceClient;
 use dk_protocol::{
-    merge_response, Change as ProtoChange, ChangeType, ContextDepth, ContextRequest,
-    FileListRequest, FileReadRequest, FileWriteRequest, MergeRequest, PreSubmitCheckRequest,
-    SubmitRequest, VerifyRequest, WatchRequest,
+    merge_response, ApproveRequest, Change as ProtoChange, ChangeType, ContextDepth,
+    ContextRequest, FileListRequest, FileReadRequest, FileWriteRequest, MergeRequest,
+    PreSubmitCheckRequest, ReviewRequest, SessionStatusRequest, SubmitRequest, VerifyRequest,
+    WatchRequest,
 };
 use tokio_stream::StreamExt;
 use tonic::transport::Channel;
@@ -162,6 +163,39 @@ pub enum AgentAction {
         #[arg(long, default_value = "http://[::1]:50051")]
         server: String,
     },
+
+    /// Approve a submitted changeset
+    Approve {
+        /// Session ID
+        #[arg(long)]
+        session: String,
+        /// gRPC server address
+        #[arg(long, default_value = "http://[::1]:50051")]
+        server: String,
+    },
+
+    /// Show code review findings for a changeset
+    Review {
+        /// Session ID
+        #[arg(long)]
+        session: String,
+        /// Changeset ID
+        #[arg(long)]
+        changeset: String,
+        /// gRPC server address
+        #[arg(long, default_value = "http://[::1]:50051")]
+        server: String,
+    },
+
+    /// Show session status and workspace info
+    Status {
+        /// Session ID
+        #[arg(long)]
+        session: String,
+        /// gRPC server address
+        #[arg(long, default_value = "http://[::1]:50051")]
+        server: String,
+    },
 }
 
 pub fn run(action: AgentAction) -> Result<()> {
@@ -231,6 +265,16 @@ async fn run_async(action: AgentAction) -> Result<()> {
         } => file_list_cmd(server, session, prefix, only_modified).await,
 
         AgentAction::PreSubmit { session, server } => pre_submit_cmd(server, session).await,
+
+        AgentAction::Approve { session, server } => approve_cmd(server, session).await,
+
+        AgentAction::Review {
+            session,
+            changeset,
+            server,
+        } => review_cmd(server, session, changeset).await,
+
+        AgentAction::Status { session, server } => status_cmd(server, session).await,
     }
 }
 
@@ -718,6 +762,146 @@ async fn pre_submit_cmd(server: String, session: String) -> Result<()> {
         "\nSummary: {} file(s) modified, {} symbol(s) changed",
         resp.files_modified, resp.symbols_changed,
     );
+
+    Ok(())
+}
+
+// ── APPROVE ─────────────────────────────────────────────────────────────────
+
+async fn approve_cmd(server: String, session: String) -> Result<()> {
+    let mut client = grpc_client(&server).await?;
+
+    let resp = client
+        .approve(ApproveRequest {
+            session_id: session,
+        })
+        .await?
+        .into_inner();
+
+    if resp.success {
+        println!(
+            "{} changeset={}  state={}",
+            "Approved.".green().bold(),
+            resp.changeset_id,
+            resp.new_state,
+        );
+    } else {
+        println!(
+            "{} {}",
+            "Approve failed.".red().bold(),
+            resp.message,
+        );
+    }
+    if !resp.message.is_empty() {
+        println!("  {}", resp.message);
+    }
+
+    Ok(())
+}
+
+// ── REVIEW ──────────────────────────────────────────────────────────────────
+
+async fn review_cmd(server: String, session: String, changeset: String) -> Result<()> {
+    let mut client = grpc_client(&server).await?;
+
+    let resp = client
+        .review(ReviewRequest {
+            session_id: session,
+            changeset_id: changeset,
+        })
+        .await?
+        .into_inner();
+
+    if resp.reviews.is_empty() {
+        println!("No reviews found for this changeset.");
+        return Ok(());
+    }
+
+    for review in &resp.reviews {
+        let score = review
+            .score
+            .map(|s| format!("{}/5", s))
+            .unwrap_or_else(|| "N/A".to_string());
+        let summary = review
+            .summary
+            .as_deref()
+            .unwrap_or("No summary");
+        let tier_display = match review.tier.as_str() {
+            "local" => "local".cyan().to_string(),
+            "deep" => "deep".magenta().to_string(),
+            other => other.to_string(),
+        };
+
+        println!(
+            "\n{} {} review — score {} — {} finding(s)",
+            "▸".bold(),
+            tier_display,
+            score.bold(),
+            review.findings.len(),
+        );
+        println!("  {}", summary);
+
+        for finding in &review.findings {
+            let severity_display = match finding.severity.as_str() {
+                "error" => "ERROR".red().bold().to_string(),
+                "warning" => "WARN".yellow().bold().to_string(),
+                "info" => "INFO".cyan().to_string(),
+                other => other.to_string(),
+            };
+            let location = match (finding.line_start, finding.line_end) {
+                (Some(start), Some(end)) if start != end => {
+                    format!("{}:{}-{}", finding.file_path, start, end)
+                }
+                (Some(start), _) => format!("{}:{}", finding.file_path, start),
+                _ => finding.file_path.clone(),
+            };
+            let dismissed = if finding.dismissed { " [dismissed]" } else { "" };
+            println!(
+                "  {} {} {}{}",
+                severity_display, location, finding.message, dismissed,
+            );
+            if let Some(ref suggestion) = finding.suggestion {
+                println!("    {} {}", "fix:".green(), suggestion);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+// ── STATUS ──────────────────────────────────────────────────────────────────
+
+async fn status_cmd(server: String, session: String) -> Result<()> {
+    let mut client = grpc_client(&server).await?;
+
+    let resp = client
+        .get_session_status(SessionStatusRequest {
+            session_id: session.clone(),
+        })
+        .await?
+        .into_inner();
+
+    println!("{}", "Session Status".green().bold());
+    println!("  Session:           {}", resp.session_id);
+    println!("  Base commit:       {}", resp.base_commit);
+    println!("  Files modified:    {}", resp.files_modified.len());
+    println!("  Symbols modified:  {}", resp.symbols_modified.len());
+    println!("  Overlay size:      {} bytes", resp.overlay_size_bytes);
+    println!("  Other sessions:    {}", resp.active_other_sessions);
+
+    if !resp.files_modified.is_empty() {
+        println!("\n  Modified files:");
+        for f in &resp.files_modified {
+            println!("    {} {}", "M".yellow(), f);
+        }
+    }
+
+    if !resp.symbols_modified.is_empty() {
+        println!("\n  Modified symbols:");
+        for s in &resp.symbols_modified {
+            println!("    {} {}", "∆".cyan(), s);
+        }
+    }
 
     Ok(())
 }
