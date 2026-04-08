@@ -792,7 +792,7 @@ async fn approve_cmd(server: String, session: String) -> Result<()> {
             resp.message,
         );
     }
-    if !resp.message.is_empty() {
+    if resp.success && !resp.message.is_empty() {
         println!("  {}", resp.message);
     }
 
