@@ -876,7 +876,7 @@ async fn status_cmd(server: String, session: String) -> Result<()> {
 
     let resp = client
         .get_session_status(SessionStatusRequest {
-            session_id: session.clone(),
+            session_id: session,
         })
         .await?
         .into_inner();

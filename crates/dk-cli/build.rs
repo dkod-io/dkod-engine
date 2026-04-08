@@ -4,7 +4,7 @@ fn main() {
     // Get version from git tag (e.g. "v0.2.68" → "0.2.68").
     // Falls back to Cargo.toml version if git is unavailable.
     let version = Command::new("git")
-        .args(["describe", "--tags", "--abbrev=0"])
+        .args(["describe", "--tags", "--long"])
         .output()
         .ok()
         .and_then(|o| {
@@ -38,5 +38,8 @@ fn main() {
             "cargo:rerun-if-changed={}",
             root.join(".git/HEAD").display()
         );
+    } else {
+        // No .git found — tell Cargo not to re-run unnecessarily.
+        println!("cargo:rerun-if-changed=build.rs");
     }
 }
