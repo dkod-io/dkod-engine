@@ -21,7 +21,7 @@
   <ellipse cx="600" cy="180" rx="400" ry="250" fill="url(#orb)"/>
 
   <!-- dkod wordmark -->
-  <text x="600" y="175" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="82" font-weight="800" letter-spacing="-2" fill="#f0f0f3">dkod</text>
+  <text x="600" y="175" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="82" font-weight="800" letter-spacing="-2" fill="#f0f0f3">DKOD</text>
 
   <!-- Accent line -->
   <rect x="565" y="198" width="70" height="3" rx="1.5" fill="#06b6d4"/>
