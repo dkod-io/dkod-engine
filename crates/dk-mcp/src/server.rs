@@ -287,11 +287,7 @@ impl DkodMcp {
     #[allow(clippy::new_without_default)]
     pub async fn new() -> Self {
         let state = SessionState::resolve().await;
-        let restored_sessions = crate::state::load_sessions();
-        let session_count = restored_sessions.len();
-        if session_count > 0 {
-            tracing::info!(count = session_count, "restored sessions from disk");
-        }
+        let restored_sessions = HashMap::new();
         Self {
             tool_router: Self::tool_router(),
             connection: Arc::new(RwLock::new(state)),
@@ -413,8 +409,9 @@ impl DkodMcp {
 
     /// Get a clone of the cached gRPC client, or return an error if not connected.
     ///
-    /// If sessions were restored from disk but the gRPC client was lost (process
-    /// restart), this will lazily reconnect using the stored connection state.
+    /// If sessions exist in memory but the gRPC client was cleared (e.g. after
+    /// dk_merge closes the last session then a new dk_connect arrives), this
+    /// will lazily reconnect using the stored connection state.
     async fn get_client(&self) -> Result<AuthenticatedClient, McpError> {
         // Read sessions BEFORE acquiring grpc_client to maintain lock ordering:
         // sessions -> grpc_client (same order as dk_merge cleanup).
@@ -431,7 +428,7 @@ impl DkodMcp {
             return Ok(client.clone());
         }
 
-        // Slow path: sessions restored from disk but client not yet created.
+        // Slow path: sessions exist but gRPC client was cleared.
         // Reconnect using the stored connection state.
         if has_sessions {
             let (addr, env_token) = {
@@ -1020,12 +1017,10 @@ impl DkodMcp {
             changeset_id: response.changeset_id.clone(),
             repo_name: repo.clone(),
         };
-        let snapshot = {
+        {
             let mut sessions = self.sessions.write().await;
             sessions.insert(response.session_id.clone(), session_data);
-            sessions.clone()
-        };
-        crate::state::save_sessions(&snapshot);
+        }
 
         // Subscribe to NATS conflict events for this session (optional — skipped if
         // NATS_URL or NATS_OWNER_ID are not set, e.g. in local dev without NATS).
@@ -1163,14 +1158,17 @@ impl DkodMcp {
         }
 
         // Format output.
-        let summary_text = match &response.summary {
+        let codebase_line = match &response.summary {
+            Some(s) if s.total_files == 0 => {
+                "Codebase: 0 files (greenfield — no existing code to read)".to_string()
+            }
             Some(s) => format!(
-                "languages: {}\ntotal_symbols: {}\ntotal_files: {}",
-                s.languages.join(", "),
-                s.total_symbols,
+                "Codebase: {} files, {} symbols, {}",
                 s.total_files,
+                s.total_symbols,
+                s.languages.join(", "),
             ),
-            None => "no codebase summary available".to_string(),
+            None => "Codebase: summary unavailable".to_string(),
         };
 
         let text = format!(
@@ -1179,14 +1177,11 @@ impl DkodMcp {
              workspace_id: {}\n\
              changeset_id: {}\n\
              version:      {}\n\n\
-             IMPORTANT: Use this session_id ({}) in all subsequent dk_* tool calls \
-             when multiple sessions are active.\n\n\
-             Codebase summary:\n{summary_text}",
+             {codebase_line}",
             response.session_id,
             response.workspace_id,
             response.changeset_id,
             response.codebase_version,
-            response.session_id,
         );
 
         let has_nats_url = std::env::var("NATS_URL")
@@ -2139,16 +2134,14 @@ impl DkodMcp {
                 // prevent a TOCTOU race where a concurrent dk_connect inserts a new
                 // session between remove() and is_empty(), causing the client to be
                 // cleared while the new session still needs it.
-                let snapshot = {
+                {
                     let mut sessions = self.sessions.write().await;
                     sessions.remove(&session_id);
                     if sessions.is_empty() {
                         let mut cached = self.grpc_client.lock().await;
                         *cached = None;
                     }
-                    sessions.clone()
-                };
-                crate::state::save_sessions(&snapshot);
+                }
                 // Cancel and remove the per-session NATS task.
                 {
                     let mut cancellations = self.nats_cancellations.lock().await;
@@ -2195,16 +2188,14 @@ impl DkodMcp {
                     .drain_notifications(&session_id)
                     .await
                     .unwrap_or_default();
-                let snapshot = {
+                {
                     let mut sessions = self.sessions.write().await;
                     sessions.remove(&session_id);
                     if sessions.is_empty() {
                         let mut cached = self.grpc_client.lock().await;
                         *cached = None;
                     }
-                    sessions.clone()
-                };
-                crate::state::save_sessions(&snapshot);
+                }
                 {
                     let mut cancellations = self.nats_cancellations.lock().await;
                     if let Some(flag) = cancellations.remove(&session_id) {
@@ -2490,16 +2481,14 @@ impl DkodMcp {
 
         // Only clean up local session state when the server confirms the close.
         if response.success {
-            let snapshot = {
+            {
                 let mut sessions = self.sessions.write().await;
                 sessions.remove(&session_id);
                 if sessions.is_empty() {
                     let mut cached = self.grpc_client.lock().await;
                     *cached = None;
                 }
-                sessions.clone()
-            };
-            crate::state::save_sessions(&snapshot);
+            }
 
             // Cancel NATS task for this session.
             {

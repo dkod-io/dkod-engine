@@ -2,44 +2,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-// ── Session persistence ───────────────────────────────────────────
-
-/// Path to the session cache file.
-fn sessions_file() -> PathBuf {
-    let dir = dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".dkod");
-    let _ = std::fs::create_dir_all(&dir);
-    dir.join("sessions.json")
-}
-
-/// Save sessions to disk. Best-effort — errors are logged but don't propagate.
-///
-/// Uses atomic write (write to tmp file, then rename) to prevent corruption
-/// if the process is killed mid-write. `rename` is atomic on POSIX when src
-/// and dst are on the same filesystem, which is always the case here.
-pub fn save_sessions(sessions: &HashMap<String, SessionData>) {
-    let path = sessions_file();
-    match serde_json::to_string(sessions) {
-        Ok(json) => {
-            let tmp = path.with_extension("json.tmp");
-            if let Err(e) = std::fs::write(&tmp, &json).and_then(|_| std::fs::rename(&tmp, &path)) {
-                tracing::warn!(path = %path.display(), error = %e, "failed to save sessions");
-            }
-        }
-        Err(e) => tracing::warn!(error = %e, "failed to serialize sessions"),
-    }
-}
-
-/// Load sessions from disk. Returns empty map on any error.
-pub fn load_sessions() -> HashMap<String, SessionData> {
-    let path = sessions_file();
-    match std::fs::read_to_string(&path) {
-        Ok(json) => serde_json::from_str(&json).unwrap_or_default(),
-        Err(_) => HashMap::new(),
-    }
-}
-
 /// Walk up from `start` looking for the workspace root (a `Cargo.toml` containing `[workspace]`).
 /// Falls back to the first `Cargo.toml` found if none contain `[workspace]`.
 pub fn find_repo_root(start: &Path) -> Option<PathBuf> {
