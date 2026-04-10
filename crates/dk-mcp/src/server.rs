@@ -1158,14 +1158,17 @@ impl DkodMcp {
         }
 
         // Format output.
-        let summary_text = match &response.summary {
+        let codebase_line = match &response.summary {
+            Some(s) if s.total_files == 0 => {
+                "Codebase: 0 files (greenfield — no existing code to read)".to_string()
+            }
             Some(s) => format!(
-                "languages: {}\ntotal_symbols: {}\ntotal_files: {}",
-                s.languages.join(", "),
-                s.total_symbols,
+                "Codebase: {} files, {} symbols, {}",
                 s.total_files,
+                s.total_symbols,
+                s.languages.join(", "),
             ),
-            None => "no codebase summary available".to_string(),
+            None => "Codebase: summary unavailable".to_string(),
         };
 
         let text = format!(
@@ -1174,14 +1177,11 @@ impl DkodMcp {
              workspace_id: {}\n\
              changeset_id: {}\n\
              version:      {}\n\n\
-             IMPORTANT: Use this session_id ({}) in all subsequent dk_* tool calls \
-             when multiple sessions are active.\n\n\
-             Codebase summary:\n{summary_text}",
+             {codebase_line}",
             response.session_id,
             response.workspace_id,
             response.changeset_id,
             response.codebase_version,
-            response.session_id,
         );
 
         let has_nats_url = std::env::var("NATS_URL")
