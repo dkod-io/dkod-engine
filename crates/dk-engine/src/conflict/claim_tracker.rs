@@ -435,4 +435,192 @@ mod tests {
         assert!(names.contains(&"fn_a"));
         assert!(names.contains(&"fn_b"));
     }
+
+    // ── acquire_lock tests ──
+
+    #[test]
+    fn acquire_lock_unclaimed_succeeds() {
+        let tracker = SymbolClaimTracker::new();
+        let repo = Uuid::new_v4();
+        let session = Uuid::new_v4();
+
+        let result = tracker.acquire_lock(
+            repo,
+            "src/lib.rs",
+            make_claim(session, "agent-1", "fn_a", SymbolKind::Function),
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn acquire_lock_same_session_succeeds() {
+        let tracker = SymbolClaimTracker::new();
+        let repo = Uuid::new_v4();
+        let session = Uuid::new_v4();
+
+        tracker.acquire_lock(
+            repo,
+            "src/lib.rs",
+            make_claim(session, "agent-1", "fn_a", SymbolKind::Function),
+        ).unwrap();
+
+        // Same session re-acquiring same symbol should succeed
+        let result = tracker.acquire_lock(
+            repo,
+            "src/lib.rs",
+            make_claim(session, "agent-1", "fn_a", SymbolKind::Function),
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn acquire_lock_cross_session_blocked() {
+        let tracker = SymbolClaimTracker::new();
+        let repo = Uuid::new_v4();
+        let session_a = Uuid::new_v4();
+        let session_b = Uuid::new_v4();
+
+        tracker.acquire_lock(
+            repo,
+            "src/lib.rs",
+            make_claim(session_a, "agent-1", "fn_a", SymbolKind::Function),
+        ).unwrap();
+
+        let result = tracker.acquire_lock(
+            repo,
+            "src/lib.rs",
+            make_claim(session_b, "agent-2", "fn_a", SymbolKind::Function),
+        );
+        assert!(result.is_err());
+        let locked = result.unwrap_err();
+        assert_eq!(locked.qualified_name, "fn_a");
+        assert_eq!(locked.locked_by_session, session_a);
+        assert_eq!(locked.locked_by_agent, "agent-1");
+    }
+
+    #[test]
+    fn acquire_lock_different_symbols_same_file() {
+        let tracker = SymbolClaimTracker::new();
+        let repo = Uuid::new_v4();
+        let session_a = Uuid::new_v4();
+        let session_b = Uuid::new_v4();
+
+        tracker.acquire_lock(
+            repo,
+            "src/lib.rs",
+            make_claim(session_a, "agent-1", "fn_a", SymbolKind::Function),
+        ).unwrap();
+
+        // Different symbol in same file — should succeed
+        let result = tracker.acquire_lock(
+            repo,
+            "src/lib.rs",
+            make_claim(session_b, "agent-2", "fn_b", SymbolKind::Function),
+        );
+        assert!(result.is_ok());
+    }
+
+    // ── release_lock tests ──
+
+    #[test]
+    fn release_lock_single_symbol() {
+        let tracker = SymbolClaimTracker::new();
+        let repo = Uuid::new_v4();
+        let session_a = Uuid::new_v4();
+        let session_b = Uuid::new_v4();
+
+        tracker.acquire_lock(
+            repo,
+            "src/lib.rs",
+            make_claim(session_a, "agent-1", "fn_a", SymbolKind::Function),
+        ).unwrap();
+
+        // Release the lock
+        tracker.release_lock(repo, "src/lib.rs", session_a, "fn_a");
+
+        // Now another session should be able to acquire it
+        let result = tracker.acquire_lock(
+            repo,
+            "src/lib.rs",
+            make_claim(session_b, "agent-2", "fn_a", SymbolKind::Function),
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn release_lock_cleans_empty_entries() {
+        let tracker = SymbolClaimTracker::new();
+        let repo = Uuid::new_v4();
+        let session = Uuid::new_v4();
+
+        tracker.acquire_lock(
+            repo,
+            "src/lib.rs",
+            make_claim(session, "agent-1", "fn_a", SymbolKind::Function),
+        ).unwrap();
+
+        tracker.release_lock(repo, "src/lib.rs", session, "fn_a");
+
+        // The key should be removed from the map (no empty vecs lingering)
+        let key = (repo, "src/lib.rs".to_string());
+        assert!(tracker.claims.get(&key).is_none());
+    }
+
+    // ── release_locks tests ──
+
+    #[test]
+    fn release_locks_returns_released_entries() {
+        let tracker = SymbolClaimTracker::new();
+        let repo = Uuid::new_v4();
+        let session = Uuid::new_v4();
+
+        tracker.acquire_lock(
+            repo,
+            "src/lib.rs",
+            make_claim(session, "agent-1", "fn_a", SymbolKind::Function),
+        ).unwrap();
+        tracker.acquire_lock(
+            repo,
+            "src/api.rs",
+            make_claim(session, "agent-1", "handler", SymbolKind::Function),
+        ).unwrap();
+
+        let released = tracker.release_locks(repo, session);
+        assert_eq!(released.len(), 2);
+
+        let names: Vec<&str> = released.iter().map(|r| r.qualified_name.as_str()).collect();
+        assert!(names.contains(&"fn_a"));
+        assert!(names.contains(&"handler"));
+    }
+
+    #[test]
+    fn release_locks_unblocks_other_session() {
+        let tracker = SymbolClaimTracker::new();
+        let repo = Uuid::new_v4();
+        let session_a = Uuid::new_v4();
+        let session_b = Uuid::new_v4();
+
+        tracker.acquire_lock(
+            repo,
+            "src/lib.rs",
+            make_claim(session_a, "agent-1", "fn_a", SymbolKind::Function),
+        ).unwrap();
+
+        // session_b is blocked
+        assert!(tracker.acquire_lock(
+            repo,
+            "src/lib.rs",
+            make_claim(session_b, "agent-2", "fn_a", SymbolKind::Function),
+        ).is_err());
+
+        // Release session_a
+        tracker.release_locks(repo, session_a);
+
+        // session_b can now acquire
+        assert!(tracker.acquire_lock(
+            repo,
+            "src/lib.rs",
+            make_claim(session_b, "agent-2", "fn_a", SymbolKind::Function),
+        ).is_ok());
+    }
 }

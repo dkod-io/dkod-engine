@@ -221,7 +221,7 @@ fn release_locks_and_emit(
     server: &ProtocolServer,
     repo_id: Uuid,
     session_id: Uuid,
-    repo_id_str: &str,
+    _repo_id_str: &str,
     session_id_str: &str,
 ) {
     let released = server.claim_tracker().release_locks(repo_id, session_id);
@@ -252,7 +252,7 @@ fn release_locks_and_emit(
                 operation: "unlock".to_string(),
             }],
             symbol_changes: vec![],
-            repo_id: repo_id_str.to_string(),
+            repo_id: repo_id.to_string(),
             event_id: Uuid::new_v4().to_string(),
         });
     }
