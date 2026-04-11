@@ -3,7 +3,7 @@ use std::time::Instant;
 use tonic::{Response, Status};
 use tracing::{info, warn};
 
-use dk_engine::conflict::SymbolClaim;
+use dk_engine::conflict::{AcquireOutcome, SymbolClaim};
 use crate::server::ProtocolServer;
 use crate::validation::{validate_file_path, MAX_FILE_SIZE};
 use crate::{ConflictWarning, FileWriteRequest, FileWriteResponse, SymbolChange};
@@ -99,7 +99,8 @@ pub async fn handle_file_write(
                 first_touched_at: Instant::now(),
             },
         ) {
-            Ok(()) => acquired.push(sc.symbol_name.clone()),
+            Ok(AcquireOutcome::Fresh) => acquired.push(sc.symbol_name.clone()),
+            Ok(AcquireOutcome::ReAcquired) => {} // already held — exclude from rollback
             Err(sl) => {
                 warn!(
                     session_id = %sid,

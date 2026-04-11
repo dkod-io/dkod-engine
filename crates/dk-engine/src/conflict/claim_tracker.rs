@@ -37,6 +37,15 @@ pub struct SymbolLocked {
     pub file_path: String,
 }
 
+/// Outcome of a successful `acquire_lock` call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AcquireOutcome {
+    /// Lock freshly acquired — include in rollback list.
+    Fresh,
+    /// Session already held this lock — exclude from rollback.
+    ReAcquired,
+}
+
 /// Result of releasing locks for a session. Contains the symbols that
 /// were released, so callers can emit `symbol.lock.released` events.
 #[derive(Debug, Clone)]
@@ -100,7 +109,7 @@ impl SymbolClaimTracker {
         repo_id: Uuid,
         file_path: &str,
         claim: SymbolClaim,
-    ) -> Result<(), SymbolLocked> {
+    ) -> Result<AcquireOutcome, SymbolLocked> {
         let key = (repo_id, file_path.to_string());
         let mut entry = self.claims.entry(key).or_default();
         let claims = entry.value_mut();
@@ -119,16 +128,18 @@ impl SymbolClaimTracker {
             });
         }
 
-        // Same session re-acquisition or fresh claim — proceed
+        // Same session re-acquisition — update metadata, return ReAcquired
         if let Some(existing) = claims.iter_mut().find(|c| {
             c.session_id == claim.session_id && c.qualified_name == claim.qualified_name
         }) {
             existing.kind = claim.kind;
             existing.agent_name = claim.agent_name;
-        } else {
-            claims.push(claim);
+            return Ok(AcquireOutcome::ReAcquired);
         }
-        Ok(())
+
+        // Fresh claim
+        claims.push(claim);
+        Ok(AcquireOutcome::Fresh)
     }
 
     /// Release a single symbol lock for a session in a specific file.

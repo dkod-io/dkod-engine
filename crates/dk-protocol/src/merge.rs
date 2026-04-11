@@ -104,7 +104,7 @@ pub async fn handle_merge(
                 .map_err(|e| Status::internal(e.to_string()))?;
 
             // Release symbol locks and emit lock release events
-            release_locks_and_emit(server, repo_id, sid, &repo_id_str, &req.session_id);
+            release_locks_and_emit(server, repo_id, sid, &req.session_id);
 
             // Publish merge event
             server.event_bus().publish(crate::WatchEvent {
@@ -139,7 +139,7 @@ pub async fn handle_merge(
                 .map_err(|e| Status::internal(e.to_string()))?;
 
             // Release symbol locks and emit lock release events
-            release_locks_and_emit(server, repo_id, sid, &repo_id_str, &req.session_id);
+            release_locks_and_emit(server, repo_id, sid, &req.session_id);
 
             // Publish merge event
             server.event_bus().publish(crate::WatchEvent {
@@ -221,7 +221,6 @@ fn release_locks_and_emit(
     server: &ProtocolServer,
     repo_id: Uuid,
     session_id: Uuid,
-    _repo_id_str: &str,
     session_id_str: &str,
 ) {
     let released = server.claim_tracker().release_locks(repo_id, session_id);
