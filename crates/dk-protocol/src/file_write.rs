@@ -124,9 +124,25 @@ pub async fn handle_file_write(
     }
 
     if !locked_symbols.is_empty() {
-        // Roll back any locks acquired before the failure
+        // Roll back any locks acquired before the failure and emit events
+        // so any agent that raced and observed the transient lock can wake up.
         for name in &acquired {
             server.claim_tracker().release_lock(repo_id, &req.path, sid, name);
+            server.event_bus().publish(crate::WatchEvent {
+                event_type: crate::merge::EVENT_LOCK_RELEASED.to_string(),
+                changeset_id: String::new(),
+                agent_id: agent_name.clone(),
+                affected_symbols: vec![name.clone()],
+                details: format!("Symbol lock rolled back on {}", req.path),
+                session_id: req.session_id.clone(),
+                affected_files: vec![crate::FileChange {
+                    path: req.path.clone(),
+                    operation: "unlock".to_string(),
+                }],
+                symbol_changes: vec![],
+                repo_id: repo_id_str.clone(),
+                event_id: uuid::Uuid::new_v4().to_string(),
+            });
         }
 
         info!(
