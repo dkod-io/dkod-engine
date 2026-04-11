@@ -243,7 +243,7 @@ fn release_locks_and_emit(
         server.event_bus().publish(crate::WatchEvent {
             event_type: EVENT_LOCK_RELEASED.to_string(),
             changeset_id: String::new(),
-            agent_id: String::new(),
+            agent_id: released.first().map(|r| r.agent_name.clone()).unwrap_or_default(),
             affected_symbols: symbols,
             details: format!("Symbol locks released on {}", file_path),
             session_id: session_id_str.to_string(),
