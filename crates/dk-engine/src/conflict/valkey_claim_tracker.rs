@@ -131,6 +131,7 @@ impl ClaimTracker for ValkeyClaimTracker {
             .cmd("SET")
             .arg(&lock_key)
             .arg(&json)
+            .arg("NX")
             .arg("EX")
             .arg(TTL_SECS)
             .cmd("SADD")
