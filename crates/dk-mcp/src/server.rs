@@ -286,6 +286,13 @@ impl Drop for DkodMcp {
                 handle.abort();
             }
         }
+        // Wake any blocking dk_watch calls so they return instead of hanging.
+        if let Ok(mut notifiers) = self.watch_notify.try_lock() {
+            for notify in notifiers.values() {
+                notify.notify_one();
+            }
+            notifiers.clear();
+        }
     }
 }
 
@@ -828,9 +835,17 @@ impl DkodMcp {
                                             session_id = %session_id_for_task,
                                             "Watch event buffer full (100), dropping event"
                                         );
-                                        // Set overflow flag so the agent is notified on next drain.
                                         let mut flags = overflow_flag.lock().await;
                                         flags.insert(session_id_for_task.clone(), true);
+                                        drop(flags);
+                                        // Wake blocking dk_watch so it can drain the overflow notice
+                                        if let Some(notify) = watch_notify_for_task
+                                            .lock()
+                                            .await
+                                            .get(&session_id_for_task)
+                                        {
+                                            notify.notify_one();
+                                        }
                                     }
                                 }
                             }
@@ -2666,6 +2681,13 @@ impl DkodMcp {
             return Ok(CallToolResult::success(vec![Content::text(format!(
                 "{prefix}No new watch events. {status_msg}"
             ))]));
+        }
+
+        // Reset notify to discard stale permits — prevents spurious immediate
+        // wake on the next blocking dk_watch call.
+        {
+            let mut notifiers = self.watch_notify.lock().await;
+            notifiers.insert(session_id.clone(), Arc::new(tokio::sync::Notify::new()));
         }
 
         self.format_watch_response(&session_id, &prefix, events, overflowed).await
