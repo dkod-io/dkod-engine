@@ -40,6 +40,7 @@ if existing then
     local claim = cjson.decode(existing)
     if claim.session_id == ARGV[1] then
         redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+        redis.call('SADD', KEYS[2], KEYS[1])
         redis.call('EXPIRE', KEYS[2], ARGV[3])
         return 'REACQUIRE'
     else
