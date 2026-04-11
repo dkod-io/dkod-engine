@@ -114,8 +114,8 @@ pub async fn handle_file_write(
                     conflicting_agent: sl.locked_by_agent.clone(),
                     conflicting_session_id: sl.locked_by_session.to_string(),
                     message: format!(
-                        "SYMBOL_LOCKED: '{}' is locked by agent '{}'. Call dk_watch(filter: 'symbol.lock.released') to wait, then dk_file_read and retry.",
-                        sl.qualified_name, sl.locked_by_agent,
+                        "SYMBOL_LOCKED: '{}' is locked by agent '{}'. Call dk_watch(filter: '{}') to wait, then dk_file_read and retry.",
+                        sl.qualified_name, sl.locked_by_agent, crate::merge::EVENT_LOCK_RELEASED,
                     ),
                 });
             }

@@ -269,21 +269,35 @@ impl SymbolClaimTracker {
         results
     }
 
-    /// Remove all claims belonging to a session (e.g. on disconnect or GC).
-    pub fn clear_session(&self, session_id: Uuid) {
-        // Iterate all entries and remove claims for the given session.
-        // Empty entries are cleaned up to avoid unbounded memory growth.
+    /// Remove all claims belonging to a session across ALL repos (e.g. on
+    /// disconnect or GC). Returns the released locks so callers can emit
+    /// `symbol.lock.released` events to unblock waiting agents.
+    pub fn clear_session(&self, session_id: Uuid) -> Vec<ReleasedLock> {
+        let mut released = Vec::new();
         let mut empty_keys = Vec::new();
         for mut entry in self.claims.iter_mut() {
-            entry.value_mut().retain(|c| c.session_id != session_id);
-            if entry.value().is_empty() {
-                empty_keys.push(entry.key().clone());
+            let key = entry.key().clone();
+            let file_path = &key.1;
+            let claims = entry.value_mut();
+
+            for claim in claims.iter().filter(|c| c.session_id == session_id) {
+                released.push(ReleasedLock {
+                    file_path: file_path.clone(),
+                    qualified_name: claim.qualified_name.clone(),
+                    kind: claim.kind.clone(),
+                    agent_name: claim.agent_name.clone(),
+                });
+            }
+
+            claims.retain(|c| c.session_id != session_id);
+            if claims.is_empty() {
+                empty_keys.push(key);
             }
         }
         for key in empty_keys {
-            // Re-check under write lock to avoid race
             self.claims.remove_if(&key, |_, v| v.is_empty());
         }
+        released
     }
 }
 
