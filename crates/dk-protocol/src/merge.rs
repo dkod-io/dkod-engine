@@ -31,7 +31,7 @@ pub async fn handle_merge(
         .parse::<Uuid>()
         .map_err(|_| Status::invalid_argument("Invalid session ID"))?;
 
-    // Resolve repo_id for enriched events
+    // Resolve repo_id_str for enriched events (non-fatal — empty string on failure)
     let repo_id_str = match engine.get_repo(&session.codebase).await {
         Ok((rid, _)) => rid.to_string(),
         Err(_) => String::new(),
@@ -57,8 +57,9 @@ pub async fn handle_merge(
         .get_workspace(&sid)
         .ok_or_else(|| Status::not_found("Workspace not found for session"))?;
 
-    // Get git repo
-    let (_, git_repo) = engine.get_repo(&session.codebase).await
+    // Get git repo — also use this repo_id for lock release (the first get_repo
+    // call is non-fatal and may return empty string, but this one propagates errors)
+    let (repo_id, git_repo) = engine.get_repo(&session.codebase).await
         .map_err(|e| Status::internal(e.to_string()))?;
 
     let agent = changeset.agent_id.as_deref().unwrap_or("agent");
@@ -98,11 +99,15 @@ pub async fn handle_merge(
 
     match merge_result {
         WorkspaceMergeResult::FastMerge { commit_hash } => {
+            // Release locks first — git commit is already in the tree,
+            // so locks must be freed regardless of changeset-store state.
+            release_locks_and_emit(server, repo_id, sid, &req.session_id);
+
             // Update changeset status to merged
             engine.changeset_store().set_merged(changeset_id, &commit_hash).await
                 .map_err(|e| Status::internal(e.to_string()))?;
 
-            // Publish event
+            // Publish merge event
             server.event_bus().publish(crate::WatchEvent {
                 event_type: "changeset.merged".to_string(),
                 changeset_id: changeset_id.to_string(),
@@ -130,11 +135,14 @@ pub async fn handle_merge(
             commit_hash,
             auto_rebased_files,
         } => {
+            // Release locks first — git commit is already in the tree.
+            release_locks_and_emit(server, repo_id, sid, &req.session_id);
+
             // Update changeset status to merged
             engine.changeset_store().set_merged(changeset_id, &commit_hash).await
                 .map_err(|e| Status::internal(e.to_string()))?;
 
-            // Publish event
+            // Publish merge event
             server.event_bus().publish(crate::WatchEvent {
                 event_type: "changeset.merged".to_string(),
                 changeset_id: changeset_id.to_string(),
@@ -163,6 +171,9 @@ pub async fn handle_merge(
         }
 
         WorkspaceMergeResult::Conflicts { conflicts } => {
+            // Intentionally NOT releasing locks here. The agent retains its locks
+            // while resolving conflicts (dk_resolve → retry dk_merge). Locks are
+            // released when the session is closed (dk_close) or times out (30 min GC).
             let conflict_details: Vec<ConflictDetail> = conflicts
                 .iter()
                 .map(|c| {
@@ -205,10 +216,56 @@ pub async fn handle_merge(
     }
 }
 
-// ── Event type constant ─────────────────────────────────────────────
+/// Release all symbol locks for a session and emit `symbol.lock.released` events
+/// so blocked agents can wake up and retry their writes.
+fn release_locks_and_emit(
+    server: &ProtocolServer,
+    repo_id: Uuid,
+    session_id: Uuid,
+    session_id_str: &str,
+) {
+    let released = server.claim_tracker().release_locks(repo_id, session_id);
+
+    if released.is_empty() {
+        return;
+    }
+
+    // Group released locks by file_path for efficient event emission
+    let mut by_file: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    for lock in &released {
+        by_file
+            .entry(lock.file_path.clone())
+            .or_default()
+            .push(lock.qualified_name.clone());
+    }
+
+    for (file_path, symbols) in by_file {
+        server.event_bus().publish(crate::WatchEvent {
+            event_type: EVENT_LOCK_RELEASED.to_string(),
+            changeset_id: String::new(),
+            agent_id: released.first().map(|r| r.agent_name.clone()).unwrap_or_default(),
+            affected_symbols: symbols,
+            details: format!("Symbol locks released on {}", file_path),
+            session_id: session_id_str.to_string(),
+            affected_files: vec![crate::FileChange {
+                path: file_path,
+                operation: "unlock".to_string(),
+            }],
+            symbol_changes: vec![],
+            repo_id: repo_id.to_string(),
+            event_id: Uuid::new_v4().to_string(),
+        });
+    }
+}
+
+// ── Event type constants ────────────────────────────────────────────
 
 /// Event published when a changeset is successfully merged.
 pub const EVENT_MERGED: &str = "changeset.merged";
+
+/// Event published when symbol locks are released (after merge, close, or timeout).
+/// Blocked agents watch for this to retry their `dk_file_write`.
+pub const EVENT_LOCK_RELEASED: &str = "symbol.lock.released";
 
 #[cfg(test)]
 mod tests {

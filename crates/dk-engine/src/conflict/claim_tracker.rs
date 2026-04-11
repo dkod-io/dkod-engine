@@ -25,6 +25,37 @@ pub struct ConflictInfo {
     pub first_touched_at: Instant,
 }
 
+/// Information about a symbol lock held by another session.
+/// Returned when `acquire_lock` finds the symbol is already locked.
+#[derive(Debug, Clone)]
+pub struct SymbolLocked {
+    pub qualified_name: String,
+    pub kind: SymbolKind,
+    pub locked_by_session: Uuid,
+    pub locked_by_agent: String,
+    pub locked_since: Instant,
+    pub file_path: String,
+}
+
+/// Outcome of a successful `acquire_lock` call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AcquireOutcome {
+    /// Lock freshly acquired — include in rollback list.
+    Fresh,
+    /// Session already held this lock — exclude from rollback.
+    ReAcquired,
+}
+
+/// Result of releasing locks for a session. Contains the symbols that
+/// were released, so callers can emit `symbol.lock.released` events.
+#[derive(Debug, Clone)]
+pub struct ReleasedLock {
+    pub file_path: String,
+    pub qualified_name: String,
+    pub kind: SymbolKind,
+    pub agent_name: String,
+}
+
 /// Thread-safe, lock-free tracker for symbol-level claims across sessions.
 ///
 /// Key insight: two sessions modifying DIFFERENT symbols in the same file is
@@ -65,6 +96,106 @@ impl SymbolClaimTracker {
         } else {
             claims.push(claim);
         }
+    }
+
+    /// Attempt to acquire a symbol lock. If the symbol is already claimed by
+    /// another session, returns `Err(SymbolLocked)` — the write MUST NOT proceed.
+    /// If claimed by the same session, or unclaimed, acquires and returns `Ok(())`.
+    ///
+    /// This is the blocking counterpart to `record_claim`. Use this when writes
+    /// should be rejected if another agent holds the symbol.
+    pub fn acquire_lock(
+        &self,
+        repo_id: Uuid,
+        file_path: &str,
+        claim: SymbolClaim,
+    ) -> Result<AcquireOutcome, SymbolLocked> {
+        let key = (repo_id, file_path.to_string());
+        let mut entry = self.claims.entry(key).or_default();
+        let claims = entry.value_mut();
+
+        // Check if another session already holds this symbol
+        if let Some(existing) = claims.iter().find(|c| {
+            c.qualified_name == claim.qualified_name && c.session_id != claim.session_id
+        }) {
+            return Err(SymbolLocked {
+                qualified_name: claim.qualified_name,
+                kind: existing.kind.clone(),
+                locked_by_session: existing.session_id,
+                locked_by_agent: existing.agent_name.clone(),
+                locked_since: existing.first_touched_at,
+                file_path: file_path.to_string(),
+            });
+        }
+
+        // Same session re-acquisition — update metadata, return ReAcquired
+        if let Some(existing) = claims.iter_mut().find(|c| {
+            c.session_id == claim.session_id && c.qualified_name == claim.qualified_name
+        }) {
+            existing.kind = claim.kind;
+            existing.agent_name = claim.agent_name;
+            return Ok(AcquireOutcome::ReAcquired);
+        }
+
+        // Fresh claim
+        claims.push(claim);
+        Ok(AcquireOutcome::Fresh)
+    }
+
+    /// Release a single symbol lock for a session in a specific file.
+    /// Used to roll back partially-acquired locks when a batch fails.
+    pub fn release_lock(
+        &self,
+        repo_id: Uuid,
+        file_path: &str,
+        session_id: Uuid,
+        qualified_name: &str,
+    ) {
+        let key = (repo_id, file_path.to_string());
+        if let Some(mut entry) = self.claims.get_mut(&key) {
+            entry.value_mut().retain(|c| {
+                !(c.session_id == session_id && c.qualified_name == qualified_name)
+            });
+        }
+        // Clean up empty entries to prevent unbounded growth from repeated rollbacks
+        self.claims.remove_if(&key, |_, v| v.is_empty());
+    }
+
+    /// Release all locks held by a session and return what was released.
+    /// Callers should emit `symbol.lock.released` events for each returned entry.
+    pub fn release_locks(&self, repo_id: Uuid, session_id: Uuid) -> Vec<ReleasedLock> {
+        let mut released = Vec::new();
+        let mut empty_keys = Vec::new();
+
+        for mut entry in self.claims.iter_mut() {
+            let key = entry.key().clone();
+            if key.0 != repo_id {
+                continue;
+            }
+            let file_path = &key.1;
+            let claims = entry.value_mut();
+
+            // Collect released locks before removing
+            for claim in claims.iter().filter(|c| c.session_id == session_id) {
+                released.push(ReleasedLock {
+                    file_path: file_path.clone(),
+                    qualified_name: claim.qualified_name.clone(),
+                    kind: claim.kind.clone(),
+                    agent_name: claim.agent_name.clone(),
+                });
+            }
+
+            claims.retain(|c| c.session_id != session_id);
+            if claims.is_empty() {
+                empty_keys.push(key);
+            }
+        }
+
+        for key in empty_keys {
+            self.claims.remove_if(&key, |_, v| v.is_empty());
+        }
+
+        released
     }
 
     /// Check whether any of the given `qualified_names` are already claimed by
@@ -149,21 +280,35 @@ impl SymbolClaimTracker {
         results
     }
 
-    /// Remove all claims belonging to a session (e.g. on disconnect or GC).
-    pub fn clear_session(&self, session_id: Uuid) {
-        // Iterate all entries and remove claims for the given session.
-        // Empty entries are cleaned up to avoid unbounded memory growth.
+    /// Remove all claims belonging to a session across ALL repos (e.g. on
+    /// disconnect or GC). Returns the released locks so callers can emit
+    /// `symbol.lock.released` events to unblock waiting agents.
+    pub fn clear_session(&self, session_id: Uuid) -> Vec<ReleasedLock> {
+        let mut released = Vec::new();
         let mut empty_keys = Vec::new();
         for mut entry in self.claims.iter_mut() {
-            entry.value_mut().retain(|c| c.session_id != session_id);
-            if entry.value().is_empty() {
-                empty_keys.push(entry.key().clone());
+            let key = entry.key().clone();
+            let file_path = &key.1;
+            let claims = entry.value_mut();
+
+            for claim in claims.iter().filter(|c| c.session_id == session_id) {
+                released.push(ReleasedLock {
+                    file_path: file_path.clone(),
+                    qualified_name: claim.qualified_name.clone(),
+                    kind: claim.kind.clone(),
+                    agent_name: claim.agent_name.clone(),
+                });
+            }
+
+            claims.retain(|c| c.session_id != session_id);
+            if claims.is_empty() {
+                empty_keys.push(key);
             }
         }
         for key in empty_keys {
-            // Re-check under write lock to avoid race
             self.claims.remove_if(&key, |_, v| v.is_empty());
         }
+        released
     }
 }
 
@@ -314,5 +459,193 @@ mod tests {
         let names: Vec<&str> = conflicts.iter().map(|c| c.qualified_name.as_str()).collect();
         assert!(names.contains(&"fn_a"));
         assert!(names.contains(&"fn_b"));
+    }
+
+    // ── acquire_lock tests ──
+
+    #[test]
+    fn acquire_lock_unclaimed_succeeds() {
+        let tracker = SymbolClaimTracker::new();
+        let repo = Uuid::new_v4();
+        let session = Uuid::new_v4();
+
+        let result = tracker.acquire_lock(
+            repo,
+            "src/lib.rs",
+            make_claim(session, "agent-1", "fn_a", SymbolKind::Function),
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn acquire_lock_same_session_succeeds() {
+        let tracker = SymbolClaimTracker::new();
+        let repo = Uuid::new_v4();
+        let session = Uuid::new_v4();
+
+        tracker.acquire_lock(
+            repo,
+            "src/lib.rs",
+            make_claim(session, "agent-1", "fn_a", SymbolKind::Function),
+        ).unwrap();
+
+        // Same session re-acquiring same symbol should succeed
+        let result = tracker.acquire_lock(
+            repo,
+            "src/lib.rs",
+            make_claim(session, "agent-1", "fn_a", SymbolKind::Function),
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn acquire_lock_cross_session_blocked() {
+        let tracker = SymbolClaimTracker::new();
+        let repo = Uuid::new_v4();
+        let session_a = Uuid::new_v4();
+        let session_b = Uuid::new_v4();
+
+        tracker.acquire_lock(
+            repo,
+            "src/lib.rs",
+            make_claim(session_a, "agent-1", "fn_a", SymbolKind::Function),
+        ).unwrap();
+
+        let result = tracker.acquire_lock(
+            repo,
+            "src/lib.rs",
+            make_claim(session_b, "agent-2", "fn_a", SymbolKind::Function),
+        );
+        assert!(result.is_err());
+        let locked = result.unwrap_err();
+        assert_eq!(locked.qualified_name, "fn_a");
+        assert_eq!(locked.locked_by_session, session_a);
+        assert_eq!(locked.locked_by_agent, "agent-1");
+    }
+
+    #[test]
+    fn acquire_lock_different_symbols_same_file() {
+        let tracker = SymbolClaimTracker::new();
+        let repo = Uuid::new_v4();
+        let session_a = Uuid::new_v4();
+        let session_b = Uuid::new_v4();
+
+        tracker.acquire_lock(
+            repo,
+            "src/lib.rs",
+            make_claim(session_a, "agent-1", "fn_a", SymbolKind::Function),
+        ).unwrap();
+
+        // Different symbol in same file — should succeed
+        let result = tracker.acquire_lock(
+            repo,
+            "src/lib.rs",
+            make_claim(session_b, "agent-2", "fn_b", SymbolKind::Function),
+        );
+        assert!(result.is_ok());
+    }
+
+    // ── release_lock tests ──
+
+    #[test]
+    fn release_lock_single_symbol() {
+        let tracker = SymbolClaimTracker::new();
+        let repo = Uuid::new_v4();
+        let session_a = Uuid::new_v4();
+        let session_b = Uuid::new_v4();
+
+        tracker.acquire_lock(
+            repo,
+            "src/lib.rs",
+            make_claim(session_a, "agent-1", "fn_a", SymbolKind::Function),
+        ).unwrap();
+
+        // Release the lock
+        tracker.release_lock(repo, "src/lib.rs", session_a, "fn_a");
+
+        // Now another session should be able to acquire it
+        let result = tracker.acquire_lock(
+            repo,
+            "src/lib.rs",
+            make_claim(session_b, "agent-2", "fn_a", SymbolKind::Function),
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn release_lock_cleans_empty_entries() {
+        let tracker = SymbolClaimTracker::new();
+        let repo = Uuid::new_v4();
+        let session = Uuid::new_v4();
+
+        tracker.acquire_lock(
+            repo,
+            "src/lib.rs",
+            make_claim(session, "agent-1", "fn_a", SymbolKind::Function),
+        ).unwrap();
+
+        tracker.release_lock(repo, "src/lib.rs", session, "fn_a");
+
+        // The key should be removed from the map (no empty vecs lingering)
+        let key = (repo, "src/lib.rs".to_string());
+        assert!(tracker.claims.get(&key).is_none());
+    }
+
+    // ── release_locks tests ──
+
+    #[test]
+    fn release_locks_returns_released_entries() {
+        let tracker = SymbolClaimTracker::new();
+        let repo = Uuid::new_v4();
+        let session = Uuid::new_v4();
+
+        tracker.acquire_lock(
+            repo,
+            "src/lib.rs",
+            make_claim(session, "agent-1", "fn_a", SymbolKind::Function),
+        ).unwrap();
+        tracker.acquire_lock(
+            repo,
+            "src/api.rs",
+            make_claim(session, "agent-1", "handler", SymbolKind::Function),
+        ).unwrap();
+
+        let released = tracker.release_locks(repo, session);
+        assert_eq!(released.len(), 2);
+
+        let names: Vec<&str> = released.iter().map(|r| r.qualified_name.as_str()).collect();
+        assert!(names.contains(&"fn_a"));
+        assert!(names.contains(&"handler"));
+    }
+
+    #[test]
+    fn release_locks_unblocks_other_session() {
+        let tracker = SymbolClaimTracker::new();
+        let repo = Uuid::new_v4();
+        let session_a = Uuid::new_v4();
+        let session_b = Uuid::new_v4();
+
+        tracker.acquire_lock(
+            repo,
+            "src/lib.rs",
+            make_claim(session_a, "agent-1", "fn_a", SymbolKind::Function),
+        ).unwrap();
+
+        // session_b is blocked
+        assert!(tracker.acquire_lock(
+            repo,
+            "src/lib.rs",
+            make_claim(session_b, "agent-2", "fn_a", SymbolKind::Function),
+        ).is_err());
+
+        // Release session_a
+        tracker.release_locks(repo, session_a);
+
+        // session_b can now acquire
+        assert!(tracker.acquire_lock(
+            repo,
+            "src/lib.rs",
+            make_claim(session_b, "agent-2", "fn_a", SymbolKind::Function),
+        ).is_ok());
     }
 }

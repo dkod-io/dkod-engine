@@ -3,7 +3,7 @@ use std::time::Instant;
 use tonic::{Response, Status};
 use tracing::{info, warn};
 
-use dk_engine::conflict::SymbolClaim;
+use dk_engine::conflict::{AcquireOutcome, SymbolClaim};
 use crate::server::ProtocolServer;
 use crate::validation::{validate_file_path, MAX_FILE_SIZE};
 use crate::{ConflictWarning, FileWriteRequest, FileWriteResponse, SymbolChange};
@@ -62,94 +62,165 @@ pub async fn handle_file_write(
         }
     };
     let repo_id_str = repo_id.to_string();
-
-    // Write through the overlay (async DB persist)
-    let new_hash = ws
-        .overlay
-        .write(&req.path, req.content.clone(), is_new)
-        .await
-        .map_err(|e| Status::internal(format!("Write failed: {e}")))?;
-
     let changeset_id = ws.changeset_id;
     let agent_name = ws.agent_name.clone();
 
-    // Drop workspace guard before further work
+    // Drop workspace guard — overlay write is deferred until after lock acquisition
     drop(ws);
 
-    // Also record in changeset_files so the verify pipeline can materialize them.
     let op = if is_new { "add" } else { "modify" };
+
+    // Detect symbol changes from req.content directly — no overlay needed yet.
+    let (detected_changes, all_symbol_changes) =
+        detect_symbol_changes_diffed(engine, &req.path, &old_content, &req.content, is_new);
+
+    // ── Symbol locking (acquire with rollback) ──
+    // Attempt to acquire locks for each changed symbol. If any fails, roll back
+    // all previously acquired locks and reject the write. No overlay write, no
+    // changeset store entry — completely clean rejection.
+    let claimable: Vec<&crate::SymbolChangeDetail> = all_symbol_changes
+        .iter()
+        .filter(|sc| sc.change_type == "added" || sc.change_type == "modified" || sc.change_type == "deleted")
+        .collect();
+
+    let mut acquired: Vec<String> = Vec::new();
+    let mut locked_symbols: Vec<ConflictWarning> = Vec::new();
+
+    for sc in &claimable {
+        let kind = sc.kind.parse::<dk_core::SymbolKind>().unwrap_or(dk_core::SymbolKind::Function);
+        match server.claim_tracker().acquire_lock(
+            repo_id,
+            &req.path,
+            SymbolClaim {
+                session_id: sid,
+                agent_name: agent_name.clone(),
+                qualified_name: sc.symbol_name.clone(),
+                kind,
+                first_touched_at: Instant::now(),
+            },
+        ) {
+            Ok(AcquireOutcome::Fresh) => acquired.push(sc.symbol_name.clone()),
+            Ok(AcquireOutcome::ReAcquired) => {} // already held — exclude from rollback
+            Err(sl) => {
+                warn!(
+                    session_id = %sid,
+                    path = %req.path,
+                    symbol = %sl.qualified_name,
+                    locked_by = %sl.locked_by_agent,
+                    "SYMBOL_LOCKED: write rejected"
+                );
+                locked_symbols.push(ConflictWarning {
+                    file_path: req.path.clone(),
+                    symbol_name: sl.qualified_name.clone(),
+                    conflicting_agent: sl.locked_by_agent.clone(),
+                    conflicting_session_id: sl.locked_by_session.to_string(),
+                    message: format!(
+                        "SYMBOL_LOCKED: '{}' is locked by agent '{}'. Call dk_watch(filter: '{}') to wait, then dk_file_read and retry.",
+                        sl.qualified_name, sl.locked_by_agent, crate::merge::EVENT_LOCK_RELEASED,
+                    ),
+                });
+            }
+        }
+    }
+
+    if !locked_symbols.is_empty() {
+        // Roll back any locks acquired before the failure and emit events
+        // so any agent that raced and observed the transient lock can wake up.
+        for name in &acquired {
+            server.claim_tracker().release_lock(repo_id, &req.path, sid, name);
+            server.event_bus().publish(crate::WatchEvent {
+                event_type: crate::merge::EVENT_LOCK_RELEASED.to_string(),
+                changeset_id: String::new(),
+                agent_id: agent_name.clone(),
+                affected_symbols: vec![name.clone()],
+                details: format!("Symbol lock rolled back on {}", req.path),
+                session_id: req.session_id.clone(),
+                affected_files: vec![crate::FileChange {
+                    path: req.path.clone(),
+                    operation: "unlock".to_string(),
+                }],
+                symbol_changes: vec![],
+                repo_id: repo_id_str.clone(),
+                event_id: uuid::Uuid::new_v4().to_string(),
+            });
+        }
+
+        info!(
+            session_id = %sid,
+            path = %req.path,
+            locked_count = locked_symbols.len(),
+            rolled_back = acquired.len(),
+            "FILE_WRITE: rejected — symbols locked, rolled back partial locks"
+        );
+
+        return Ok(Response::new(FileWriteResponse {
+            new_hash: String::new(),
+            detected_changes: Vec::new(),
+            conflict_warnings: locked_symbols,
+        }));
+    }
+
+    // All locks acquired — now write the overlay and changeset store.
+    // If either fails, release all acquired locks before propagating the error.
+    let ws = match engine.workspace_manager().get_workspace(&sid) {
+        Some(ws) => ws,
+        None => {
+            for name in &acquired {
+                server.claim_tracker().release_lock(repo_id, &req.path, sid, name);
+                server.event_bus().publish(crate::WatchEvent {
+                    event_type: crate::merge::EVENT_LOCK_RELEASED.to_string(),
+                    changeset_id: String::new(),
+                    agent_id: agent_name.clone(),
+                    affected_symbols: vec![name.clone()],
+                    details: format!("Symbol lock released on error in {}", req.path),
+                    session_id: req.session_id.clone(),
+                    affected_files: vec![crate::FileChange {
+                        path: req.path.clone(),
+                        operation: "unlock".to_string(),
+                    }],
+                    symbol_changes: vec![],
+                    repo_id: repo_id_str.clone(),
+                    event_id: uuid::Uuid::new_v4().to_string(),
+                });
+            }
+            return Err(Status::not_found("Workspace not found for session"));
+        }
+    };
+
+    let new_hash = match ws.overlay.write(&req.path, req.content.clone(), is_new).await {
+        Ok(hash) => hash,
+        Err(e) => {
+            for name in &acquired {
+                server.claim_tracker().release_lock(repo_id, &req.path, sid, name);
+                server.event_bus().publish(crate::WatchEvent {
+                    event_type: crate::merge::EVENT_LOCK_RELEASED.to_string(),
+                    changeset_id: String::new(),
+                    agent_id: agent_name.clone(),
+                    affected_symbols: vec![name.clone()],
+                    details: format!("Symbol lock released on error in {}", req.path),
+                    session_id: req.session_id.clone(),
+                    affected_files: vec![crate::FileChange {
+                        path: req.path.clone(),
+                        operation: "unlock".to_string(),
+                    }],
+                    symbol_changes: vec![],
+                    repo_id: repo_id_str.clone(),
+                    event_id: uuid::Uuid::new_v4().to_string(),
+                });
+            }
+            return Err(Status::internal(format!("Write failed: {e}")));
+        }
+    };
+
+    drop(ws);
+
     let content_str = std::str::from_utf8(&req.content).ok();
     let _ = engine
         .changeset_store()
         .upsert_file(changeset_id, &req.path, op, content_str)
         .await;
 
-    // Detect symbol changes by diffing old vs new file content.
-    // Only symbols whose source text actually changed are reported.
-    let (detected_changes, all_symbol_changes) =
-        detect_symbol_changes_diffed(engine, &req.path, &old_content, &req.content, is_new);
-
-    // ── Symbol claim tracking ──
-    // Build claims from "added" and "modified" symbol changes and check for
-    // cross-session conflicts. Two sessions modifying DIFFERENT symbols in the
-    // same file is NOT a conflict — only same-symbol is a true conflict.
-    let conflict_warnings = {
-        let claimable: Vec<&crate::SymbolChangeDetail> = all_symbol_changes
-            .iter()
-            .filter(|sc| sc.change_type == "added" || sc.change_type == "modified")
-            .collect();
-
-        // Check for conflicts before recording our claims
-        let qualified_names: Vec<String> = claimable.iter().map(|sc| sc.symbol_name.clone()).collect();
-        let conflicts = server.claim_tracker().check_conflicts(
-            repo_id,
-            &req.path,
-            sid,
-            &qualified_names,
-        );
-
-        // Record claims (even if conflicts exist — warning only at write time)
-        for sc in &claimable {
-            let kind = sc.kind.parse::<dk_core::SymbolKind>().unwrap_or(dk_core::SymbolKind::Function);
-            server.claim_tracker().record_claim(
-                repo_id,
-                &req.path,
-                SymbolClaim {
-                    session_id: sid,
-                    agent_name: agent_name.clone(),
-                    qualified_name: sc.symbol_name.clone(),
-                    kind,
-                    first_touched_at: Instant::now(),
-                },
-            );
-        }
-
-        // Build ConflictWarning proto messages
-        let warnings: Vec<ConflictWarning> = conflicts
-            .into_iter()
-            .map(|c| {
-                let msg = format!(
-                    "Symbol '{}' was already modified by agent '{}' (session {})",
-                    c.qualified_name, c.conflicting_agent, c.conflicting_session,
-                );
-                warn!(
-                    session_id = %sid,
-                    path = %req.path,
-                    symbol = %c.qualified_name,
-                    conflicting_agent = %c.conflicting_agent,
-                    "CONFLICT_WARNING: {msg}"
-                );
-                ConflictWarning {
-                    file_path: req.path.clone(),
-                    symbol_name: c.qualified_name,
-                    conflicting_agent: c.conflicting_agent,
-                    conflicting_session_id: c.conflicting_session.to_string(),
-                    message: msg,
-                }
-            })
-            .collect();
-        warnings
-    };
+    let conflict_warnings: Vec<ConflictWarning> = Vec::new();
 
     // Emit a file.modified (or file.added) event
     let event_type = if is_new { "file.added" } else { "file.modified" };
