@@ -2120,7 +2120,7 @@ impl DkodMcp {
                     ));
                 }
                 text.push_str(
-                    "To resolve:\n\
+                    "\nTo resolve:\n\
                      1. dk_file_read each conflicting file — see what the other agent merged\n\
                      2. dk_file_write your adapted code — work alongside their changes\n\
                      3. dk_submit — re-submit your updated changeset\n\
@@ -2401,7 +2401,8 @@ impl DkodMcp {
                         "dk_resolve failed: {}\n\n\
                          If you hit a merge conflict from dk_merge, do NOT use dk_resolve.\n\
                          Instead: dk_file_read the conflicting files → dk_file_write adapted code → \
-                         dk_submit → dk_verify → dk_approve → retry dk_merge.",
+                         dk_submit → dk_verify → dk_approve → retry dk_merge.\n\n
+                         If you were resolving a platform-flagged conflict, verify the conflict_id is still active.",
                         e.message()
                     )
                 } else {
