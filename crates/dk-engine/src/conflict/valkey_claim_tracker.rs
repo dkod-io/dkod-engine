@@ -40,6 +40,7 @@ if existing then
     local claim = cjson.decode(existing)
     if claim.session_id == ARGV[1] then
         redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+        redis.call('EXPIRE', KEYS[2], ARGV[3])
         return 'REACQUIRE'
     else
         return existing
@@ -82,10 +83,12 @@ impl ValkeyClaimTracker {
         }
         let repo_id = rest[..36].parse::<Uuid>().ok()?;
         let after_repo = &rest[37..]; // skip the ":"
-        // file_path:qualified_name — split on the LAST ":"
-        let last_colon = after_repo.rfind(':')?;
-        let file_path = after_repo[..last_colon].to_string();
-        let qualified_name = after_repo[last_colon + 1..].to_string();
+        // file_path:qualified_name — split on the FIRST ":"
+        // We use find() not rfind() because qualified names can contain "::"
+        // (e.g., MyStruct::method) but Unix file paths never contain ":".
+        let first_colon = after_repo.find(':')?;
+        let file_path = after_repo[..first_colon].to_string();
+        let qualified_name = after_repo[first_colon + 1..].to_string();
         Some((repo_id, file_path, qualified_name))
     }
 }
@@ -306,32 +309,20 @@ impl ClaimTracker for ValkeyClaimTracker {
         conflicts
     }
 
+    /// Returns empty for ValkeyClaimTracker because Valkey locks are exclusive:
+    /// only one session can hold a given symbol lock at a time. Cross-session
+    /// conflicts are prevented at write time by `acquire_lock`, so there are
+    /// no concurrent claims to surface. This method is only meaningful for
+    /// the non-blocking `record_claim` path used by `LocalClaimTracker`.
     async fn get_all_conflicts_for_session(
         &self,
-        repo_id: Uuid,
-        session_id: Uuid,
+        _repo_id: Uuid,
+        _session_id: Uuid,
     ) -> Vec<(String, ConflictInfo)> {
-        let sess_key = Self::session_set_key(session_id);
-        let prefix = format!("lock:{repo_id}:");
-
-        let mut conn = self.conn.clone();
-
-        let all_keys: Vec<String> = match conn.smembers(&sess_key).await {
-            Ok(keys) => keys,
-            Err(_) => return Vec::new(),
-        };
-
-        let my_keys: Vec<&String> = all_keys.iter().filter(|k| k.starts_with(&prefix)).collect();
-        if my_keys.is_empty() {
-            return Vec::new();
-        }
-
-        // For each of my lock keys, check if another session also holds a
-        // lock on the same symbol. Since Valkey locks are exclusive (only one
-        // session can hold a key), cross-session conflicts in Valkey mode
-        // would only exist if record_claim was used (non-blocking). With
-        // acquire_lock (blocking), conflicts are prevented at write time.
-        // Return empty — the blocking model prevents concurrent claims.
+        // Valkey locks are exclusive — acquire_lock rejects cross-session
+        // claims at write time, so no concurrent claims can accumulate.
+        // Only the non-blocking record_claim path (LocalClaimTracker)
+        // can produce conflicts surfaced by this method.
         Vec::new()
     }
 

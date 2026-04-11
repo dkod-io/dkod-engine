@@ -103,6 +103,12 @@ pub trait ClaimTracker: Send + Sync {
     ) -> Vec<ConflictInfo>;
 
     /// Return all conflicts for a session across all file paths.
+    ///
+    /// This method is only meaningful for the non-blocking `record_claim` path
+    /// where multiple sessions can record overlapping claims without rejection.
+    /// Backends that use exclusive locking (e.g. `ValkeyClaimTracker`) may
+    /// return an empty list since cross-session conflicts are prevented at
+    /// write time by `acquire_lock`.
     async fn get_all_conflicts_for_session(
         &self,
         repo_id: Uuid,
