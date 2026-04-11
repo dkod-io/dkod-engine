@@ -1454,21 +1454,24 @@ impl DkodMcp {
             .map_err(|e| McpError::internal_error(format!("FILE_WRITE RPC failed: {e}"), None))?
             .into_inner();
 
-        let mut text = format!(
-            "Wrote {bytes_written} bytes to {path}\nhash: {}\n",
-            response.new_hash,
-        );
+        // Distinguish SYMBOL_LOCKED (write rejected, empty hash) from advisory warnings
+        let write_rejected = response.new_hash.is_empty() && !response.conflict_warnings.is_empty();
 
-        if !response.detected_changes.is_empty() {
+        let mut text = if write_rejected {
+            format!("SYMBOL_LOCKED — write rejected for {path}\n\n")
+        } else {
+            format!(
+                "Wrote {bytes_written} bytes to {path}\nhash: {}\n",
+                response.new_hash,
+            )
+        };
+
+        if !response.detected_changes.is_empty() && !write_rejected {
             text.push_str("\nDetected symbol changes:\n");
             for sc in &response.detected_changes {
                 text.push_str(&format!("  {} ({})\n", sc.symbol_name, sc.change_type));
             }
             // Track modified symbols for watch event impact analysis.
-            // Key on file_path::symbol_name to avoid false-positive [AFFECTS YOUR WORK]
-            // tags for common names like "new" or "default" that appear across many modules.
-            // Normalize the path (strip leading "./") to match engine-normalized paths
-            // in WatchEvent.symbol_changes.file_path.
             {
                 let normalized_path = path.strip_prefix("./").unwrap_or(&path);
                 let mut map = self.my_modified_symbols.lock().await;
@@ -1480,14 +1483,28 @@ impl DkodMcp {
         }
 
         if !response.conflict_warnings.is_empty() {
-            text.push_str("\nCONFLICT WARNING:\n");
-            for cw in &response.conflict_warnings {
-                text.push_str(&format!(
-                    "  {} is also modifying {} in this file\n",
-                    cw.conflicting_agent, cw.symbol_name
-                ));
+            if write_rejected {
+                text.push_str("Locked symbols:\n");
+                for cw in &response.conflict_warnings {
+                    text.push_str(&format!(
+                        "  {} — locked by agent '{}'\n",
+                        cw.symbol_name, cw.conflicting_agent
+                    ));
+                }
+                text.push_str("\nYour write was NOT applied. To proceed:\n");
+                text.push_str("  1. dk_watch(filter: \"symbol.lock.released\", wait: true)\n");
+                text.push_str("  2. dk_file_read(path)  — get the merged version\n");
+                text.push_str("  3. dk_file_write(path, adapted_content)  — retry\n");
+            } else {
+                text.push_str("\nCONFLICT WARNING:\n");
+                for cw in &response.conflict_warnings {
+                    text.push_str(&format!(
+                        "  {} is also modifying {} in this file\n",
+                        cw.conflicting_agent, cw.symbol_name
+                    ));
+                }
+                text.push_str("Your changes may be rejected at SUBMIT time.\n");
             }
-            text.push_str("Your changes may be rejected at SUBMIT time.\n");
         }
 
         let prefix = self
