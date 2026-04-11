@@ -9,15 +9,7 @@ use crate::{merge_response, ConflictDetail, MergeConflict, MergeRequest, MergeRe
 /// Conflict type for true write-write semantic conflicts.
 const CONFLICT_TYPE_TRUE: &str = "true_conflict";
 
-/// Sanitize a string for protobuf `string` fields.
-///
-/// Rust `String` is guaranteed valid UTF-8, but content originating from
-/// tree-sitter AST parsing may contain null bytes or replacement characters
-/// from lossy conversions.  Strip null bytes so the value round-trips cleanly
-/// through protobuf serialization/deserialization.
-fn sanitize_for_proto(s: &str) -> String {
-    s.replace('\0', "")
-}
+use dk_core::sanitize_for_proto;
 
 pub async fn handle_merge(
     server: &ProtocolServer,

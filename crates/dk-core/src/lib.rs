@@ -7,6 +7,15 @@ pub mod types;
 pub use error::{Error, Result};
 pub use types::*;
 
+// ── String sanitization ──
+
+/// Strip null bytes from strings before protobuf/JSON serialization.
+/// Tree-sitter AST parsing can produce null bytes from lossy UTF-8 conversion;
+/// these break protobuf string fields and JSON encoding.
+pub fn sanitize_for_proto(s: &str) -> String {
+    s.replace('\0', "")
+}
+
 // ── Git author helpers ──
 
 /// Strip characters that would corrupt a raw git commit-object header.
@@ -41,6 +50,20 @@ pub fn resolve_author(name: &str, email: &str, agent: &str) -> (String, String) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sanitize_for_proto_strips_null_bytes() {
+        assert_eq!(sanitize_for_proto("hello\0world"), "helloworld");
+        assert_eq!(sanitize_for_proto("\0\0"), "");
+        assert_eq!(sanitize_for_proto("clean"), "clean");
+    }
+
+    #[test]
+    fn sanitize_for_proto_preserves_valid_utf8() {
+        assert_eq!(sanitize_for_proto("fn résumé()"), "fn résumé()");
+        assert_eq!(sanitize_for_proto("日本語"), "日本語");
+        assert_eq!(sanitize_for_proto("bad\u{FFFD}char"), "bad\u{FFFD}char");
+    }
 
     #[test]
     fn resolve_author_uses_supplied_values() {

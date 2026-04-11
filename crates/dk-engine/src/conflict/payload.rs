@@ -9,16 +9,9 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use dk_core::{Error, Result, Symbol};
+use dk_core::{sanitize_for_proto, Error, Result, Symbol};
 
 use crate::parser::ParserRegistry;
-
-/// Strip null bytes from strings before serialization.
-/// Tree-sitter AST parsing can produce null bytes from lossy UTF-8 conversion;
-/// these break protobuf/JSON round-tripping.
-fn sanitize(s: &str) -> String {
-    s.replace('\0', "")
-}
 
 /// A block of conflicts to include in a SUBMIT response.
 #[derive(Debug, Clone, Serialize)]
@@ -251,10 +244,10 @@ pub fn build_conflict_detail(
     )?;
 
     Ok(SymbolConflictDetail {
-        file_path: sanitize(file_path),
-        qualified_name: sanitize(qualified_name),
-        kind: sanitize(&kind),
-        conflicting_agent: sanitize(conflicting_agent),
+        file_path: sanitize_for_proto(file_path),
+        qualified_name: sanitize_for_proto(qualified_name),
+        kind: sanitize_for_proto(&kind),
+        conflicting_agent: sanitize_for_proto(conflicting_agent),
         their_change,
         your_change,
         base_version,
