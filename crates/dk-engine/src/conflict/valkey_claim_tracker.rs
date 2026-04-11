@@ -53,6 +53,25 @@ redis.call('EXPIRE', KEYS[2], ARGV[3])
 return 'FRESH'
 "#;
 
+/// Lua script for atomic release_lock with ownership guard.
+///
+/// KEYS[1] = lock key
+/// KEYS[2] = session set key
+/// ARGV[1] = session_id (string)
+///
+/// Only deletes the lock if the stored claim's session_id matches.
+/// Always removes the key from the session set (cleans stale references).
+const RELEASE_SCRIPT: &str = r#"
+local existing = redis.call('GET', KEYS[1])
+if existing then
+    local claim = cjson.decode(existing)
+    if claim.session_id == ARGV[1] then
+        redis.call('DEL', KEYS[1])
+    end
+end
+redis.call('SREM', KEYS[2], KEYS[1])
+"#;
+
 /// Valkey/Redis-backed claim tracker for cross-pod symbol locking.
 pub struct ValkeyClaimTracker {
     conn: redis::aio::ConnectionManager,
@@ -196,12 +215,14 @@ impl ClaimTracker for ValkeyClaimTracker {
         let sess_key = Self::session_set_key(session_id);
 
         let mut conn = self.conn.clone();
-        let _: Result<(), _> = redis::pipe()
-            .del(&lock_key)
-            .cmd("SREM")
-            .arg(&sess_key)
-            .arg(&lock_key)
-            .query_async(&mut conn)
+        // Use atomic Lua script to only DEL if the stored claim belongs to
+        // this session. Prevents deleting another session's lock if the
+        // original expired and was re-acquired between acquisition and rollback.
+        let _: Result<(), _> = redis::Script::new(RELEASE_SCRIPT)
+            .key(&lock_key)
+            .key(&sess_key)
+            .arg(session_id.to_string())
+            .invoke_async(&mut conn)
             .await;
     }
 
