@@ -1456,9 +1456,12 @@ impl DkodMcp {
 
         // Distinguish SYMBOL_LOCKED (write rejected, empty hash) from advisory warnings
         let write_rejected = response.new_hash.is_empty() && !response.conflict_warnings.is_empty();
+        let silent_rejection = response.new_hash.is_empty() && response.conflict_warnings.is_empty();
 
         let mut text = if write_rejected {
             format!("SYMBOL_LOCKED — write rejected for {path}\n\n")
+        } else if silent_rejection {
+            format!("WRITE REJECTED — server returned no hash and no conflict details for {path}\n")
         } else {
             format!(
                 "Wrote {bytes_written} bytes to {path}\nhash: {}\n",
