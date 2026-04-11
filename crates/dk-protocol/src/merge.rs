@@ -99,12 +99,13 @@ pub async fn handle_merge(
 
     match merge_result {
         WorkspaceMergeResult::FastMerge { commit_hash } => {
+            // Release locks first — git commit is already in the tree,
+            // so locks must be freed regardless of changeset-store state.
+            release_locks_and_emit(server, repo_id, sid, &req.session_id);
+
             // Update changeset status to merged
             engine.changeset_store().set_merged(changeset_id, &commit_hash).await
                 .map_err(|e| Status::internal(e.to_string()))?;
-
-            // Release symbol locks and emit lock release events
-            release_locks_and_emit(server, repo_id, sid, &req.session_id);
 
             // Publish merge event
             server.event_bus().publish(crate::WatchEvent {
@@ -134,12 +135,12 @@ pub async fn handle_merge(
             commit_hash,
             auto_rebased_files,
         } => {
+            // Release locks first — git commit is already in the tree.
+            release_locks_and_emit(server, repo_id, sid, &req.session_id);
+
             // Update changeset status to merged
             engine.changeset_store().set_merged(changeset_id, &commit_hash).await
                 .map_err(|e| Status::internal(e.to_string()))?;
-
-            // Release symbol locks and emit lock release events
-            release_locks_and_emit(server, repo_id, sid, &req.session_id);
 
             // Publish merge event
             server.event_bus().publish(crate::WatchEvent {
