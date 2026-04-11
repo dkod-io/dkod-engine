@@ -80,7 +80,7 @@ pub async fn handle_file_write(
     // changeset store entry — completely clean rejection.
     let claimable: Vec<&crate::SymbolChangeDetail> = all_symbol_changes
         .iter()
-        .filter(|sc| sc.change_type == "added" || sc.change_type == "modified")
+        .filter(|sc| sc.change_type == "added" || sc.change_type == "modified" || sc.change_type == "deleted")
         .collect();
 
     let mut acquired: Vec<String> = Vec::new();
