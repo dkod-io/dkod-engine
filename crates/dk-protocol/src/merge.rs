@@ -170,6 +170,9 @@ pub async fn handle_merge(
         }
 
         WorkspaceMergeResult::Conflicts { conflicts } => {
+            // Intentionally NOT releasing locks here. The agent retains its locks
+            // while resolving conflicts (dk_resolve → retry dk_merge). Locks are
+            // released when the session is closed (dk_close) or times out (30 min GC).
             let conflict_details: Vec<ConflictDetail> = conflicts
                 .iter()
                 .map(|c| {

@@ -144,16 +144,26 @@ pub async fn handle_file_write(
     }
 
     // All locks acquired — now write the overlay and changeset store.
-    let ws = engine
-        .workspace_manager()
-        .get_workspace(&sid)
-        .ok_or_else(|| Status::not_found("Workspace not found for session"))?;
+    // If either fails, release all acquired locks before propagating the error.
+    let ws = match engine.workspace_manager().get_workspace(&sid) {
+        Some(ws) => ws,
+        None => {
+            for name in &acquired {
+                server.claim_tracker().release_lock(repo_id, &req.path, sid, name);
+            }
+            return Err(Status::not_found("Workspace not found for session"));
+        }
+    };
 
-    let new_hash = ws
-        .overlay
-        .write(&req.path, req.content.clone(), is_new)
-        .await
-        .map_err(|e| Status::internal(format!("Write failed: {e}")))?;
+    let new_hash = match ws.overlay.write(&req.path, req.content.clone(), is_new).await {
+        Ok(hash) => hash,
+        Err(e) => {
+            for name in &acquired {
+                server.claim_tracker().release_lock(repo_id, &req.path, sid, name);
+            }
+            return Err(Status::internal(format!("Write failed: {e}")));
+        }
+    };
 
     drop(ws);
 

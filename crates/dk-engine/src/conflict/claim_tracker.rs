@@ -146,6 +146,8 @@ impl SymbolClaimTracker {
                 !(c.session_id == session_id && c.qualified_name == qualified_name)
             });
         }
+        // Clean up empty entries to prevent unbounded growth from repeated rollbacks
+        self.claims.remove_if(&key, |_, v| v.is_empty());
     }
 
     /// Release all locks held by a session and return what was released.
