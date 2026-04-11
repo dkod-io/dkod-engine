@@ -131,6 +131,23 @@ impl SymbolClaimTracker {
         Ok(())
     }
 
+    /// Release a single symbol lock for a session in a specific file.
+    /// Used to roll back partially-acquired locks when a batch fails.
+    pub fn release_lock(
+        &self,
+        repo_id: Uuid,
+        file_path: &str,
+        session_id: Uuid,
+        qualified_name: &str,
+    ) {
+        let key = (repo_id, file_path.to_string());
+        if let Some(mut entry) = self.claims.get_mut(&key) {
+            entry.value_mut().retain(|c| {
+                !(c.session_id == session_id && c.qualified_name == qualified_name)
+            });
+        }
+    }
+
     /// Release all locks held by a session and return what was released.
     /// Callers should emit `symbol.lock.released` events for each returned entry.
     pub fn release_locks(&self, repo_id: Uuid, session_id: Uuid) -> Vec<ReleasedLock> {

@@ -62,88 +62,33 @@ pub async fn handle_file_write(
         }
     };
     let repo_id_str = repo_id.to_string();
-
-    // Write through the overlay (async DB persist)
-    let new_hash = ws
-        .overlay
-        .write(&req.path, req.content.clone(), is_new)
-        .await
-        .map_err(|e| Status::internal(format!("Write failed: {e}")))?;
-
     let changeset_id = ws.changeset_id;
     let agent_name = ws.agent_name.clone();
 
-    // Drop workspace guard before further work
+    // Drop workspace guard — overlay write is deferred until after lock acquisition
     drop(ws);
 
     let op = if is_new { "add" } else { "modify" };
 
-    // Detect symbol changes by diffing old vs new file content.
-    // Only symbols whose source text actually changed are reported.
+    // Detect symbol changes from req.content directly — no overlay needed yet.
     let (detected_changes, all_symbol_changes) =
         detect_symbol_changes_diffed(engine, &req.path, &old_content, &req.content, is_new);
 
-    // ── Symbol locking (check-then-acquire) ──
-    // First check ALL symbols for locks. If any are held by another session,
-    // reject the entire write without acquiring any locks (all-or-nothing).
+    // ── Symbol locking (acquire with rollback) ──
+    // Attempt to acquire locks for each changed symbol. If any fails, roll back
+    // all previously acquired locks and reject the write. No overlay write, no
+    // changeset store entry — completely clean rejection.
     let claimable: Vec<&crate::SymbolChangeDetail> = all_symbol_changes
         .iter()
         .filter(|sc| sc.change_type == "added" || sc.change_type == "modified")
         .collect();
 
-    let qualified_names: Vec<String> = claimable.iter().map(|sc| sc.symbol_name.clone()).collect();
-    let conflicts = server.claim_tracker().check_conflicts(
-        repo_id,
-        &req.path,
-        sid,
-        &qualified_names,
-    );
+    let mut acquired: Vec<String> = Vec::new();
+    let mut locked_symbols: Vec<ConflictWarning> = Vec::new();
 
-    // If any symbols are locked, reject the write. No locks acquired, no
-    // changeset_store entry written — clean rejection.
-    if !conflicts.is_empty() {
-        let conflict_warnings: Vec<ConflictWarning> = conflicts
-            .into_iter()
-            .map(|c| {
-                warn!(
-                    session_id = %sid,
-                    path = %req.path,
-                    symbol = %c.qualified_name,
-                    locked_by = %c.conflicting_agent,
-                    "SYMBOL_LOCKED: write rejected"
-                );
-                ConflictWarning {
-                    file_path: req.path.clone(),
-                    symbol_name: c.qualified_name.clone(),
-                    conflicting_agent: c.conflicting_agent.clone(),
-                    conflicting_session_id: c.conflicting_session.to_string(),
-                    message: format!(
-                        "SYMBOL_LOCKED: '{}' is locked by agent '{}'. Call dk_watch(filter: 'symbol.lock.released') to wait, then dk_file_read and retry.",
-                        c.qualified_name, c.conflicting_agent,
-                    ),
-                }
-            })
-            .collect();
-
-        info!(
-            session_id = %sid,
-            path = %req.path,
-            locked_count = conflict_warnings.len(),
-            "FILE_WRITE: rejected — symbols locked by another agent"
-        );
-
-        return Ok(Response::new(FileWriteResponse {
-            new_hash: String::new(),
-            detected_changes: Vec::new(),
-            conflict_warnings,
-        }));
-    }
-
-    // All symbols are free — acquire locks and persist to changeset store.
     for sc in &claimable {
         let kind = sc.kind.parse::<dk_core::SymbolKind>().unwrap_or(dk_core::SymbolKind::Function);
-        // acquire_lock won't fail here — we just checked no conflicts exist
-        let _ = server.claim_tracker().acquire_lock(
+        match server.claim_tracker().acquire_lock(
             repo_id,
             &req.path,
             SymbolClaim {
@@ -153,17 +98,71 @@ pub async fn handle_file_write(
                 kind,
                 first_touched_at: Instant::now(),
             },
-        );
+        ) {
+            Ok(()) => acquired.push(sc.symbol_name.clone()),
+            Err(sl) => {
+                warn!(
+                    session_id = %sid,
+                    path = %req.path,
+                    symbol = %sl.qualified_name,
+                    locked_by = %sl.locked_by_agent,
+                    "SYMBOL_LOCKED: write rejected"
+                );
+                locked_symbols.push(ConflictWarning {
+                    file_path: req.path.clone(),
+                    symbol_name: sl.qualified_name.clone(),
+                    conflicting_agent: sl.locked_by_agent.clone(),
+                    conflicting_session_id: sl.locked_by_session.to_string(),
+                    message: format!(
+                        "SYMBOL_LOCKED: '{}' is locked by agent '{}'. Call dk_watch(filter: 'symbol.lock.released') to wait, then dk_file_read and retry.",
+                        sl.qualified_name, sl.locked_by_agent,
+                    ),
+                });
+            }
+        }
     }
 
-    // Record in changeset_files AFTER lock acquisition succeeds.
+    if !locked_symbols.is_empty() {
+        // Roll back any locks acquired before the failure
+        for name in &acquired {
+            server.claim_tracker().release_lock(repo_id, &req.path, sid, name);
+        }
+
+        info!(
+            session_id = %sid,
+            path = %req.path,
+            locked_count = locked_symbols.len(),
+            rolled_back = acquired.len(),
+            "FILE_WRITE: rejected — symbols locked, rolled back partial locks"
+        );
+
+        return Ok(Response::new(FileWriteResponse {
+            new_hash: String::new(),
+            detected_changes: Vec::new(),
+            conflict_warnings: locked_symbols,
+        }));
+    }
+
+    // All locks acquired — now write the overlay and changeset store.
+    let ws = engine
+        .workspace_manager()
+        .get_workspace(&sid)
+        .ok_or_else(|| Status::not_found("Workspace not found for session"))?;
+
+    let new_hash = ws
+        .overlay
+        .write(&req.path, req.content.clone(), is_new)
+        .await
+        .map_err(|e| Status::internal(format!("Write failed: {e}")))?;
+
+    drop(ws);
+
     let content_str = std::str::from_utf8(&req.content).ok();
     let _ = engine
         .changeset_store()
         .upsert_file(changeset_id, &req.path, op, content_str)
         .await;
 
-    // All locks acquired — no conflicts. Build empty warnings for backward compat.
     let conflict_warnings: Vec<ConflictWarning> = Vec::new();
 
     // Emit a file.modified (or file.added) event
