@@ -93,7 +93,7 @@ pub async fn handle_merge(
         WorkspaceMergeResult::FastMerge { commit_hash } => {
             // Release locks first — git commit is already in the tree,
             // so locks must be freed regardless of changeset-store state.
-            release_locks_and_emit(server, repo_id, sid, &req.session_id);
+            release_locks_and_emit(server, repo_id, sid, &req.session_id).await;
 
             // Update changeset status to merged
             engine.changeset_store().set_merged(changeset_id, &commit_hash).await
@@ -128,7 +128,7 @@ pub async fn handle_merge(
             auto_rebased_files,
         } => {
             // Release locks first — git commit is already in the tree.
-            release_locks_and_emit(server, repo_id, sid, &req.session_id);
+            release_locks_and_emit(server, repo_id, sid, &req.session_id).await;
 
             // Update changeset status to merged
             engine.changeset_store().set_merged(changeset_id, &commit_hash).await
@@ -210,13 +210,13 @@ pub async fn handle_merge(
 
 /// Release all symbol locks for a session and emit `symbol.lock.released` events
 /// so blocked agents can wake up and retry their writes.
-fn release_locks_and_emit(
+async fn release_locks_and_emit(
     server: &ProtocolServer,
     repo_id: Uuid,
     session_id: Uuid,
     session_id_str: &str,
 ) {
-    let released = server.claim_tracker().release_locks(repo_id, session_id);
+    let released = server.claim_tracker().release_locks(repo_id, session_id).await;
 
     if released.is_empty() {
         return;

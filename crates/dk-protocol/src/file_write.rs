@@ -96,7 +96,7 @@ pub async fn handle_file_write(
                 kind,
                 first_touched_at: chrono::Utc::now(),
             },
-        ) {
+        ).await {
             Ok(AcquireOutcome::Fresh) => acquired.push(sc.symbol_name.clone()),
             Ok(AcquireOutcome::ReAcquired) => {} // already held — exclude from rollback
             Err(sl) => {
@@ -125,7 +125,7 @@ pub async fn handle_file_write(
         // Roll back any locks acquired before the failure and emit events
         // so any agent that raced and observed the transient lock can wake up.
         for name in &acquired {
-            server.claim_tracker().release_lock(repo_id, &req.path, sid, name);
+            server.claim_tracker().release_lock(repo_id, &req.path, sid, name).await;
             server.event_bus().publish(crate::WatchEvent {
                 event_type: crate::merge::EVENT_LOCK_RELEASED.to_string(),
                 changeset_id: String::new(),
@@ -164,7 +164,7 @@ pub async fn handle_file_write(
         Some(ws) => ws,
         None => {
             for name in &acquired {
-                server.claim_tracker().release_lock(repo_id, &req.path, sid, name);
+                server.claim_tracker().release_lock(repo_id, &req.path, sid, name).await;
                 server.event_bus().publish(crate::WatchEvent {
                     event_type: crate::merge::EVENT_LOCK_RELEASED.to_string(),
                     changeset_id: String::new(),
@@ -189,7 +189,7 @@ pub async fn handle_file_write(
         Ok(hash) => hash,
         Err(e) => {
             for name in &acquired {
-                server.claim_tracker().release_lock(repo_id, &req.path, sid, name);
+                server.claim_tracker().release_lock(repo_id, &req.path, sid, name).await;
                 server.event_bus().publish(crate::WatchEvent {
                     event_type: crate::merge::EVENT_LOCK_RELEASED.to_string(),
                     changeset_id: String::new(),

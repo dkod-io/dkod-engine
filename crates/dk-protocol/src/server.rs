@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use dk_engine::conflict::SymbolClaimTracker;
+use dk_engine::conflict::{ClaimTracker, LocalClaimTracker};
 use dk_engine::repo::Engine;
 use tonic::{Request, Response, Status};
 
@@ -18,7 +18,7 @@ pub struct ProtocolServer {
     pub(crate) session_mgr: Arc<SessionManager>,
     pub(crate) auth_config: AuthConfig,
     pub(crate) event_bus: Arc<EventBus>,
-    pub(crate) claim_tracker: Arc<SymbolClaimTracker>,
+    pub(crate) claim_tracker: Arc<dyn ClaimTracker>,
 }
 
 impl ProtocolServer {
@@ -34,7 +34,7 @@ impl ProtocolServer {
             ))),
             auth_config,
             event_bus: Arc::new(EventBus::new()),
-            claim_tracker: Arc::new(SymbolClaimTracker::new()),
+            claim_tracker: Arc::new(LocalClaimTracker::new()),
         }
     }
 
@@ -63,8 +63,25 @@ impl ProtocolServer {
     }
 
     /// Borrow the shared symbol claim tracker.
-    pub fn claim_tracker(&self) -> &SymbolClaimTracker {
-        &self.claim_tracker
+    pub fn claim_tracker(&self) -> &dyn ClaimTracker {
+        &*self.claim_tracker
+    }
+
+    /// Create a `ProtocolServer` with a custom claim tracker implementation.
+    pub fn with_claim_tracker(
+        engine: Arc<Engine>,
+        auth_config: AuthConfig,
+        claim_tracker: Arc<dyn ClaimTracker>,
+    ) -> Self {
+        Self {
+            engine,
+            session_mgr: Arc::new(SessionManager::new(std::time::Duration::from_secs(
+                30 * 60,
+            ))),
+            auth_config,
+            event_bus: Arc::new(EventBus::new()),
+            claim_tracker,
+        }
     }
 
     /// Validate an auth token against the configured secret.
