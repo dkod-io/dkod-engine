@@ -237,19 +237,30 @@ impl ClaimTracker for ValkeyClaimTracker {
         let mut pipe = redis::pipe();
 
         for (key, value) in repo_keys.iter().zip(values.iter()) {
-            if let Some(json) = value {
-                if let Ok(claim) = serde_json::from_str::<SymbolClaim>(json) {
-                    if let Some((_, file_path, _)) = Self::parse_lock_key(key) {
-                        released.push(ReleasedLock {
-                            file_path,
-                            qualified_name: claim.qualified_name,
-                            kind: claim.kind,
-                            agent_name: claim.agent_name,
-                        });
+            // Guard: only DEL if the stored claim still belongs to this session.
+            // A stale session-set entry may point to a lock now owned by another
+            // session (if the original lock expired and was re-acquired).
+            let owned = value
+                .as_deref()
+                .and_then(|json| serde_json::from_str::<SymbolClaim>(json).ok())
+                .map_or(false, |c| c.session_id == session_id);
+
+            if owned {
+                if let Some(json) = value {
+                    if let Ok(claim) = serde_json::from_str::<SymbolClaim>(json) {
+                        if let Some((_, file_path, _)) = Self::parse_lock_key(key) {
+                            released.push(ReleasedLock {
+                                file_path,
+                                qualified_name: claim.qualified_name,
+                                kind: claim.kind,
+                                agent_name: claim.agent_name,
+                            });
+                        }
                     }
                 }
+                pipe.del(*key);
             }
-            pipe.del(*key);
+            // Always remove the stale session-set reference
             pipe.cmd("SREM").arg(&sess_key).arg(*key);
         }
 
@@ -354,19 +365,27 @@ impl ClaimTracker for ValkeyClaimTracker {
         let mut pipe = redis::pipe();
 
         for (key, value) in all_keys.iter().zip(values.iter()) {
-            if let Some(json) = value {
-                if let Ok(claim) = serde_json::from_str::<SymbolClaim>(json) {
-                    if let Some((_, file_path, _)) = Self::parse_lock_key(key) {
-                        released.push(ReleasedLock {
-                            file_path,
-                            qualified_name: claim.qualified_name,
-                            kind: claim.kind,
-                            agent_name: claim.agent_name,
-                        });
+            // Guard: only DEL if the stored claim still belongs to this session.
+            let owned = value
+                .as_deref()
+                .and_then(|json| serde_json::from_str::<SymbolClaim>(json).ok())
+                .map_or(false, |c| c.session_id == session_id);
+
+            if owned {
+                if let Some(json) = value {
+                    if let Ok(claim) = serde_json::from_str::<SymbolClaim>(json) {
+                        if let Some((_, file_path, _)) = Self::parse_lock_key(key) {
+                            released.push(ReleasedLock {
+                                file_path,
+                                qualified_name: claim.qualified_name,
+                                kind: claim.kind,
+                                agent_name: claim.agent_name,
+                            });
+                        }
                     }
                 }
+                pipe.del(key);
             }
-            pipe.del(key);
         }
         pipe.del(&sess_key);
 
