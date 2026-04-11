@@ -2119,7 +2119,16 @@ impl DkodMcp {
                         conflict.available_actions.join(", ")
                     ));
                 }
-                text.push_str("Resolve conflicts and try again.");
+                text.push_str(
+                    "To resolve:\n\
+                     1. dk_file_read each conflicting file — see what the other agent merged\n\
+                     2. dk_file_write your adapted code — work alongside their changes\n\
+                     3. dk_submit — re-submit your updated changeset\n\
+                     4. dk_verify — verify the new submission\n\
+                     5. dk_approve — re-approve\n\
+                     6. dk_merge — retry\n\n\
+                     Do NOT call dk_resolve — it is only for platform-flagged conflict states.",
+                );
                 let prefix = self
                     .drain_notifications(&session_id)
                     .await
@@ -2384,11 +2393,23 @@ impl DkodMcp {
             manual_content: content,
         };
 
-        let response = client
-            .resolve(request)
-            .await
-            .map_err(|e| McpError::internal_error(format!("RESOLVE RPC failed: {e}"), None))?
-            .into_inner();
+        let response = match client.resolve(request).await {
+            Ok(resp) => resp.into_inner(),
+            Err(e) => {
+                let msg = if e.code() == tonic::Code::FailedPrecondition {
+                    format!(
+                        "dk_resolve failed: {}\n\n\
+                         If you hit a merge conflict from dk_merge, do NOT use dk_resolve.\n\
+                         Instead: dk_file_read the conflicting files → dk_file_write adapted code → \
+                         dk_submit → dk_verify → dk_approve → retry dk_merge.",
+                        e.message()
+                    )
+                } else {
+                    format!("RESOLVE RPC failed: {e}")
+                };
+                return Err(McpError::internal_error(msg, None));
+            }
+        };
 
         let header = if response.success {
             "Conflicts resolved!"
