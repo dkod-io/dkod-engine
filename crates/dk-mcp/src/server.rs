@@ -1469,7 +1469,7 @@ impl DkodMcp {
             )
         };
 
-        if !response.detected_changes.is_empty() && !write_rejected {
+        if !response.detected_changes.is_empty() && !response.new_hash.is_empty() {
             text.push_str("\nDetected symbol changes:\n");
             for sc in &response.detected_changes {
                 text.push_str(&format!("  {} ({})\n", sc.symbol_name, sc.change_type));
