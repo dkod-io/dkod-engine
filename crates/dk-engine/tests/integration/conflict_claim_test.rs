@@ -1,5 +1,4 @@
-use std::time::Instant;
-
+use chrono::Utc;
 use dk_core::SymbolKind;
 use dk_engine::conflict::{SymbolClaim, SymbolClaimTracker};
 use uuid::Uuid;
@@ -10,7 +9,7 @@ fn make_claim(session_id: Uuid, agent: &str, name: &str, kind: SymbolKind) -> Sy
         agent_name: agent.to_string(),
         qualified_name: name.to_string(),
         kind,
-        first_touched_at: Instant::now(),
+        first_touched_at: Utc::now(),
     }
 }
 

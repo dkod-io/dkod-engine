@@ -1,17 +1,18 @@
+use chrono::{DateTime, Utc};
 use dashmap::DashMap;
-use std::time::Instant;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use dk_core::SymbolKind;
 
 /// A claim that a particular session has touched a symbol.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SymbolClaim {
     pub session_id: Uuid,
     pub agent_name: String,
     pub qualified_name: String,
     pub kind: SymbolKind,
-    pub first_touched_at: Instant,
+    pub first_touched_at: DateTime<Utc>,
 }
 
 /// Information about a detected conflict: another session already claims
@@ -22,7 +23,7 @@ pub struct ConflictInfo {
     pub kind: SymbolKind,
     pub conflicting_session: Uuid,
     pub conflicting_agent: String,
-    pub first_touched_at: Instant,
+    pub first_touched_at: DateTime<Utc>,
 }
 
 /// Information about a symbol lock held by another session.
@@ -33,7 +34,7 @@ pub struct SymbolLocked {
     pub kind: SymbolKind,
     pub locked_by_session: Uuid,
     pub locked_by_agent: String,
-    pub locked_since: Instant,
+    pub locked_since: DateTime<Utc>,
     pub file_path: String,
 }
 
@@ -328,7 +329,7 @@ mod tests {
             agent_name: agent.to_string(),
             qualified_name: name.to_string(),
             kind,
-            first_touched_at: Instant::now(),
+            first_touched_at: Utc::now(),
         }
     }
 

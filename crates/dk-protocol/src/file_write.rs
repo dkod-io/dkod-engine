@@ -1,5 +1,3 @@
-use std::time::Instant;
-
 use tonic::{Response, Status};
 use tracing::{info, warn};
 
@@ -96,7 +94,7 @@ pub async fn handle_file_write(
                 agent_name: agent_name.clone(),
                 qualified_name: sc.symbol_name.clone(),
                 kind,
-                first_touched_at: Instant::now(),
+                first_touched_at: chrono::Utc::now(),
             },
         ) {
             Ok(AcquireOutcome::Fresh) => acquired.push(sc.symbol_name.clone()),
