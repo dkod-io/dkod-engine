@@ -167,6 +167,21 @@ pub async fn handle_file_write(
         None => {
             for name in &acquired {
                 server.claim_tracker().release_lock(repo_id, &req.path, sid, name);
+                server.event_bus().publish(crate::WatchEvent {
+                    event_type: crate::merge::EVENT_LOCK_RELEASED.to_string(),
+                    changeset_id: String::new(),
+                    agent_id: agent_name.clone(),
+                    affected_symbols: vec![name.clone()],
+                    details: format!("Symbol lock released on error in {}", req.path),
+                    session_id: req.session_id.clone(),
+                    affected_files: vec![crate::FileChange {
+                        path: req.path.clone(),
+                        operation: "unlock".to_string(),
+                    }],
+                    symbol_changes: vec![],
+                    repo_id: repo_id_str.clone(),
+                    event_id: uuid::Uuid::new_v4().to_string(),
+                });
             }
             return Err(Status::not_found("Workspace not found for session"));
         }
@@ -177,6 +192,21 @@ pub async fn handle_file_write(
         Err(e) => {
             for name in &acquired {
                 server.claim_tracker().release_lock(repo_id, &req.path, sid, name);
+                server.event_bus().publish(crate::WatchEvent {
+                    event_type: crate::merge::EVENT_LOCK_RELEASED.to_string(),
+                    changeset_id: String::new(),
+                    agent_id: agent_name.clone(),
+                    affected_symbols: vec![name.clone()],
+                    details: format!("Symbol lock released on error in {}", req.path),
+                    session_id: req.session_id.clone(),
+                    affected_files: vec![crate::FileChange {
+                        path: req.path.clone(),
+                        operation: "unlock".to_string(),
+                    }],
+                    symbol_changes: vec![],
+                    repo_id: repo_id_str.clone(),
+                    event_id: uuid::Uuid::new_v4().to_string(),
+                });
             }
             return Err(Status::internal(format!("Write failed: {e}")));
         }
