@@ -31,10 +31,10 @@ pub async fn handle_merge(
         .parse::<Uuid>()
         .map_err(|_| Status::invalid_argument("Invalid session ID"))?;
 
-    // Resolve repo_id for enriched events and lock release
-    let (repo_id, repo_id_str) = match engine.get_repo(&session.codebase).await {
-        Ok((rid, _)) => (rid, rid.to_string()),
-        Err(_) => (Uuid::nil(), String::new()),
+    // Resolve repo_id_str for enriched events (non-fatal — empty string on failure)
+    let repo_id_str = match engine.get_repo(&session.codebase).await {
+        Ok((rid, _)) => rid.to_string(),
+        Err(_) => String::new(),
     };
 
     let changeset_id = req.changeset_id.parse::<Uuid>()
@@ -57,8 +57,9 @@ pub async fn handle_merge(
         .get_workspace(&sid)
         .ok_or_else(|| Status::not_found("Workspace not found for session"))?;
 
-    // Get git repo
-    let (_, git_repo) = engine.get_repo(&session.codebase).await
+    // Get git repo — also use this repo_id for lock release (the first get_repo
+    // call is non-fatal and may return empty string, but this one propagates errors)
+    let (repo_id, git_repo) = engine.get_repo(&session.codebase).await
         .map_err(|e| Status::internal(e.to_string()))?;
 
     let agent = changeset.agent_id.as_deref().unwrap_or("agent");
