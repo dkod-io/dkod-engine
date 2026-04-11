@@ -196,6 +196,10 @@ struct WatchParams {
     session_id: Option<String>,
     /// Glob filter for events (default: "*" for all events)
     filter: Option<String>,
+    /// If true, block until a matching event arrives (or timeout). Default: false (poll and return immediately).
+    wait: Option<bool>,
+    /// Maximum time to wait in milliseconds when wait=true. Default: 30000 (30 seconds). Max: 120000 (2 minutes).
+    timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -248,6 +252,9 @@ pub struct DkodMcp {
     /// Per-session flag indicating watch event buffer overflow occurred.
     /// When true, the next drain will include an overflow warning.
     watch_overflow: Arc<Mutex<HashMap<String, bool>>>,
+    /// Per-session notification for blocking dk_watch. Signaled when new events
+    /// are buffered so a waiting dk_watch call can wake up immediately.
+    watch_notify: Arc<Mutex<HashMap<String, Arc<tokio::sync::Notify>>>>,
 }
 
 /// Cancel all per-session NATS and Watch tasks when the MCP instance drops
@@ -302,6 +309,7 @@ impl DkodMcp {
             watch_filters: Arc::new(Mutex::new(HashMap::new())),
             my_modified_symbols: Arc::new(Mutex::new(HashMap::new())),
             watch_overflow: Arc::new(Mutex::new(HashMap::new())),
+            watch_notify: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -334,6 +342,7 @@ impl DkodMcp {
             watch_filters: Arc::new(Mutex::new(HashMap::new())),
             my_modified_symbols: Arc::new(Mutex::new(HashMap::new())),
             watch_overflow: Arc::new(Mutex::new(HashMap::new())),
+            watch_notify: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -383,6 +392,7 @@ impl DkodMcp {
             watch_filters: Arc::new(Mutex::new(HashMap::new())),
             my_modified_symbols: Arc::new(Mutex::new(HashMap::new())),
             watch_overflow: Arc::new(Mutex::new(HashMap::new())),
+            watch_notify: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -404,6 +414,7 @@ impl DkodMcp {
             watch_filters: Arc::new(Mutex::new(HashMap::new())),
             my_modified_symbols: Arc::new(Mutex::new(HashMap::new())),
             watch_overflow: Arc::new(Mutex::new(HashMap::new())),
+            watch_notify: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -576,6 +587,11 @@ impl DkodMcp {
         self.pending_watch_events.lock().await.remove(session_id);
         self.my_modified_symbols.lock().await.remove(session_id);
         self.watch_overflow.lock().await.remove(session_id);
+        // Wake any blocking dk_watch before removing the notify, so it returns
+        // with "no events" instead of hanging until timeout.
+        if let Some(notify) = self.watch_notify.lock().await.remove(session_id) {
+            notify.notify_one();
+        }
     }
 
     async fn drain_watch_events(&self, session_id: &str) -> Option<String> {
@@ -743,6 +759,7 @@ impl DkodMcp {
         let session_id_for_task = session_id_owned.clone();
         let overflow_flag = Arc::clone(&self.watch_overflow);
         let pending_warnings_for_watch = Arc::clone(&self.pending_warnings);
+        let watch_notify_for_task = Arc::clone(&self.watch_notify);
         let watch_handle = tokio::spawn(async move {
             let mut client = client;
             // repo_id is intentionally empty: the engine scopes the Watch stream
@@ -797,6 +814,15 @@ impl DkodMcp {
                                 if !already_exists {
                                     if events.len() < 100 {
                                         events.push(event);
+                                        // Wake up any blocking dk_watch call
+                                        drop(map); // release lock before notify
+                                        if let Some(notify) = watch_notify_for_task
+                                            .lock()
+                                            .await
+                                            .get(&session_id_for_task)
+                                        {
+                                            notify.notify_one();
+                                        }
                                     } else {
                                         tracing::warn!(
                                             session_id = %session_id_for_task,
@@ -2539,7 +2565,7 @@ impl DkodMcp {
 
     /// Subscribe to real-time codebase events from other agents.
     #[tool(
-        description = "Subscribe to real-time codebase events from other agents. Returns buffered events since last call. Automatically started on dk_connect; call explicitly to check for updates or change the filter."
+        description = "Subscribe to real-time codebase events from other agents. Returns buffered events since last call. With wait=true, blocks until a matching event arrives (use for lock release waits). Automatically started on dk_connect; call explicitly to check for updates or change the filter."
     )]
     async fn dk_watch(
         &self,
@@ -2548,14 +2574,29 @@ impl DkodMcp {
         let WatchParams {
             session_id: param_session_id,
             filter,
+            wait,
+            timeout_ms,
         } = params;
 
         let session = self.resolve_session(param_session_id.as_deref()).await?;
         let session_id = session.session_id.clone();
         let filter_str = filter.unwrap_or_else(|| "*".to_string());
+        let blocking = wait.unwrap_or(false);
+        let timeout = std::time::Duration::from_millis(
+            timeout_ms.unwrap_or(30_000).min(120_000),
+        );
 
         // Start the watch stream if not already running.
         self.start_watch_stream(&session_id, &filter_str).await;
+
+        // Ensure a Notify exists for this session (used by blocking mode).
+        let notify = {
+            let mut notifiers = self.watch_notify.lock().await;
+            notifiers
+                .entry(session_id.clone())
+                .or_insert_with(|| Arc::new(tokio::sync::Notify::new()))
+                .clone()
+        };
 
         // Drain conflict warnings first (before touching the event buffer) to
         // ensure consistent output: warnings always in prefix, events in body.
@@ -2574,7 +2615,40 @@ impl DkodMcp {
         };
 
         if events.is_empty() && !overflowed {
-            // Check whether the watch stream is actually alive before claiming so.
+            if blocking {
+                // Block until a new event arrives or timeout.
+                match tokio::time::timeout(timeout, notify.notified()).await {
+                    Ok(()) => {
+                        // Event arrived — drain the buffer again
+                        let events = {
+                            let mut map = self.pending_watch_events.lock().await;
+                            map.remove(&session_id).unwrap_or_default()
+                        };
+                        let overflowed = {
+                            let mut flags = self.watch_overflow.lock().await;
+                            flags.remove(&session_id).unwrap_or(false)
+                        };
+                        if !events.is_empty() || overflowed {
+                            return self.format_watch_response(
+                                &session_id, &prefix, events, overflowed,
+                            ).await;
+                        }
+                        // Spurious wake — return empty
+                        return Ok(CallToolResult::success(vec![Content::text(format!(
+                            "{prefix}No new watch events (wake without events)."
+                        ))]));
+                    }
+                    Err(_) => {
+                        // Timeout — return empty
+                        return Ok(CallToolResult::success(vec![Content::text(format!(
+                            "{prefix}No events received within {}ms timeout.",
+                            timeout.as_millis()
+                        ))]));
+                    }
+                }
+            }
+
+            // Non-blocking: return immediately with status
             let is_active = {
                 let tasks = self.watch_tasks.lock().await;
                 tasks
@@ -2594,9 +2668,20 @@ impl DkodMcp {
             ))]));
         }
 
+        self.format_watch_response(&session_id, &prefix, events, overflowed).await
+    }
+
+    /// Format watch events into a CallToolResult (shared by blocking and non-blocking paths).
+    async fn format_watch_response(
+        &self,
+        session_id: &str,
+        prefix: &str,
+        events: Vec<crate::WatchEvent>,
+        overflowed: bool,
+    ) -> Result<CallToolResult, McpError> {
         let my_symbols = {
             let map = self.my_modified_symbols.lock().await;
-            map.get(&session_id).cloned().unwrap_or_default()
+            map.get(session_id).cloned().unwrap_or_default()
         };
 
         let mut text = String::new();
