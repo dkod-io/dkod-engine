@@ -25,6 +25,28 @@ pub struct ConflictInfo {
     pub first_touched_at: Instant,
 }
 
+/// Information about a symbol lock held by another session.
+/// Returned when `acquire_lock` finds the symbol is already locked.
+#[derive(Debug, Clone)]
+pub struct SymbolLocked {
+    pub qualified_name: String,
+    pub kind: SymbolKind,
+    pub locked_by_session: Uuid,
+    pub locked_by_agent: String,
+    pub locked_since: Instant,
+    pub file_path: String,
+}
+
+/// Result of releasing locks for a session. Contains the symbols that
+/// were released, so callers can emit `symbol.lock.released` events.
+#[derive(Debug, Clone)]
+pub struct ReleasedLock {
+    pub file_path: String,
+    pub qualified_name: String,
+    pub kind: SymbolKind,
+    pub agent_name: String,
+}
+
 /// Thread-safe, lock-free tracker for symbol-level claims across sessions.
 ///
 /// Key insight: two sessions modifying DIFFERENT symbols in the same file is
@@ -65,6 +87,85 @@ impl SymbolClaimTracker {
         } else {
             claims.push(claim);
         }
+    }
+
+    /// Attempt to acquire a symbol lock. If the symbol is already claimed by
+    /// another session, returns `Err(SymbolLocked)` — the write MUST NOT proceed.
+    /// If claimed by the same session, or unclaimed, acquires and returns `Ok(())`.
+    ///
+    /// This is the blocking counterpart to `record_claim`. Use this when writes
+    /// should be rejected if another agent holds the symbol.
+    pub fn acquire_lock(
+        &self,
+        repo_id: Uuid,
+        file_path: &str,
+        claim: SymbolClaim,
+    ) -> Result<(), SymbolLocked> {
+        let key = (repo_id, file_path.to_string());
+        let mut entry = self.claims.entry(key).or_default();
+        let claims = entry.value_mut();
+
+        // Check if another session already holds this symbol
+        if let Some(existing) = claims.iter().find(|c| {
+            c.qualified_name == claim.qualified_name && c.session_id != claim.session_id
+        }) {
+            return Err(SymbolLocked {
+                qualified_name: claim.qualified_name,
+                kind: existing.kind.clone(),
+                locked_by_session: existing.session_id,
+                locked_by_agent: existing.agent_name.clone(),
+                locked_since: existing.first_touched_at,
+                file_path: file_path.to_string(),
+            });
+        }
+
+        // Same session re-acquisition or fresh claim — proceed
+        if let Some(existing) = claims.iter_mut().find(|c| {
+            c.session_id == claim.session_id && c.qualified_name == claim.qualified_name
+        }) {
+            existing.kind = claim.kind;
+            existing.agent_name = claim.agent_name;
+        } else {
+            claims.push(claim);
+        }
+        Ok(())
+    }
+
+    /// Release all locks held by a session and return what was released.
+    /// Callers should emit `symbol.lock.released` events for each returned entry.
+    pub fn release_locks(&self, repo_id: Uuid, session_id: Uuid) -> Vec<ReleasedLock> {
+        let mut released = Vec::new();
+        let mut empty_keys = Vec::new();
+
+        for mut entry in self.claims.iter_mut() {
+            let key = entry.key().clone();
+            if key.0 != repo_id {
+                continue;
+            }
+            let file_path = &key.1;
+            let claims = entry.value_mut();
+
+            // Collect released locks before removing
+            for claim in claims.iter().filter(|c| c.session_id == session_id) {
+                released.push(ReleasedLock {
+                    file_path: file_path.clone(),
+                    qualified_name: claim.qualified_name.clone(),
+                    kind: claim.kind.clone(),
+                    agent_name: claim.agent_name.clone(),
+                });
+            }
+
+            claims.retain(|c| c.session_id != session_id);
+            if claims.is_empty() {
+                empty_keys.push(key);
+            }
+        }
+
+        for key in empty_keys {
+            self.claims.remove_if(&key, |_, v| v.is_empty());
+        }
+
+        released
     }
 
     /// Check whether any of the given `qualified_names` are already claimed by

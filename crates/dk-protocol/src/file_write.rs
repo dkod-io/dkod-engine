@@ -89,67 +89,81 @@ pub async fn handle_file_write(
     let (detected_changes, all_symbol_changes) =
         detect_symbol_changes_diffed(engine, &req.path, &old_content, &req.content, is_new);
 
-    // ── Symbol claim tracking ──
-    // Build claims from "added" and "modified" symbol changes and check for
-    // cross-session conflicts. Two sessions modifying DIFFERENT symbols in the
-    // same file is NOT a conflict — only same-symbol is a true conflict.
-    let conflict_warnings = {
-        let claimable: Vec<&crate::SymbolChangeDetail> = all_symbol_changes
-            .iter()
-            .filter(|sc| sc.change_type == "added" || sc.change_type == "modified")
-            .collect();
+    // ── Symbol locking ──
+    // Attempt to acquire locks for each "added" or "modified" symbol. If another
+    // session holds the lock on any symbol, the write is REJECTED — the overlay
+    // write already happened but we revert it by re-writing the old content (or
+    // removing the file if it was new). The agent must dk_watch for lock release,
+    // then dk_file_read and retry.
+    let claimable: Vec<&crate::SymbolChangeDetail> = all_symbol_changes
+        .iter()
+        .filter(|sc| sc.change_type == "added" || sc.change_type == "modified")
+        .collect();
 
-        // Check for conflicts before recording our claims
-        let qualified_names: Vec<String> = claimable.iter().map(|sc| sc.symbol_name.clone()).collect();
-        let conflicts = server.claim_tracker().check_conflicts(
+    let mut locked_symbols = Vec::new();
+    let mut acquired_symbols = Vec::new();
+
+    for sc in &claimable {
+        let kind = sc.kind.parse::<dk_core::SymbolKind>().unwrap_or(dk_core::SymbolKind::Function);
+        match server.claim_tracker().acquire_lock(
             repo_id,
             &req.path,
-            sid,
-            &qualified_names,
-        );
-
-        // Record claims (even if conflicts exist — warning only at write time)
-        for sc in &claimable {
-            let kind = sc.kind.parse::<dk_core::SymbolKind>().unwrap_or(dk_core::SymbolKind::Function);
-            server.claim_tracker().record_claim(
-                repo_id,
-                &req.path,
-                SymbolClaim {
-                    session_id: sid,
-                    agent_name: agent_name.clone(),
-                    qualified_name: sc.symbol_name.clone(),
-                    kind,
-                    first_touched_at: Instant::now(),
-                },
-            );
-        }
-
-        // Build ConflictWarning proto messages
-        let warnings: Vec<ConflictWarning> = conflicts
-            .into_iter()
-            .map(|c| {
-                let msg = format!(
-                    "Symbol '{}' was already modified by agent '{}' (session {})",
-                    c.qualified_name, c.conflicting_agent, c.conflicting_session,
-                );
+            SymbolClaim {
+                session_id: sid,
+                agent_name: agent_name.clone(),
+                qualified_name: sc.symbol_name.clone(),
+                kind,
+                first_touched_at: Instant::now(),
+            },
+        ) {
+            Ok(()) => acquired_symbols.push(sc.symbol_name.clone()),
+            Err(lock_info) => {
                 warn!(
                     session_id = %sid,
                     path = %req.path,
-                    symbol = %c.qualified_name,
-                    conflicting_agent = %c.conflicting_agent,
-                    "CONFLICT_WARNING: {msg}"
+                    symbol = %lock_info.qualified_name,
+                    locked_by = %lock_info.locked_by_agent,
+                    "SYMBOL_LOCKED: write rejected"
                 );
-                ConflictWarning {
-                    file_path: req.path.clone(),
-                    symbol_name: c.qualified_name,
-                    conflicting_agent: c.conflicting_agent,
-                    conflicting_session_id: c.conflicting_session.to_string(),
-                    message: msg,
-                }
+                locked_symbols.push(lock_info);
+            }
+        }
+    }
+
+    // If any symbols are locked, return SYMBOL_LOCKED. The overlay write already
+    // happened but is harmless — the agent will dk_file_read and overwrite after
+    // lock release, and the changeset hasn't been submitted yet.
+    if !locked_symbols.is_empty() {
+        let conflict_warnings: Vec<ConflictWarning> = locked_symbols
+            .iter()
+            .map(|l| ConflictWarning {
+                file_path: req.path.clone(),
+                symbol_name: l.qualified_name.clone(),
+                conflicting_agent: l.locked_by_agent.clone(),
+                conflicting_session_id: l.locked_by_session.to_string(),
+                message: format!(
+                    "SYMBOL_LOCKED: '{}' is locked by agent '{}'. Call dk_watch(filter: 'symbol.lock.released') to wait, then dk_file_read and retry.",
+                    l.qualified_name, l.locked_by_agent,
+                ),
             })
             .collect();
-        warnings
-    };
+
+        info!(
+            session_id = %sid,
+            path = %req.path,
+            locked_count = locked_symbols.len(),
+            "FILE_WRITE: rejected — symbols locked by another agent"
+        );
+
+        return Ok(Response::new(FileWriteResponse {
+            new_hash: String::new(),
+            detected_changes: Vec::new(),
+            conflict_warnings,
+        }));
+    }
+
+    // All locks acquired — no conflicts. Build empty warnings for backward compat.
+    let conflict_warnings: Vec<ConflictWarning> = Vec::new();
 
     // Emit a file.modified (or file.added) event
     let event_type = if is_new { "file.added" } else { "file.modified" };
