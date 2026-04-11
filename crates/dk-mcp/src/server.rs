@@ -2401,7 +2401,7 @@ impl DkodMcp {
                         "dk_resolve failed: {}\n\n\
                          If you hit a merge conflict from dk_merge, do NOT use dk_resolve.\n\
                          Instead: dk_file_read the conflicting files → dk_file_write adapted code → \
-                         dk_submit → dk_verify → dk_approve → retry dk_merge.\n\n
+                         dk_submit → dk_verify → dk_approve → retry dk_merge.\n\n\
                          If you were resolving a platform-flagged conflict, verify the conflict_id is still active.",
                         e.message()
                     )
