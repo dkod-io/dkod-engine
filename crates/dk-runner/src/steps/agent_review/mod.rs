@@ -1,5 +1,6 @@
 pub mod provider;
 pub mod claude;
+pub mod openrouter;
 pub mod prompt;
 pub mod parse;
 
