@@ -13,6 +13,11 @@ async fn main() -> Result<()> {
         .with_ansi(false)
         .init();
 
+    // Emit any gate-config warnings once, at startup.
+    for warning in dk_mcp::review_gate::startup_warnings(&dk_mcp::review_gate::GateConfig::from_env()) {
+        eprintln!("{}", warning);
+    }
+
     let server = dk_mcp::server::DkodMcp::new().await;
     let service = server.serve(stdio()).await?;
     service.waiting().await?;

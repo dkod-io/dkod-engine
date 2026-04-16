@@ -260,6 +260,20 @@ pub fn evaluate_gate(
     }
 }
 
+/// Collect one-line warning messages to emit at MCP startup based on the
+/// effective gate config. Currently yields at most one warning.
+pub fn startup_warnings(cfg: &GateConfig) -> Vec<String> {
+    let mut out = Vec::new();
+    if cfg.misconfigured() {
+        out.push(
+            "[dk-mcp] WARNING: DKOD_CODE_REVIEW=1 but no provider key set. \
+             dk_approve will reject with gate_misconfigured until \
+             DKOD_ANTHROPIC_API_KEY or DKOD_OPENROUTER_API_KEY is set.".to_string()
+        );
+    }
+    out
+}
+
 impl GateConfig {
     /// Parse the gate configuration from the current process environment.
     ///
@@ -948,6 +962,46 @@ mod force_validation_tests {
             panic!("expected TooShort, got {r:?}")
         };
         assert_eq!(n, 12);
+    }
+}
+
+#[cfg(test)]
+mod startup_warnings_tests {
+    use super::*;
+
+    fn cfg(enabled: bool, provider: Option<&str>) -> GateConfig {
+        GateConfig {
+            enabled,
+            provider_name: provider.map(|s| s.to_string()),
+            min_score: 4,
+            timeout: std::time::Duration::from_secs(180),
+            backoff_policy: BackoffPolicy::Strict,
+            model: None,
+        }
+    }
+
+    #[test]
+    fn no_warning_when_disabled() {
+        let w = startup_warnings(&cfg(false, None));
+        assert!(w.is_empty(), "got: {:?}", w);
+    }
+
+    #[test]
+    fn no_warning_when_enabled_with_key() {
+        let w = startup_warnings(&cfg(true, Some("anthropic")));
+        assert!(w.is_empty());
+    }
+
+    #[test]
+    fn warning_when_misconfigured() {
+        let w = startup_warnings(&cfg(true, None));
+        assert_eq!(w.len(), 1);
+        let msg = &w[0];
+        assert!(msg.starts_with("[dk-mcp] WARNING:"));
+        assert!(msg.contains("DKOD_CODE_REVIEW=1"));
+        assert!(msg.contains("DKOD_ANTHROPIC_API_KEY"));
+        assert!(msg.contains("DKOD_OPENROUTER_API_KEY"));
+        assert!(msg.contains("gate_misconfigured"));
     }
 }
 
