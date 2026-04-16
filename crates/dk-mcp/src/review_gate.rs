@@ -10,7 +10,9 @@
 
 use std::time::Duration;
 
-use dk_runner::steps::agent_review::provider::ReviewVerdict;
+use dk_runner::steps::agent_review::provider::{
+    FileContext, ReviewProvider, ReviewRequest, ReviewResponse, ReviewVerdict,
+};
 use dk_runner::findings::{Finding, Severity};
 
 /// Map a review verdict + findings list to a 1–5 integer score.
@@ -101,6 +103,194 @@ impl GateConfig {
     /// the caller should fail closed.
     pub fn misconfigured(&self) -> bool {
         self.enabled && self.provider_name.is_none()
+    }
+}
+
+/// Map a [`Finding`] into the wire-level [`ReviewFindingProto`] used by the
+/// `RecordReview` RPC. Generates a fresh UUID for the `id` field because
+/// [`Finding`] is an in-memory type without a stable identifier.
+fn finding_to_proto(finding: &Finding) -> crate::ReviewFindingProto {
+    crate::ReviewFindingProto {
+        id: uuid::Uuid::new_v4().to_string(),
+        file_path: finding.file_path.clone().unwrap_or_default(),
+        line_start: finding.line.map(|l| l as i32),
+        line_end: None,
+        severity: finding.severity.as_str().to_string(),
+        category: finding.check_name.clone(),
+        message: finding.message.clone(),
+        suggestion: None,
+        confidence: 0.0,
+        dismissed: false,
+    }
+}
+
+/// Construct a synthetic [`Finding`] describing a provider error (HTTP 5xx,
+/// timeout, parse failure). Used by [`build_record_review_request`] under the
+/// [`BackoffPolicy::Strict`] policy so the gate can record score=None with a
+/// human-readable explanation of the failure.
+fn provider_error_finding(err_msg: String) -> Finding {
+    Finding {
+        severity: Severity::Error,
+        check_name: "provider_error".to_string(),
+        message: err_msg,
+        file_path: None,
+        line: None,
+        symbol: None,
+    }
+}
+
+/// Select a [`ReviewProvider`] for the deep-review background task.
+///
+/// Delegates to `dk_runner::steps::agent_review::select_provider_from_env` so
+/// the MCP gate uses the same OpenRouter-over-Anthropic precedence as the
+/// generator-side review step. Returns `None` when no provider key is set.
+///
+/// `_cfg` is accepted for future use (provider-specific options like the model
+/// override) but is currently unused — the provider reads its config from the
+/// environment directly.
+fn select_provider(_cfg: &GateConfig) -> Option<Box<dyn ReviewProvider>> {
+    dk_runner::steps::agent_review::select_provider_from_env()
+}
+
+/// Connect to the dkod gRPC server with the given bearer token. Returns `None`
+/// when no token is available (the server requires authenticated calls) or
+/// when the dial fails — the background review task swallows the error
+/// silently.
+async fn connect_grpc(
+    grpc_addr: String,
+    auth_token: Option<String>,
+) -> Option<crate::grpc::AuthenticatedClient> {
+    let token = auth_token?;
+    match crate::grpc::connect_with_auth(&grpc_addr, token).await {
+        Ok(c) => Some(c),
+        Err(err) => {
+            tracing::debug!(error = %err, addr = %grpc_addr, "background review: gRPC connect failed");
+            None
+        }
+    }
+}
+
+/// Build the `RecordReview` wire message from the provider call result.
+///
+/// Pure helper extracted so it can be unit-tested without spawning tasks or
+/// opening a gRPC channel.
+///
+/// Returns:
+/// - `Some(req)` when the provider succeeded (score set from verdict+findings).
+/// - `Some(req)` with `score: None` when the provider errored AND the config
+///   uses [`BackoffPolicy::Strict`] — the gate records the failure explicitly.
+/// - `None` when the provider errored under [`BackoffPolicy::Degraded`] — the
+///   gate falls back silently and does not record a deep review.
+pub fn build_record_review_request(
+    result: Result<ReviewResponse, anyhow::Error>,
+    elapsed: Duration,
+    session_id: &str,
+    changeset_id: &str,
+    provider_name: &str,
+    cfg: &GateConfig,
+) -> Option<crate::RecordReviewRequest> {
+    match result {
+        Ok(resp) => {
+            let score = score_from_verdict(&resp.verdict, &resp.findings);
+            let findings = resp.findings.iter().map(finding_to_proto).collect();
+            Some(crate::RecordReviewRequest {
+                session_id: session_id.to_string(),
+                changeset_id: changeset_id.to_string(),
+                tier: "deep".to_string(),
+                score: Some(score),
+                summary: Some(resp.summary),
+                findings,
+                provider: provider_name.to_string(),
+                model: cfg.model.clone().unwrap_or_default(),
+                duration_ms: elapsed.as_millis() as i64,
+            })
+        }
+        Err(err) => match cfg.backoff_policy {
+            BackoffPolicy::Strict => {
+                let finding = provider_error_finding(err.to_string());
+                let findings = vec![finding_to_proto(&finding)];
+                Some(crate::RecordReviewRequest {
+                    session_id: session_id.to_string(),
+                    changeset_id: changeset_id.to_string(),
+                    tier: "deep".to_string(),
+                    score: None,
+                    summary: Some(format!("provider error: {err}")),
+                    findings,
+                    provider: provider_name.to_string(),
+                    model: cfg.model.clone().unwrap_or_default(),
+                    duration_ms: elapsed.as_millis() as i64,
+                })
+            }
+            BackoffPolicy::Degraded => None,
+        },
+    }
+}
+
+/// Run a deep code review in the background and record the result via the
+/// `RecordReview` gRPC. Fire-and-forget — returns silently on every error
+/// path (no provider configured, no auth token, dial failure, RPC failure).
+///
+/// Diff + context are passed as empty for now; the MCP server does not yet
+/// have access to a unified diff without adding new RPCs. The gate design
+/// accepts this tradeoff — the gate mechanism is what matters; the review
+/// can be enriched in a follow-up PR.
+pub async fn run_background_review(
+    grpc_addr: String,
+    auth_token: Option<String>,
+    session_id: String,
+    changeset_id: String,
+    diff: String,
+    context: Vec<FileContext>,
+    cfg: GateConfig,
+) {
+    let provider = match select_provider(&cfg) {
+        Some(p) => p,
+        None => {
+            tracing::debug!("background review: no provider configured");
+            return;
+        }
+    };
+    let provider_name = provider.name().to_string();
+    let start = std::time::Instant::now();
+
+    let review_future = provider.review(ReviewRequest {
+        diff,
+        context,
+        language: "rust".into(),
+        intent: "deep review".into(),
+    });
+
+    let timeout_result = tokio::time::timeout(cfg.timeout, review_future).await;
+    let elapsed = start.elapsed();
+
+    let call_result: Result<ReviewResponse, anyhow::Error> = match timeout_result {
+        Ok(Ok(resp)) => Ok(resp),
+        Ok(Err(e)) => Err(e),
+        Err(_) => Err(anyhow::anyhow!(
+            "deep review timed out after {:?}",
+            cfg.timeout
+        )),
+    };
+
+    let record = match build_record_review_request(
+        call_result,
+        elapsed,
+        &session_id,
+        &changeset_id,
+        &provider_name,
+        &cfg,
+    ) {
+        Some(r) => r,
+        None => return, // degraded policy — fall back silently
+    };
+
+    let mut client = match connect_grpc(grpc_addr, auth_token).await {
+        Some(c) => c,
+        None => return,
+    };
+
+    if let Err(e) = client.record_review(record).await {
+        tracing::debug!(error = %e, "background review: record_review RPC failed");
     }
 }
 
@@ -219,5 +409,131 @@ mod verdict_mapping_tests {
     #[test]
     fn request_changes_with_errors_is_1() {
         assert_eq!(score_from_verdict(&ReviewVerdict::RequestChanges, &[f(Severity::Error)]), 1);
+    }
+}
+
+#[cfg(test)]
+mod run_background_review_tests {
+    use super::*;
+    use dk_runner::findings::{Finding, Severity};
+    use dk_runner::steps::agent_review::provider::{ReviewResponse, ReviewVerdict};
+    use std::time::Duration;
+
+    fn cfg_strict() -> GateConfig {
+        GateConfig {
+            enabled: true,
+            provider_name: Some("anthropic".into()),
+            min_score: 4,
+            timeout: Duration::from_secs(180),
+            backoff_policy: BackoffPolicy::Strict,
+            model: None,
+        }
+    }
+
+    #[test]
+    fn builds_request_with_score_5_on_clean_approve() {
+        let resp = ReviewResponse {
+            summary: "OK".into(),
+            findings: vec![],
+            suggestions: vec![],
+            verdict: ReviewVerdict::Approve,
+        };
+        let req = build_record_review_request(
+            Ok(resp),
+            Duration::from_millis(42),
+            "s1",
+            "c1",
+            "anthropic",
+            &cfg_strict(),
+        )
+        .unwrap();
+        assert_eq!(req.session_id, "s1");
+        assert_eq!(req.changeset_id, "c1");
+        assert_eq!(req.tier, "deep");
+        assert_eq!(req.score, Some(5));
+        assert_eq!(req.provider, "anthropic");
+        assert_eq!(req.duration_ms, 42);
+        assert!(req.findings.is_empty());
+    }
+
+    #[test]
+    fn builds_request_with_score_1_on_request_changes_with_error() {
+        let bad = Finding {
+            severity: Severity::Error,
+            check_name: "x".into(),
+            message: "m".into(),
+            file_path: None,
+            line: None,
+            symbol: None,
+        };
+        let resp = ReviewResponse {
+            summary: "bad".into(),
+            findings: vec![bad],
+            suggestions: vec![],
+            verdict: ReviewVerdict::RequestChanges,
+        };
+        let req = build_record_review_request(
+            Ok(resp),
+            Duration::from_millis(100),
+            "s",
+            "c",
+            "anthropic",
+            &cfg_strict(),
+        )
+        .unwrap();
+        assert_eq!(req.score, Some(1));
+        assert_eq!(req.findings.len(), 1);
+        assert_eq!(req.findings[0].severity, "error");
+    }
+
+    #[test]
+    fn builds_error_record_when_strict_and_provider_errored() {
+        let req = build_record_review_request(
+            Err(anyhow::anyhow!("500 from provider")),
+            Duration::from_millis(10),
+            "s",
+            "c",
+            "anthropic",
+            &cfg_strict(),
+        )
+        .unwrap();
+        assert_eq!(req.score, None);
+        assert_eq!(req.findings.len(), 1);
+        assert_eq!(req.findings[0].severity, "error");
+        assert!(req.findings[0].message.contains("500 from provider"));
+    }
+
+    #[test]
+    fn returns_none_when_degraded_and_provider_errored() {
+        let mut cfg = cfg_strict();
+        cfg.backoff_policy = BackoffPolicy::Degraded;
+        let req = build_record_review_request(
+            Err(anyhow::anyhow!("timeout")),
+            Duration::from_millis(10),
+            "s",
+            "c",
+            "anthropic",
+            &cfg,
+        );
+        assert!(req.is_none());
+    }
+
+    #[test]
+    fn finding_to_proto_maps_severity_case() {
+        let finding = Finding {
+            severity: Severity::Warning,
+            check_name: "cat".into(),
+            message: "msg".into(),
+            file_path: Some("f.rs".into()),
+            line: Some(7),
+            symbol: None,
+        };
+        let p = finding_to_proto(&finding);
+        assert_eq!(p.severity, "warning");
+        assert_eq!(p.file_path, "f.rs");
+        assert_eq!(p.line_start, Some(7));
+        assert_eq!(p.category, "cat");
+        assert_eq!(p.message, "msg");
+        assert!(!p.id.is_empty()); // UUID generated
     }
 }

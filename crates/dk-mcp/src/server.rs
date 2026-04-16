@@ -1697,6 +1697,47 @@ impl DkodMcp {
             }
         }
 
+        // Background deep review gate: spawn an async task to call the
+        // configured review provider (Anthropic/OpenRouter), then record the
+        // result via RecordReview so dk_approve can gate on its score.
+        // Only runs on a successful submit (Accepted). Fire-and-forget — any
+        // failure (no provider, gRPC dial failure, provider timeout) is
+        // swallowed, and dk_approve will see "no deep review recorded yet".
+        //
+        // TODO: diff + file context are passed empty for now; enriching them
+        // would require either a new GetChangesetDiff RPC or a FileList+
+        // FileRead loop. Deferred to a follow-up PR — the gate mechanism is
+        // the primary value of this change.
+        if response.status == crate::SubmitStatus::Accepted as i32 {
+            let cfg = crate::review_gate::GateConfig::from_env();
+            if cfg.enabled && !cfg.misconfigured() {
+                let (grpc_addr, auth_token) = {
+                    let conn = self.connection.read().await;
+                    (conn.server_addr.clone(), conn.auth_token.clone())
+                };
+                let session_id_clone = session_id.clone();
+                let changeset_id = response.changeset_id.clone();
+                let cfg_clone = cfg.clone();
+                tokio::spawn(async move {
+                    crate::review_gate::run_background_review(
+                        grpc_addr,
+                        auth_token,
+                        session_id_clone,
+                        changeset_id,
+                        String::new(),
+                        Vec::new(),
+                        cfg_clone,
+                    )
+                    .await;
+                });
+                text.push_str(&format!(
+                    "\nDeep code review started in background (provider: {}, min_score: {}). Retry dk_approve to check status.\n",
+                    cfg.provider_name.as_deref().unwrap_or("?"),
+                    cfg.min_score
+                ));
+            }
+        }
+
         let prefix = self
             .drain_notifications(&session_id)
             .await
