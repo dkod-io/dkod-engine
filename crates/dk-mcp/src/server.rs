@@ -2453,6 +2453,16 @@ impl DkodMcp {
             ))]));
         }
 
+        // `force: true` with the gate disabled is a no-op: we log the intent
+        // once to stderr and fall through to the normal approve path, which
+        // sends `override_reason: None, review_snapshot: None` to the engine
+        // and produces the standard success text (no `force-approved` marker).
+        if force && !cfg.enabled {
+            tracing::info!(
+                "force requested but gate is disabled — proceeding as normal approve"
+            );
+        }
+
         // Deep-review gate (opt-in via DKOD_CODE_REVIEW=1). When enabled, fetch
         // the recorded reviews for this changeset and consult the pure
         // `evaluate_gate` helper. A `Reject` short-circuits with a structured
