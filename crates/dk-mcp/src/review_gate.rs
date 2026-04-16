@@ -72,6 +72,31 @@ pub enum GateOutcome {
     Reject(String),
 }
 
+/// Serializable projection of [`crate::ReviewFindingProto`] for embedding in
+/// gate rejection payloads. prost-generated types do not derive `Serialize`,
+/// so we hand-copy the fields we want to surface.
+#[derive(serde::Serialize)]
+struct FindingJson<'a> {
+    severity: &'a str,
+    category: &'a str,
+    message: &'a str,
+    file_path: &'a str,
+    line_start: Option<i32>,
+}
+
+fn findings_to_json(findings: &[crate::ReviewFindingProto]) -> Vec<FindingJson<'_>> {
+    findings
+        .iter()
+        .map(|f| FindingJson {
+            severity: &f.severity,
+            category: &f.category,
+            message: &f.message,
+            file_path: &f.file_path,
+            line_start: f.line_start,
+        })
+        .collect()
+}
+
 /// Evaluate the gate for a `dk_approve` call.
 ///
 /// - `!cfg.enabled` → `Pass` (no gate).
@@ -80,8 +105,11 @@ pub enum GateOutcome {
 /// - `cfg.misconfigured()` → `Reject` with a `gate_misconfigured` payload.
 /// - `deep_review` is `None` → `Reject` with a `deep_review_pending` payload
 ///   that instructs the caller to retry in ~15 seconds.
-/// - `deep_review` is `Some(_)` → `Pass` (score-based checks are layered on
-///   in later tasks).
+/// - `deep_review` is `Some(r)` with `r.score` = `None` → `Reject` with a
+///   `review_provider_error` payload (retry in 60s, can_override).
+/// - `deep_review` is `Some(r)` with `r.score < cfg.min_score` → `Reject` with
+///   a `review_score_below_threshold` payload including the inline findings.
+/// - `deep_review` is `Some(r)` with `r.score >= cfg.min_score` → `Pass`.
 pub fn evaluate_gate(
     cfg: &GateConfig,
     force: bool,
@@ -100,7 +128,7 @@ pub fn evaluate_gate(
         });
         return GateOutcome::Reject(body.to_string());
     }
-    if deep_review.is_none() {
+    let Some(r) = deep_review else {
         let body = serde_json::json!({
             "error": "deep_review_pending",
             "message": "Deep code review has not completed yet. Retry dk_approve in ~15s, or poll dk_review.",
@@ -111,8 +139,45 @@ pub fn evaluate_gate(
             },
         });
         return GateOutcome::Reject(body.to_string());
+    };
+    let findings_val =
+        serde_json::to_value(findings_to_json(&r.findings)).unwrap_or(serde_json::Value::Null);
+    match r.score {
+        None => {
+            let body = serde_json::json!({
+                "error": "review_provider_error",
+                "message": "Deep review failed due to provider error. See findings.",
+                "findings": findings_val,
+                "next_action": {
+                    "kind": "wait_and_retry",
+                    "retry_after_secs": 60,
+                    "can_fix": false,
+                    "can_override": true,
+                },
+            });
+            GateOutcome::Reject(body.to_string())
+        }
+        Some(score) if score < cfg.min_score => {
+            let body = serde_json::json!({
+                "error": "review_score_below_threshold",
+                "message": format!(
+                    "Deep review score {}/5 is below required {}/5. Fix the findings below and resubmit.",
+                    score, cfg.min_score
+                ),
+                "score": score,
+                "threshold": cfg.min_score,
+                "findings": findings_val,
+                "next_action": {
+                    "kind": "fix_and_resubmit",
+                    "can_fix": true,
+                    "can_override": true,
+                    "override_hint": "If the findings are false positives, call dk_approve(force: true, override_reason: '...').",
+                },
+            });
+            GateOutcome::Reject(body.to_string())
+        }
+        Some(_) => GateOutcome::Pass,
     }
-    GateOutcome::Pass
 }
 
 impl GateConfig {
@@ -539,6 +604,54 @@ mod evaluate_gate_tests {
         assert!(body.contains("deep_review_pending"));
         assert!(body.contains("\"retry_after_secs\":15"));
         assert!(body.contains("\"can_fix\":false"));
+    }
+
+    fn deep(score: Option<i32>, findings: Vec<crate::ReviewFindingProto>) -> ReviewResultProto {
+        ReviewResultProto {
+            id: "r1".into(),
+            tier: "deep".into(),
+            score,
+            summary: None,
+            findings,
+            created_at: "".into(),
+        }
+    }
+
+    #[test]
+    fn reject_below_threshold() {
+        let r = deep(Some(2), vec![]);
+        let GateOutcome::Reject(body) = evaluate_gate(&cfg_on(), false, Some(&r)) else {
+            panic!()
+        };
+        assert!(body.contains("review_score_below_threshold"));
+        assert!(body.contains("\"score\":2"));
+        assert!(body.contains("\"threshold\":4"));
+        assert!(body.contains("fix_and_resubmit"));
+    }
+    #[test]
+    fn reject_provider_error_when_score_none() {
+        let r = deep(None, vec![]);
+        let GateOutcome::Reject(body) = evaluate_gate(&cfg_on(), false, Some(&r)) else {
+            panic!()
+        };
+        assert!(body.contains("review_provider_error"));
+        assert!(body.contains("\"retry_after_secs\":60"));
+    }
+    #[test]
+    fn pass_at_threshold_exactly() {
+        let r = deep(Some(4), vec![]);
+        assert!(matches!(
+            evaluate_gate(&cfg_on(), false, Some(&r)),
+            GateOutcome::Pass
+        ));
+    }
+    #[test]
+    fn pass_above_threshold() {
+        let r = deep(Some(5), vec![]);
+        assert!(matches!(
+            evaluate_gate(&cfg_on(), false, Some(&r)),
+            GateOutcome::Pass
+        ));
     }
 }
 
