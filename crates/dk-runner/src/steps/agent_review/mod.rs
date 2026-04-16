@@ -99,8 +99,7 @@ pub fn select_provider_from_env() -> Option<Box<dyn provider::ReviewProvider>> {
         return openrouter::OpenRouterReviewProvider::from_env()
             .map(|p| Box::new(p) as Box<dyn provider::ReviewProvider>);
     }
-    if std::env::var("DKOD_ANTHROPIC_API_KEY").is_ok() {
-        let key = std::env::var("DKOD_ANTHROPIC_API_KEY").ok()?;
+    if let Ok(key) = std::env::var("DKOD_ANTHROPIC_API_KEY") {
         let model = std::env::var("DKOD_REVIEW_MODEL").ok();
         return claude::ClaudeReviewProvider::new(key, model, None)
             .ok()
@@ -119,30 +118,28 @@ mod provider_factory_tests {
         }
     }
 
-    #[tokio::test]
+    #[test]
     #[serial_test::serial]
-    async fn openrouter_wins_when_both_keys_set() {
+    fn openrouter_wins_when_both_keys_set() {
         clear();
         std::env::set_var("DKOD_ANTHROPIC_API_KEY", "sk-ant");
         std::env::set_var("DKOD_OPENROUTER_API_KEY", "sk-or");
         let p = select_provider_from_env().expect("expected a provider");
         assert_eq!(p.name(), "openrouter");
-        clear();
     }
 
-    #[tokio::test]
+    #[test]
     #[serial_test::serial]
-    async fn anthropic_selected_when_only_anthropic_set() {
+    fn anthropic_selected_when_only_anthropic_set() {
         clear();
         std::env::set_var("DKOD_ANTHROPIC_API_KEY", "sk-ant");
         let p = select_provider_from_env().expect("expected a provider");
         assert_eq!(p.name(), "claude");
-        clear();
     }
 
-    #[tokio::test]
+    #[test]
     #[serial_test::serial]
-    async fn none_when_no_keys() {
+    fn none_when_no_keys() {
         clear();
         assert!(select_provider_from_env().is_none());
     }
