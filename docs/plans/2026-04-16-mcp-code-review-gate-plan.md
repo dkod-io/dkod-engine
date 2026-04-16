@@ -23,14 +23,15 @@ All tasks assume `cd /Users/haimari/vsCode/haim-ari/github/dkod-engine`.
 ### Task 1.1: Add `override_reason` + `ReviewSnapshot` to `ApproveRequest` proto
 
 **Files:**
-- Modify: `proto/dkod/v1/agent.proto:479-481`
+- Modify: `proto/dkod/v1/agent.proto:479-481` (workspace copy)
+- Modify: `crates/dk-protocol/proto/dkod/v1/agent.proto:479-481` (crate copy — CI enforces sync)
 
 **Step 1: Write the failing test**
 
 Create `crates/dk-protocol/tests/approve_proto_test.rs`:
 
 ```rust
-use dkod_protocol::dkod::v1::{ApproveRequest, ReviewSnapshot};
+use dk_protocol::{ApproveRequest, ReviewSnapshot};
 
 #[test]
 fn approve_request_has_override_reason_and_snapshot() {
@@ -53,14 +54,14 @@ fn approve_request_has_override_reason_and_snapshot() {
 **Step 2: Run to verify fail**
 
 ```bash
-cargo test -p dkod-protocol --test approve_proto_test
+cargo test -p dk-protocol --test approve_proto_test
 ```
 
 Expected: FAIL — `ApproveRequest` has no `override_reason` field, `ReviewSnapshot` does not exist.
 
-**Step 3: Edit the proto**
+**Step 3: Edit the proto (both copies — workspace root + dk-protocol crate)**
 
-Modify `proto/dkod/v1/agent.proto` around line 479:
+Modify `proto/dkod/v1/agent.proto` around line 479 AND the same block in `crates/dk-protocol/proto/dkod/v1/agent.proto`:
 
 ```proto
 // --- APPROVE ---
@@ -83,7 +84,7 @@ message ApproveRequest {
 **Step 4: Run to verify pass**
 
 ```bash
-cargo build -p dkod-protocol && cargo test -p dkod-protocol --test approve_proto_test
+cargo build -p dk-protocol && cargo test -p dk-protocol --test approve_proto_test
 ```
 
 Expected: PASS.
@@ -106,7 +107,7 @@ git commit -am "proto: add override_reason + ReviewSnapshot to ApproveRequest"
 Add to `crates/dk-protocol/tests/approve_proto_test.rs`:
 
 ```rust
-use dkod_protocol::dkod::v1::{RecordReviewRequest, RecordReviewResponse, ReviewFindingProto};
+use dk_protocol::{RecordReviewRequest, RecordReviewResponse, ReviewFindingProto};
 
 #[test]
 fn record_review_request_shape() {
@@ -139,20 +140,20 @@ fn record_review_response_shape() {
 **Step 2: Run to verify fail**
 
 ```bash
-cargo test -p dkod-protocol --test approve_proto_test
+cargo test -p dk-protocol --test approve_proto_test
 ```
 
 Expected: FAIL — `RecordReviewRequest`/`RecordReviewResponse` do not exist.
 
-**Step 3: Edit the proto**
+**Step 3: Edit BOTH proto copies (workspace + dk-protocol crate)**
 
-Insert at line 45 (after `rpc Review(...)`):
+Insert at line 45 (after `rpc Review(...)`) in BOTH `proto/dkod/v1/agent.proto` AND `crates/dk-protocol/proto/dkod/v1/agent.proto`:
 
 ```proto
   rpc RecordReview(RecordReviewRequest) returns (RecordReviewResponse);
 ```
 
-Insert after `ReviewResponse` (line 360):
+Insert after `ReviewResponse` (line 360) in BOTH files:
 
 ```proto
 message RecordReviewRequest {
@@ -176,7 +177,7 @@ message RecordReviewResponse {
 **Step 4: Run to verify pass**
 
 ```bash
-cargo test -p dkod-protocol --test approve_proto_test
+cargo test -p dk-protocol --test approve_proto_test
 ```
 
 Expected: PASS (both tests in this file).
