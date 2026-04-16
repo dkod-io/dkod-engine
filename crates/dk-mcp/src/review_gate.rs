@@ -77,6 +77,74 @@ pub enum GateOutcome {
     Reject(String),
 }
 
+/// Outcome of validating an `override_reason` supplied to a force-approve call.
+///
+/// Used by [`validate_override_reason`] to separate the three shapes the
+/// server layer needs to surface distinct error messages for:
+/// absent/empty, present-but-too-short, and well-formed.
+#[derive(Debug)]
+pub enum OverrideReasonValidation {
+    /// Trimmed reason is at least 20 characters — carries the trimmed string
+    /// ready to forward to the engine.
+    Ok(String),
+    /// Reason is `None`, empty, or all-whitespace.
+    Empty,
+    /// Reason is present but trimmed character count is `< 20`; carries the
+    /// actual length so the error can include it in the diagnostic.
+    TooShort(usize),
+}
+
+/// Validate the `override_reason` supplied to a force-approve call.
+///
+/// Trims leading/trailing whitespace and counts the remaining Unicode scalar
+/// values (not bytes) to enforce the 20-character minimum. Unicode-aware so
+/// that, e.g., `"🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀"` is rejected as 12 chars, not
+/// accepted as ~48 bytes.
+pub fn validate_override_reason(reason: Option<&str>) -> OverrideReasonValidation {
+    let trimmed = reason.unwrap_or("").trim();
+    if trimmed.is_empty() {
+        return OverrideReasonValidation::Empty;
+    }
+    let len = trimmed.chars().count();
+    if len < 20 {
+        return OverrideReasonValidation::TooShort(len);
+    }
+    OverrideReasonValidation::Ok(trimmed.to_string())
+}
+
+/// Build a [`crate::ReviewSnapshot`] from the current deep review (if any) and
+/// gate config, capturing an audit record of the review state at the moment
+/// `dk_approve(force: true)` was called.
+///
+/// When no deep review exists (provider not yet finished, background spawn
+/// failed, etc.) the snapshot records `score = Some(0)`, `findings_count = 0`,
+/// and the configured threshold so the audit row is still self-describing.
+/// The `provider` and `model` fields are taken from [`GateConfig`] rather than
+/// the review result because the review result has no provider field.
+pub fn build_review_snapshot(
+    deep_review: Option<&crate::ReviewResultProto>,
+    cfg: &GateConfig,
+) -> crate::ReviewSnapshot {
+    let provider = cfg.provider_name.clone().unwrap_or_default();
+    let model = cfg.model.clone().unwrap_or_default();
+    match deep_review {
+        Some(r) => crate::ReviewSnapshot {
+            score: Some(r.score.unwrap_or(0)),
+            threshold: Some(cfg.min_score),
+            findings_count: r.findings.len() as u32,
+            provider,
+            model,
+        },
+        None => crate::ReviewSnapshot {
+            score: Some(0),
+            threshold: Some(cfg.min_score),
+            findings_count: 0,
+            provider,
+            model,
+        },
+    }
+}
+
 /// Serializable projection of [`crate::ReviewFindingProto`] for embedding in
 /// gate rejection payloads. prost-generated types do not derive `Serialize`,
 /// so we hand-copy the fields we want to surface.
@@ -813,5 +881,112 @@ mod run_background_review_tests {
         assert_eq!(p.category, "cat");
         assert_eq!(p.message, "msg");
         assert!(!p.id.is_empty()); // UUID generated
+    }
+}
+
+#[cfg(test)]
+mod force_validation_tests {
+    use super::{validate_override_reason, OverrideReasonValidation};
+
+    #[test]
+    fn empty_is_rejected() {
+        assert!(matches!(
+            validate_override_reason(None),
+            OverrideReasonValidation::Empty
+        ));
+        assert!(matches!(
+            validate_override_reason(Some("")),
+            OverrideReasonValidation::Empty
+        ));
+        assert!(matches!(
+            validate_override_reason(Some("   \t\n  ")),
+            OverrideReasonValidation::Empty
+        ));
+    }
+
+    #[test]
+    fn short_is_rejected_with_length() {
+        let r = validate_override_reason(Some("five"));
+        let OverrideReasonValidation::TooShort(n) = r else {
+            panic!("expected TooShort, got {r:?}")
+        };
+        assert_eq!(n, 4);
+    }
+
+    #[test]
+    fn exactly_20_chars_ok() {
+        // exactly 20 chars
+        let twenty = "abcdefghijklmnopqrst";
+        assert_eq!(twenty.chars().count(), 20);
+        let OverrideReasonValidation::Ok(s) = validate_override_reason(Some(twenty)) else {
+            panic!("expected Ok");
+        };
+        assert_eq!(s, twenty);
+    }
+
+    #[test]
+    fn whitespace_trimmed_before_count() {
+        let padded = "   API wedged for 20 minutes; reviewed manually in chat   ";
+        let OverrideReasonValidation::Ok(s) = validate_override_reason(Some(padded)) else {
+            panic!("expected Ok");
+        };
+        assert!(!s.starts_with(' '));
+        assert!(!s.ends_with(' '));
+        assert!(s.chars().count() >= 20);
+    }
+
+    #[test]
+    fn unicode_counted_by_char_not_byte() {
+        // 12 emojis = 12 chars but ~48 bytes — must be rejected.
+        let emojis = "🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀🚀";
+        assert_eq!(emojis.chars().count(), 12);
+        let r = validate_override_reason(Some(emojis));
+        let OverrideReasonValidation::TooShort(n) = r else {
+            panic!("expected TooShort, got {r:?}")
+        };
+        assert_eq!(n, 12);
+    }
+}
+
+#[cfg(test)]
+mod review_snapshot_tests {
+    use super::*;
+    use crate::{ReviewFindingProto, ReviewResultProto};
+
+    fn cfg_with_provider() -> GateConfig {
+        GateConfig {
+            enabled: true,
+            provider_name: Some("anthropic".into()),
+            min_score: 4,
+            timeout: std::time::Duration::from_secs(180),
+            backoff_policy: BackoffPolicy::Strict,
+            model: Some("claude-sonnet-4-6".into()),
+        }
+    }
+
+    #[test]
+    fn snapshot_from_deep_review() {
+        let r = ReviewResultProto {
+            id: "r".into(),
+            tier: "deep".into(),
+            score: Some(2),
+            summary: None,
+            findings: vec![ReviewFindingProto::default(); 3],
+            created_at: "".into(),
+        };
+        let s = build_review_snapshot(Some(&r), &cfg_with_provider());
+        assert_eq!(s.score, Some(2));
+        assert_eq!(s.threshold, Some(4));
+        assert_eq!(s.findings_count, 3);
+        assert_eq!(s.provider, "anthropic");
+        assert_eq!(s.model, "claude-sonnet-4-6");
+    }
+
+    #[test]
+    fn snapshot_from_none() {
+        let s = build_review_snapshot(None, &cfg_with_provider());
+        assert_eq!(s.score, Some(0));
+        assert_eq!(s.threshold, Some(4));
+        assert_eq!(s.findings_count, 0);
     }
 }

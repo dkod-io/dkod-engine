@@ -150,6 +150,15 @@ struct MergeParams {
 struct ApproveParams {
     /// Session ID from dk_connect (required when multiple sessions are active)
     session_id: Option<String>,
+    /// Bypass the deep-review gate. Requires `override_reason` ≥20 chars and
+    /// stamps an audit snapshot on the approve record. No-op when
+    /// DKOD_CODE_REVIEW is unset.
+    #[serde(default)]
+    force: Option<bool>,
+    /// Human-readable reason for bypassing the review gate. Required and
+    /// ≥20 characters when `force: true` and the gate is enabled.
+    #[serde(default)]
+    override_reason: Option<String>,
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -2353,7 +2362,7 @@ impl DkodMcp {
 
     /// Approve a changeset via gRPC.
     #[tool(
-        description = "Approve a submitted changeset for the current session. Call after dk_submit and before dk_merge."
+        description = "Approve a submitted changeset for the current session. Call after dk_submit and before dk_merge. Pass `force: true` with an `override_reason` (≥20 chars) to bypass the deep-review gate when enabled."
     )]
     async fn dk_approve(
         &self,
@@ -2361,7 +2370,10 @@ impl DkodMcp {
     ) -> Result<CallToolResult, McpError> {
         let ApproveParams {
             session_id: param_session_id,
+            force,
+            override_reason,
         } = params;
+        let force = force.unwrap_or(false);
 
         let session = self.resolve_session(param_session_id.as_deref()).await?;
         let session_id = session.session_id.clone();
@@ -2369,17 +2381,86 @@ impl DkodMcp {
 
         let mut client = self.get_client().await?;
 
+        let cfg = crate::review_gate::GateConfig::from_env();
+
+        // Force path: when `force: true` AND the gate is enabled, validate the
+        // override_reason, snapshot the current review state for the audit
+        // trail, and forward a force-approve request that bypasses the score
+        // check on the engine side. The success text carries a `⚠ force-approved`
+        // marker so downstream agents can see the bypass happened.
+        if force && cfg.enabled {
+            use crate::review_gate::OverrideReasonValidation as V;
+            let reason = match crate::review_gate::validate_override_reason(
+                override_reason.as_deref(),
+            ) {
+                V::Ok(r) => r,
+                V::Empty => {
+                    return Ok(CallToolResult::error(vec![Content::text(
+                        "force requires override_reason (non-empty)".to_string(),
+                    )]));
+                }
+                V::TooShort(n) => {
+                    return Ok(CallToolResult::error(vec![Content::text(format!(
+                        "override_reason must be at least 20 characters (describe why review is being bypassed) — got {n}"
+                    ))]));
+                }
+            };
+
+            // Snapshot the current deep-review state for the audit record.
+            // Skip the Review RPC if the gate is misconfigured — we still
+            // force-approve, but the snapshot will reflect "no review seen".
+            let deep_review_for_snapshot = if cfg.misconfigured() {
+                None
+            } else {
+                let review_req = crate::ReviewRequest {
+                    session_id: session_id.clone(),
+                    changeset_id: changeset_id.clone(),
+                };
+                let review_resp = client.review(review_req).await.map_err(|e| {
+                    McpError::internal_error(format!("REVIEW RPC failed: {e}"), None)
+                })?;
+                review_resp
+                    .into_inner()
+                    .reviews
+                    .into_iter()
+                    .find(|r| r.tier == "deep")
+            };
+            let snap = crate::review_gate::build_review_snapshot(
+                deep_review_for_snapshot.as_ref(),
+                &cfg,
+            );
+
+            let request = crate::ApproveRequest {
+                session_id: session_id.clone(),
+                override_reason: Some(reason.clone()),
+                review_snapshot: Some(snap),
+            };
+            let response = client
+                .approve(request)
+                .await
+                .map_err(|e| McpError::internal_error(format!("APPROVE RPC failed: {e}"), None))?
+                .into_inner();
+            let text = format!(
+                "Changeset approved!\nchangeset_id: {}\nstate: {}\n\u{26a0} force-approved: {}\n",
+                response.changeset_id, response.new_state, reason
+            );
+            let prefix = self
+                .drain_notifications(&session_id)
+                .await
+                .unwrap_or_default();
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "{prefix}{text}"
+            ))]));
+        }
+
         // Deep-review gate (opt-in via DKOD_CODE_REVIEW=1). When enabled, fetch
         // the recorded reviews for this changeset and consult the pure
         // `evaluate_gate` helper. A `Reject` short-circuits with a structured
         // JSON body that tells the caller how to proceed (retry, fix, or
         // override via `force`). `PassWithPrefix` contains a human-readable
         // one-liner that gets prepended to the approval success text.
-        let cfg = crate::review_gate::GateConfig::from_env();
         let mut gate_prefix = String::new();
         if cfg.enabled {
-            // Task 2.8 will add a `force` param; for now always false.
-            let force = false;
             // `misconfigured` is decided inside `evaluate_gate`, but we skip
             // the Review RPC when we already know the gate will reject — no
             // point paying for a network round trip.
