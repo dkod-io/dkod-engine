@@ -85,6 +85,69 @@ pub async fn run_agent_review_step(prompt: &str) -> StepOutput {
     }
 }
 
+/// Select a `ReviewProvider` based on environment variables.
+///
+/// Precedence:
+/// 1. `DKOD_OPENROUTER_API_KEY` → `OpenRouterReviewProvider`
+/// 2. `DKOD_ANTHROPIC_API_KEY`  → `ClaudeReviewProvider`
+/// 3. Neither                    → `None`
+///
+/// When both keys are set, OpenRouter wins (single routing point for
+/// cost tracking + model flexibility).
+pub fn select_provider_from_env() -> Option<Box<dyn provider::ReviewProvider>> {
+    if std::env::var("DKOD_OPENROUTER_API_KEY").is_ok() {
+        return openrouter::OpenRouterReviewProvider::from_env()
+            .map(|p| Box::new(p) as Box<dyn provider::ReviewProvider>);
+    }
+    if std::env::var("DKOD_ANTHROPIC_API_KEY").is_ok() {
+        let key = std::env::var("DKOD_ANTHROPIC_API_KEY").ok()?;
+        let model = std::env::var("DKOD_REVIEW_MODEL").ok();
+        return claude::ClaudeReviewProvider::new(key, model, None)
+            .ok()
+            .map(|p| Box::new(p) as Box<dyn provider::ReviewProvider>);
+    }
+    None
+}
+
+#[cfg(test)]
+mod provider_factory_tests {
+    use super::select_provider_from_env;
+
+    fn clear() {
+        for k in ["DKOD_ANTHROPIC_API_KEY", "DKOD_OPENROUTER_API_KEY", "DKOD_REVIEW_MODEL", "DKOD_OPENROUTER_BASE_URL"] {
+            std::env::remove_var(k);
+        }
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn openrouter_wins_when_both_keys_set() {
+        clear();
+        std::env::set_var("DKOD_ANTHROPIC_API_KEY", "sk-ant");
+        std::env::set_var("DKOD_OPENROUTER_API_KEY", "sk-or");
+        let p = select_provider_from_env().expect("expected a provider");
+        assert_eq!(p.name(), "openrouter");
+        clear();
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn anthropic_selected_when_only_anthropic_set() {
+        clear();
+        std::env::set_var("DKOD_ANTHROPIC_API_KEY", "sk-ant");
+        let p = select_provider_from_env().expect("expected a provider");
+        assert_eq!(p.name(), "claude");
+        clear();
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn none_when_no_keys() {
+        clear();
+        assert!(select_provider_from_env().is_none());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
