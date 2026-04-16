@@ -1740,33 +1740,46 @@ impl DkodMcp {
                     let conn = self.connection.read().await;
                     (conn.server_addr.clone(), conn.auth_token.clone())
                 };
-                let session_id_clone = session_id.clone();
-                let changeset_id = response.changeset_id.clone();
-                let cfg_clone = cfg.clone();
-                let handle = tokio::spawn(async move {
-                    crate::review_gate::run_background_review(
-                        grpc_addr,
-                        auth_token,
-                        session_id_clone,
-                        changeset_id,
-                        String::new(),
-                        Vec::new(),
-                        cfg_clone,
-                    )
-                    .await;
-                });
-                {
-                    let mut tasks = self.review_tasks.lock().await;
-                    // Prune completed handles before adding a new one to bound
-                    // Vec growth for long-lived sessions.
-                    tasks.retain(|h| !h.is_finished());
-                    tasks.push(handle);
+                // Background review uses `conn.auth_token`, which is sourced
+                // from env var or dotenv — device-flow tokens cached to disk
+                // are not read back into `conn` (see SessionState::resolve).
+                // Without a token, `connect_grpc` returns `None` and the
+                // background task exits silently; `dk_approve` would then
+                // loop on `deep_review_pending`. Surface this explicitly so
+                // the user is not misled by a "review started" message.
+                if auth_token.is_none() {
+                    text.push_str(
+                        "\nDeep code review gate enabled but no DKOD_AUTH_TOKEN is                          available to the background task (device-flow tokens are not                          yet re-exposed to `dk_submit`). The background review will                          not run — set DKOD_AUTH_TOKEN in the env or dotenv, or use                          `dk_approve(force: true, override_reason: ...)` to bypass.\n"
+                    );
+                } else {
+                    let session_id_clone = session_id.clone();
+                    let changeset_id = response.changeset_id.clone();
+                    let cfg_clone = cfg.clone();
+                    let handle = tokio::spawn(async move {
+                        crate::review_gate::run_background_review(
+                            grpc_addr,
+                            auth_token,
+                            session_id_clone,
+                            changeset_id,
+                            String::new(),
+                            Vec::new(),
+                            cfg_clone,
+                        )
+                        .await;
+                    });
+                    {
+                        let mut tasks = self.review_tasks.lock().await;
+                        // Prune completed handles before adding a new one to bound
+                        // Vec growth for long-lived sessions.
+                        tasks.retain(|h| !h.is_finished());
+                        tasks.push(handle);
+                    }
+                    text.push_str(&format!(
+                        "\nDeep code review started in background (provider: {}, min_score: {}). Retry dk_approve to check status.\n",
+                        cfg.provider_name.as_deref().unwrap_or("?"),
+                        cfg.min_score
+                    ));
                 }
-                text.push_str(&format!(
-                    "\nDeep code review started in background (provider: {}, min_score: {}). Retry dk_approve to check status.\n",
-                    cfg.provider_name.as_deref().unwrap_or("?"),
-                    cfg.min_score
-                ));
             }
         }
 

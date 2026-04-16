@@ -287,7 +287,10 @@ impl GateConfig {
     /// valid 1..=5), `DKOD_REVIEW_TIMEOUT_SECS` (default 180),
     /// `DKOD_REVIEW_BACKOFF_POLICY` (`"degraded"` selects [`BackoffPolicy::Degraded`];
     /// anything else — including unset — is [`BackoffPolicy::Strict`]), and
-    /// `DKOD_REVIEW_MODEL` (optional model override, forwarded to the provider).
+    /// `DKOD_REVIEW_MODEL` (optional model override — read independently by
+    /// both this function and the provider's own `from_env`/constructor, so
+    /// the value recorded in audit records matches the model the provider
+    /// actually uses).
     pub fn from_env() -> Self {
         let enabled = std::env::var("DKOD_CODE_REVIEW").map(|v| v == "1").unwrap_or(false);
         // Treat empty-string env vars as absent so that e.g.
@@ -371,9 +374,13 @@ fn provider_error_finding(err_msg: String) -> Finding {
 /// the MCP gate uses the same OpenRouter-over-Anthropic precedence as the
 /// generator-side review step. Returns `None` when no provider key is set.
 ///
-/// `_cfg` is accepted for future use (provider-specific options like the model
-/// override) but is currently unused — the provider reads its config from the
-/// environment directly.
+/// `_cfg.model` is NOT forwarded as a constructor argument — the provider
+/// reads `DKOD_REVIEW_MODEL` directly from the environment (see
+/// `openrouter::from_env` and `claude::ClaudeReviewProvider::new` in
+/// `dk-runner`). Because both paths read the same env var, the model name
+/// recorded in `RecordReviewRequest.model` / `ReviewSnapshot.model` matches
+/// the model the provider actually used. `_cfg` is accepted for future use
+/// (provider-specific options that need programmatic override).
 fn select_provider(_cfg: &GateConfig) -> Option<Box<dyn ReviewProvider>> {
     dk_runner::steps::agent_review::select_provider_from_env()
 }
