@@ -1755,7 +1755,13 @@ impl DkodMcp {
                     )
                     .await;
                 });
-                self.review_tasks.lock().await.push(handle);
+                {
+                    let mut tasks = self.review_tasks.lock().await;
+                    // Prune completed handles before adding a new one to bound
+                    // Vec growth for long-lived sessions.
+                    tasks.retain(|h| !h.is_finished());
+                    tasks.push(handle);
+                }
                 text.push_str(&format!(
                     "\nDeep code review started in background (provider: {}, min_score: {}). Retry dk_approve to check status.\n",
                     cfg.provider_name.as_deref().unwrap_or("?"),

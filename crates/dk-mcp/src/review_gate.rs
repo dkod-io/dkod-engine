@@ -117,8 +117,10 @@ pub fn validate_override_reason(reason: Option<&str>) -> OverrideReasonValidatio
 /// `dk_approve(force: true)` was called.
 ///
 /// When no deep review exists (provider not yet finished, background spawn
-/// failed, etc.) the snapshot records `score = Some(0)`, `findings_count = 0`,
+/// failed, etc.) the snapshot records `score = None`, `findings_count = 0`,
 /// and the configured threshold so the audit row is still self-describing.
+/// `None` is distinct from `Some(0)`, which is reserved for "provider errored
+/// under strict backoff policy". Audit consumers rely on this distinction.
 /// The `provider` and `model` fields are taken from [`GateConfig`] rather than
 /// the review result because the review result has no provider field.
 pub fn build_review_snapshot(
@@ -279,16 +281,27 @@ impl GateConfig {
     ///
     /// Reads seven variables: `DKOD_CODE_REVIEW` (enable flag; only `"1"` enables),
     /// `DKOD_OPENROUTER_API_KEY` and `DKOD_ANTHROPIC_API_KEY` (provider selection —
-    /// OpenRouter wins when both are set), `DKOD_REVIEW_MIN_SCORE` (default 4,
+    /// OpenRouter wins when both are set; empty-string values are treated as
+    /// absent so a stray `DKOD_OPENROUTER_API_KEY=""` does not mask a real
+    /// Anthropic key), `DKOD_REVIEW_MIN_SCORE` (default 4,
     /// valid 1..=5), `DKOD_REVIEW_TIMEOUT_SECS` (default 180),
     /// `DKOD_REVIEW_BACKOFF_POLICY` (`"degraded"` selects [`BackoffPolicy::Degraded`];
     /// anything else — including unset — is [`BackoffPolicy::Strict`]), and
     /// `DKOD_REVIEW_MODEL` (optional model override, forwarded to the provider).
     pub fn from_env() -> Self {
         let enabled = std::env::var("DKOD_CODE_REVIEW").map(|v| v == "1").unwrap_or(false);
-        let provider_name = if std::env::var("DKOD_OPENROUTER_API_KEY").is_ok() {
+        // Treat empty-string env vars as absent so that e.g.
+        // `DKOD_OPENROUTER_API_KEY=""` + a real `DKOD_ANTHROPIC_API_KEY`
+        // selects anthropic instead of a silent wrong-provider failure.
+        let has_openrouter = std::env::var("DKOD_OPENROUTER_API_KEY")
+            .map(|v| !v.is_empty())
+            .unwrap_or(false);
+        let has_anthropic = std::env::var("DKOD_ANTHROPIC_API_KEY")
+            .map(|v| !v.is_empty())
+            .unwrap_or(false);
+        let provider_name = if has_openrouter {
             Some("openrouter".to_string())
-        } else if std::env::var("DKOD_ANTHROPIC_API_KEY").is_ok() {
+        } else if has_anthropic {
             Some("anthropic".to_string())
         } else {
             None
@@ -595,6 +608,40 @@ mod env_parsing_tests {
         std::env::set_var("DKOD_REVIEW_MIN_SCORE", "banana");
         let cfg = GateConfig::from_env();
         assert_eq!(cfg.min_score, 4);
+        clear_all();
+    }
+
+    #[test]
+    fn empty_provider_key_treated_as_absent() {
+        // Regression: `std::env::var(...).is_ok()` returned true for an empty
+        // string, suppressing `gate_misconfigured` and letting an empty
+        // OpenRouter key mask a real Anthropic key. Empty string must now be
+        // treated as absent.
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        clear_all();
+        std::env::set_var("DKOD_CODE_REVIEW", "1");
+        std::env::set_var("DKOD_OPENROUTER_API_KEY", "");
+        std::env::set_var("DKOD_ANTHROPIC_API_KEY", "");
+        let cfg = GateConfig::from_env();
+        assert!(cfg.enabled);
+        assert!(cfg.provider_name.is_none(), "empty strings must not select a provider");
+        assert!(cfg.misconfigured(), "empty provider keys must surface as gate_misconfigured");
+        clear_all();
+    }
+
+    #[test]
+    fn empty_openrouter_key_falls_back_to_anthropic() {
+        // Regression: an empty `DKOD_OPENROUTER_API_KEY` must not win over a
+        // real `DKOD_ANTHROPIC_API_KEY`; precedence only applies when
+        // OpenRouter has a non-empty value.
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        clear_all();
+        std::env::set_var("DKOD_CODE_REVIEW", "1");
+        std::env::set_var("DKOD_OPENROUTER_API_KEY", "");
+        std::env::set_var("DKOD_ANTHROPIC_API_KEY", "sk-ant");
+        let cfg = GateConfig::from_env();
+        assert_eq!(cfg.provider_name.as_deref(), Some("anthropic"));
+        assert!(!cfg.misconfigured());
         clear_all();
     }
 }
