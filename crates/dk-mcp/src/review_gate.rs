@@ -66,8 +66,13 @@ pub enum BackoffPolicy {
 
 /// Outcome of evaluating the deep-review gate for a single `dk_approve` call.
 pub enum GateOutcome {
-    /// Gate disabled or gate passed — proceed to forward approve() to the engine.
+    /// Gate disabled or gate passed without a deep-review summary to report —
+    /// proceed to forward approve() to the engine with no extra prefix.
     Pass,
+    /// Gate passed with a deep-review score. The contained string is a
+    /// one-line human-readable prefix (e.g. `"[\u{2713}] deep review: 5/5 (anthropic).\n"`)
+    /// to prepend to the approve() success text.
+    PassWithPrefix(String),
     /// Reject with a structured JSON payload to send back to the caller.
     Reject(String),
 }
@@ -176,7 +181,11 @@ pub fn evaluate_gate(
             });
             GateOutcome::Reject(body.to_string())
         }
-        Some(_) => GateOutcome::Pass,
+        Some(score) => {
+            let provider = cfg.provider_name.as_deref().unwrap_or("?");
+            let prefix = format!("[\u{2713}] deep review: {score}/5 ({provider}).\n");
+            GateOutcome::PassWithPrefix(prefix)
+        }
     }
 }
 
@@ -642,7 +651,7 @@ mod evaluate_gate_tests {
         let r = deep(Some(4), vec![]);
         assert!(matches!(
             evaluate_gate(&cfg_on(), false, Some(&r)),
-            GateOutcome::Pass
+            GateOutcome::PassWithPrefix(_)
         ));
     }
     #[test]
@@ -650,6 +659,32 @@ mod evaluate_gate_tests {
         let r = deep(Some(5), vec![]);
         assert!(matches!(
             evaluate_gate(&cfg_on(), false, Some(&r)),
+            GateOutcome::PassWithPrefix(_)
+        ));
+    }
+
+    #[test]
+    fn pass_with_prefix_when_above_threshold() {
+        let r = deep(Some(5), vec![]);
+        let GateOutcome::PassWithPrefix(p) = evaluate_gate(&cfg_on(), false, Some(&r)) else {
+            panic!()
+        };
+        assert!(p.contains("deep review: 5/5"));
+        assert!(p.contains("anthropic"));
+    }
+    #[test]
+    fn pass_with_prefix_at_threshold() {
+        let r = deep(Some(4), vec![]);
+        let GateOutcome::PassWithPrefix(p) = evaluate_gate(&cfg_on(), false, Some(&r)) else {
+            panic!()
+        };
+        assert!(p.contains("deep review: 4/5"));
+    }
+    #[test]
+    fn no_prefix_when_gate_disabled() {
+        let r = deep(Some(5), vec![]);
+        assert!(matches!(
+            evaluate_gate(&cfg_off(), false, Some(&r)),
             GateOutcome::Pass
         ));
     }

@@ -2373,8 +2373,10 @@ impl DkodMcp {
         // the recorded reviews for this changeset and consult the pure
         // `evaluate_gate` helper. A `Reject` short-circuits with a structured
         // JSON body that tells the caller how to proceed (retry, fix, or
-        // override via `force`).
+        // override via `force`). `PassWithPrefix` contains a human-readable
+        // one-liner that gets prepended to the approval success text.
         let cfg = crate::review_gate::GateConfig::from_env();
+        let mut gate_prefix = String::new();
         if cfg.enabled {
             // Task 2.8 will add a `force` param; for now always false.
             let force = false;
@@ -2400,6 +2402,9 @@ impl DkodMcp {
 
             match crate::review_gate::evaluate_gate(&cfg, force, deep_review_owned.as_ref()) {
                 crate::review_gate::GateOutcome::Pass => { /* fall through to approve */ }
+                crate::review_gate::GateOutcome::PassWithPrefix(p) => {
+                    gate_prefix = p;
+                }
                 crate::review_gate::GateOutcome::Reject(body) => {
                     let prefix = self
                         .drain_notifications(&session_id)
@@ -2425,7 +2430,7 @@ impl DkodMcp {
             .into_inner();
 
         let text = format!(
-            "Changeset approved!\nchangeset_id: {}\nstate: {}\n\nThe changeset is now approved and ready for dk_merge.\n",
+            "{gate_prefix}Changeset approved!\nchangeset_id: {}\nstate: {}\n\nThe changeset is now approved and ready for dk_merge.\n",
             response.changeset_id, response.new_state
         );
 
