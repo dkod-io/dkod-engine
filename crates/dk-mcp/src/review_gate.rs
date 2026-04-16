@@ -136,7 +136,10 @@ pub fn build_review_snapshot(
             model,
         },
         None => crate::ReviewSnapshot {
-            score: Some(0),
+            // `None` distinguishes "force-approved with no deep review at all"
+            // from `Some(0)` which is reserved for "provider errored mid-review"
+            // under strict backoff policy. Audit consumers rely on this.
+            score: None,
             threshold: Some(cfg.min_score),
             findings_count: 0,
             provider,
@@ -985,7 +988,7 @@ mod review_snapshot_tests {
     #[test]
     fn snapshot_from_none() {
         let s = build_review_snapshot(None, &cfg_with_provider());
-        assert_eq!(s.score, Some(0));
+        assert_eq!(s.score, None);
         assert_eq!(s.threshold, Some(4));
         assert_eq!(s.findings_count, 0);
     }
