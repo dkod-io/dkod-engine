@@ -119,7 +119,10 @@ fn finding_to_proto(finding: &Finding) -> crate::ReviewFindingProto {
         category: finding.check_name.clone(),
         message: finding.message.clone(),
         suggestion: None,
-        confidence: 0.0,
+        // Providers don't surface per-finding probabilities today; `1.0` treats
+        // the finding as fully returned (the LLM did surface it) rather than
+        // `0.0` which would mean "no confidence" and is semantically wrong.
+        confidence: 1.0,
         dismissed: false,
     }
 }
@@ -281,7 +284,14 @@ pub async fn run_background_review(
         &cfg,
     ) {
         Some(r) => r,
-        None => return, // degraded policy — fall back silently
+        None => {
+            tracing::debug!(
+                session_id = %session_id,
+                changeset_id = %changeset_id,
+                "background review: provider errored under degraded policy — skipping record"
+            );
+            return;
+        }
     };
 
     let mut client = match connect_grpc(grpc_addr, auth_token).await {

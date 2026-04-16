@@ -255,6 +255,11 @@ pub struct DkodMcp {
     /// Per-session notification for blocking dk_watch. Signaled when new events
     /// are buffered so a waiting dk_watch call can wake up immediately.
     watch_notify: Arc<Mutex<HashMap<String, Arc<tokio::sync::Notify>>>>,
+    /// Per-submit background review task handles.
+    /// Populated each time `dk_submit` spawns a deep-review task when the
+    /// code review gate is enabled. Cleared on `Drop` so closing the MCP
+    /// instance aborts in-flight provider HTTP calls.
+    review_tasks: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>>,
 }
 
 /// Cancel all per-session NATS and Watch tasks when the MCP instance drops
@@ -293,6 +298,13 @@ impl Drop for DkodMcp {
             }
             notifiers.clear();
         }
+        // Abort all pending review background tasks so closing the MCP
+        // doesn't leak outstanding provider HTTP calls.
+        if let Ok(mut tasks) = self.review_tasks.try_lock() {
+            for handle in tasks.drain(..) {
+                handle.abort();
+            }
+        }
     }
 }
 
@@ -317,6 +329,7 @@ impl DkodMcp {
             my_modified_symbols: Arc::new(Mutex::new(HashMap::new())),
             watch_overflow: Arc::new(Mutex::new(HashMap::new())),
             watch_notify: Arc::new(Mutex::new(HashMap::new())),
+            review_tasks: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -350,6 +363,7 @@ impl DkodMcp {
             my_modified_symbols: Arc::new(Mutex::new(HashMap::new())),
             watch_overflow: Arc::new(Mutex::new(HashMap::new())),
             watch_notify: Arc::new(Mutex::new(HashMap::new())),
+            review_tasks: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -400,6 +414,7 @@ impl DkodMcp {
             my_modified_symbols: Arc::new(Mutex::new(HashMap::new())),
             watch_overflow: Arc::new(Mutex::new(HashMap::new())),
             watch_notify: Arc::new(Mutex::new(HashMap::new())),
+            review_tasks: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -422,6 +437,7 @@ impl DkodMcp {
             my_modified_symbols: Arc::new(Mutex::new(HashMap::new())),
             watch_overflow: Arc::new(Mutex::new(HashMap::new())),
             watch_notify: Arc::new(Mutex::new(HashMap::new())),
+            review_tasks: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -1718,7 +1734,7 @@ impl DkodMcp {
                 let session_id_clone = session_id.clone();
                 let changeset_id = response.changeset_id.clone();
                 let cfg_clone = cfg.clone();
-                tokio::spawn(async move {
+                let handle = tokio::spawn(async move {
                     crate::review_gate::run_background_review(
                         grpc_addr,
                         auth_token,
@@ -1730,6 +1746,7 @@ impl DkodMcp {
                     )
                     .await;
                 });
+                self.review_tasks.lock().await.push(handle);
                 text.push_str(&format!(
                     "\nDeep code review started in background (provider: {}, min_score: {}). Retry dk_approve to check status.\n",
                     cfg.provider_name.as_deref().unwrap_or("?"),
