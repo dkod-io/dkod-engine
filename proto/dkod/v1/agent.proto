@@ -476,8 +476,18 @@ message PushResponse {
 
 // --- APPROVE ---
 
+message ReviewSnapshot {
+  int32 score = 1;
+  int32 threshold = 2;
+  int32 findings_count = 3;
+  string provider = 4;       // "anthropic" | "openrouter"
+  string model = 5;
+}
+
 message ApproveRequest {
   string session_id = 1;
+  optional string override_reason = 2;
+  optional ReviewSnapshot review_snapshot = 3;
 }
 
 message ApproveResponse {
