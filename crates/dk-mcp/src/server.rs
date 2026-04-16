@@ -2365,8 +2365,52 @@ impl DkodMcp {
 
         let session = self.resolve_session(param_session_id.as_deref()).await?;
         let session_id = session.session_id.clone();
+        let changeset_id = session.changeset_id.clone();
 
         let mut client = self.get_client().await?;
+
+        // Deep-review gate (opt-in via DKOD_CODE_REVIEW=1). When enabled, fetch
+        // the recorded reviews for this changeset and consult the pure
+        // `evaluate_gate` helper. A `Reject` short-circuits with a structured
+        // JSON body that tells the caller how to proceed (retry, fix, or
+        // override via `force`).
+        let cfg = crate::review_gate::GateConfig::from_env();
+        if cfg.enabled {
+            // Task 2.8 will add a `force` param; for now always false.
+            let force = false;
+            // `misconfigured` is decided inside `evaluate_gate`, but we skip
+            // the Review RPC when we already know the gate will reject — no
+            // point paying for a network round trip.
+            let deep_review_owned = if cfg.misconfigured() {
+                None
+            } else {
+                let review_req = crate::ReviewRequest {
+                    session_id: session_id.clone(),
+                    changeset_id: changeset_id.clone(),
+                };
+                let review_resp = client.review(review_req).await.map_err(|e| {
+                    McpError::internal_error(format!("REVIEW RPC failed: {e}"), None)
+                })?;
+                review_resp
+                    .into_inner()
+                    .reviews
+                    .into_iter()
+                    .find(|r| r.tier == "deep")
+            };
+
+            match crate::review_gate::evaluate_gate(&cfg, force, deep_review_owned.as_ref()) {
+                crate::review_gate::GateOutcome::Pass => { /* fall through to approve */ }
+                crate::review_gate::GateOutcome::Reject(body) => {
+                    let prefix = self
+                        .drain_notifications(&session_id)
+                        .await
+                        .unwrap_or_default();
+                    return Ok(CallToolResult::error(vec![Content::text(format!(
+                        "{prefix}{body}"
+                    ))]));
+                }
+            }
+        }
 
         let request = crate::ApproveRequest {
             session_id: session_id.clone(),

@@ -64,6 +64,57 @@ pub enum BackoffPolicy {
     Degraded,
 }
 
+/// Outcome of evaluating the deep-review gate for a single `dk_approve` call.
+pub enum GateOutcome {
+    /// Gate disabled or gate passed — proceed to forward approve() to the engine.
+    Pass,
+    /// Reject with a structured JSON payload to send back to the caller.
+    Reject(String),
+}
+
+/// Evaluate the gate for a `dk_approve` call.
+///
+/// - `!cfg.enabled` → `Pass` (no gate).
+/// - `force` → `Pass` (caller-supplied override; reason validation is handled
+///   in the server layer).
+/// - `cfg.misconfigured()` → `Reject` with a `gate_misconfigured` payload.
+/// - `deep_review` is `None` → `Reject` with a `deep_review_pending` payload
+///   that instructs the caller to retry in ~15 seconds.
+/// - `deep_review` is `Some(_)` → `Pass` (score-based checks are layered on
+///   in later tasks).
+pub fn evaluate_gate(
+    cfg: &GateConfig,
+    force: bool,
+    deep_review: Option<&crate::ReviewResultProto>,
+) -> GateOutcome {
+    if !cfg.enabled {
+        return GateOutcome::Pass;
+    }
+    if force {
+        return GateOutcome::Pass;
+    }
+    if cfg.misconfigured() {
+        let body = serde_json::json!({
+            "error": "gate_misconfigured",
+            "message": "DKOD_CODE_REVIEW=1 but no provider key (DKOD_ANTHROPIC_API_KEY or DKOD_OPENROUTER_API_KEY).",
+        });
+        return GateOutcome::Reject(body.to_string());
+    }
+    if deep_review.is_none() {
+        let body = serde_json::json!({
+            "error": "deep_review_pending",
+            "message": "Deep code review has not completed yet. Retry dk_approve in ~15s, or poll dk_review.",
+            "next_action": {
+                "kind": "wait_and_retry",
+                "retry_after_secs": 15,
+                "can_fix": false,
+            },
+        });
+        return GateOutcome::Reject(body.to_string());
+    }
+    GateOutcome::Pass
+}
+
 impl GateConfig {
     /// Parse the gate configuration from the current process environment.
     ///
@@ -419,6 +470,75 @@ mod verdict_mapping_tests {
     #[test]
     fn request_changes_with_errors_is_1() {
         assert_eq!(score_from_verdict(&ReviewVerdict::RequestChanges, &[f(Severity::Error)]), 1);
+    }
+}
+
+#[cfg(test)]
+mod evaluate_gate_tests {
+    use super::*;
+    use crate::ReviewResultProto;
+
+    fn cfg_off() -> GateConfig {
+        GateConfig {
+            enabled: false,
+            provider_name: None,
+            min_score: 4,
+            timeout: std::time::Duration::from_secs(180),
+            backoff_policy: BackoffPolicy::Strict,
+            model: None,
+        }
+    }
+    fn cfg_on() -> GateConfig {
+        GateConfig {
+            enabled: true,
+            provider_name: Some("anthropic".into()),
+            min_score: 4,
+            timeout: std::time::Duration::from_secs(180),
+            backoff_policy: BackoffPolicy::Strict,
+            model: None,
+        }
+    }
+    fn cfg_misconfigured() -> GateConfig {
+        GateConfig {
+            enabled: true,
+            provider_name: None,
+            min_score: 4,
+            timeout: std::time::Duration::from_secs(180),
+            backoff_policy: BackoffPolicy::Strict,
+            model: None,
+        }
+    }
+
+    #[test]
+    fn pass_when_gate_disabled() {
+        assert!(matches!(
+            evaluate_gate(&cfg_off(), false, None),
+            GateOutcome::Pass
+        ));
+    }
+    #[test]
+    fn pass_when_force_even_if_pending() {
+        assert!(matches!(
+            evaluate_gate(&cfg_on(), true, None),
+            GateOutcome::Pass
+        ));
+    }
+    #[test]
+    fn reject_misconfigured() {
+        let GateOutcome::Reject(body) = evaluate_gate(&cfg_misconfigured(), false, None) else {
+            panic!()
+        };
+        assert!(body.contains("gate_misconfigured"));
+        assert!(body.contains("DKOD_CODE_REVIEW"));
+    }
+    #[test]
+    fn reject_deep_review_pending() {
+        let GateOutcome::Reject(body) = evaluate_gate(&cfg_on(), false, None) else {
+            panic!()
+        };
+        assert!(body.contains("deep_review_pending"));
+        assert!(body.contains("\"retry_after_secs\":15"));
+        assert!(body.contains("\"can_fix\":false"));
     }
 }
 
