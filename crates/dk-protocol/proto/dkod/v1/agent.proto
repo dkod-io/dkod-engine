@@ -479,7 +479,7 @@ message PushResponse {
 message ReviewSnapshot {
   int32 score = 1;
   int32 threshold = 2;
-  int32 findings_count = 3;
+  uint32 findings_count = 3;
   string provider = 4;       // "anthropic" | "openrouter"
   string model = 5;
 }
