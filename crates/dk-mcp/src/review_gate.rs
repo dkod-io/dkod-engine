@@ -1,19 +1,55 @@
+//! Environment-derived configuration for the MCP code-review gate.
+//!
+//! The gate is an opt-in deep code review that runs before `dk_approve` merges
+//! a changeset, to catch regressions the generator's local review missed. This
+//! module parses the seven `DKOD_*` environment variables into a single
+//! [`GateConfig`] value that the server consults at request time.
+//!
+//! See `docs/plans/2026-04-16-mcp-code-review-gate-design.md` for the broader
+//! design, the gate wiring into `server.rs`, and the review-provider contract.
+
 use std::time::Duration;
 
+/// Effective gate settings derived from the environment at a point in time.
 #[derive(Debug, Clone)]
 pub struct GateConfig {
+    /// `true` when `DKOD_CODE_REVIEW=1` — the gate is requested for this process.
     pub enabled: bool,
-    pub provider_name: Option<String>,    // None if flag set but no key
+    /// Name of the selected provider (`"anthropic"` or `"openrouter"`), or
+    /// `None` if no provider key is set in the environment.
+    pub provider_name: Option<String>,
+    /// Minimum review score (1..=5) a changeset must achieve to pass the gate.
+    /// Defaults to 4. Out-of-range or unparseable values fall back to the default.
     pub min_score: i32,
+    /// Maximum time allowed for a single review call before the backoff policy
+    /// takes over. Defaults to 180 seconds.
     pub timeout: Duration,
+    /// How provider errors and timeouts are handled — see [`BackoffPolicy`].
     pub backoff_policy: BackoffPolicy,
+    /// Optional provider-specific model override (e.g. `anthropic/claude-sonnet-4-5`).
+    /// When `None`, the provider implementation picks its default model.
     pub model: Option<String>,
 }
 
+/// How the gate reacts when the remote review provider errors or times out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BackoffPolicy { Strict, Degraded }
+pub enum BackoffPolicy {
+    /// Provider errors are recorded as score=None and reject on approve.
+    Strict,
+    /// Falls back to local review silently on provider error.
+    Degraded,
+}
 
 impl GateConfig {
+    /// Parse the gate configuration from the current process environment.
+    ///
+    /// Reads seven variables: `DKOD_CODE_REVIEW` (enable flag; only `"1"` enables),
+    /// `DKOD_OPENROUTER_API_KEY` and `DKOD_ANTHROPIC_API_KEY` (provider selection —
+    /// OpenRouter wins when both are set), `DKOD_REVIEW_MIN_SCORE` (default 4,
+    /// valid 1..=5), `DKOD_REVIEW_TIMEOUT_SECS` (default 180),
+    /// `DKOD_REVIEW_BACKOFF_POLICY` (`"degraded"` selects [`BackoffPolicy::Degraded`];
+    /// anything else — including unset — is [`BackoffPolicy::Strict`]), and
+    /// `DKOD_REVIEW_MODEL` (optional model override, forwarded to the provider).
     pub fn from_env() -> Self {
         let enabled = std::env::var("DKOD_CODE_REVIEW").map(|v| v == "1").unwrap_or(false);
         let provider_name = if std::env::var("DKOD_OPENROUTER_API_KEY").is_ok() {
@@ -39,6 +75,8 @@ impl GateConfig {
         Self { enabled, provider_name, min_score, timeout, backoff_policy, model }
     }
 
+    /// Returns `true` when the gate flag is enabled but no provider key is set —
+    /// the caller should fail closed.
     pub fn misconfigured(&self) -> bool {
         self.enabled && self.provider_name.is_none()
     }
