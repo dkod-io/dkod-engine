@@ -774,6 +774,8 @@ async fn approve_cmd(server: String, session: String) -> Result<()> {
     let resp = client
         .approve(ApproveRequest {
             session_id: session,
+            override_reason: None,
+            review_snapshot: None,
         })
         .await?
         .into_inner();

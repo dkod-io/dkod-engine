@@ -42,6 +42,9 @@ service AgentService {
 
   // Get code review results for a changeset
   rpc Review(ReviewRequest) returns (ReviewResponse);
+
+  // Record a completed code review result (called by the harness after deep review)
+  rpc RecordReview(RecordReviewRequest) returns (RecordReviewResponse);
 }
 
 // ── CONNECT ──
@@ -357,6 +360,23 @@ message ReviewResultProto {
 
 message ReviewResponse {
   repeated ReviewResultProto reviews = 1;
+}
+
+message RecordReviewRequest {
+  string session_id = 1;
+  string changeset_id = 2;
+  string tier = 3;                                    // "deep"
+  optional int32 score = 4;                           // null when provider errored under strict policy
+  optional string summary = 5;
+  repeated ReviewFindingProto findings = 6;
+  string provider = 7;
+  string model = 8;
+  int64 duration_ms = 9;
+}
+
+message RecordReviewResponse {
+  string review_id = 1;
+  bool accepted = 2;
 }
 
 // --- FILE OPERATIONS ---

@@ -2312,6 +2312,8 @@ impl DkodMcp {
 
         let request = crate::ApproveRequest {
             session_id: session_id.clone(),
+            override_reason: None,
+            review_snapshot: None,
         };
 
         let response = client
