@@ -61,7 +61,7 @@ struct ContentBlock {
 #[async_trait::async_trait]
 impl ReviewProvider for ClaudeReviewProvider {
     fn name(&self) -> &str {
-        "claude"
+        "anthropic"
     }
 
     async fn review(&self, request: ReviewRequest) -> Result<ReviewResponse> {

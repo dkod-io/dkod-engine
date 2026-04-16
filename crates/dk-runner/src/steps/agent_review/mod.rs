@@ -96,14 +96,26 @@ pub async fn run_agent_review_step(prompt: &str) -> StepOutput {
 /// cost tracking + model flexibility).
 pub fn select_provider_from_env() -> Option<Box<dyn provider::ReviewProvider>> {
     if std::env::var("DKOD_OPENROUTER_API_KEY").is_ok() {
-        return openrouter::OpenRouterReviewProvider::from_env()
+        let provider = openrouter::OpenRouterReviewProvider::from_env()
             .map(|p| Box::new(p) as Box<dyn provider::ReviewProvider>);
+        if provider.is_none() {
+            tracing::warn!(
+                "DKOD_OPENROUTER_API_KEY is set but OpenRouterReviewProvider failed to initialise; no review provider active"
+            );
+        }
+        return provider;
     }
     if let Ok(key) = std::env::var("DKOD_ANTHROPIC_API_KEY") {
         let model = std::env::var("DKOD_REVIEW_MODEL").ok();
-        return claude::ClaudeReviewProvider::new(key, model, None)
+        let provider = claude::ClaudeReviewProvider::new(key, model, None)
             .ok()
             .map(|p| Box::new(p) as Box<dyn provider::ReviewProvider>);
+        if provider.is_none() {
+            tracing::warn!(
+                "DKOD_ANTHROPIC_API_KEY is set but ClaudeReviewProvider failed to initialise; no review provider active"
+            );
+        }
+        return provider;
     }
     None
 }
@@ -134,7 +146,7 @@ mod provider_factory_tests {
         clear();
         std::env::set_var("DKOD_ANTHROPIC_API_KEY", "sk-ant");
         let p = select_provider_from_env().expect("expected a provider");
-        assert_eq!(p.name(), "claude");
+        assert_eq!(p.name(), "anthropic");
     }
 
     #[test]
