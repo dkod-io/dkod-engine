@@ -29,6 +29,7 @@ open = "5"
 dirs = "6"
 chrono = { workspace = true }
 async-nats = "0.38"
+dk-runner = { path = "../dk-runner" }
 
 [dev-dependencies]
 rmcp = { version = "0.16", features = ["client", "server", "transport-io"] }

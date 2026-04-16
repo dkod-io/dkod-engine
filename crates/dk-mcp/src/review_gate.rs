@@ -10,6 +10,28 @@
 
 use std::time::Duration;
 
+use dk_runner::steps::agent_review::provider::ReviewVerdict;
+use dk_runner::findings::{Finding, Severity};
+
+/// Map a review verdict + findings list to a 1–5 integer score.
+///
+/// - `Approve` + no findings → 5
+/// - `Approve` + any warning/error → 4
+/// - `Comment` → 3
+/// - `RequestChanges` with only warnings → 2
+/// - `RequestChanges` with any error → 1
+pub fn score_from_verdict(verdict: &ReviewVerdict, findings: &[Finding]) -> i32 {
+    let has_error = findings.iter().any(|f| f.severity == Severity::Error);
+    let has_warning = findings.iter().any(|f| f.severity == Severity::Warning);
+    match (verdict, has_error, has_warning) {
+        (ReviewVerdict::Approve, false, false) => 5,
+        (ReviewVerdict::Approve, _, _) => 4,
+        (ReviewVerdict::Comment, _, _) => 3,
+        (ReviewVerdict::RequestChanges, false, _) => 2,
+        (ReviewVerdict::RequestChanges, true, _) => 1,
+    }
+}
+
 /// Effective gate settings derived from the environment at a point in time.
 #[derive(Debug, Clone)]
 pub struct GateConfig {
@@ -164,5 +186,38 @@ mod env_parsing_tests {
         let cfg = GateConfig::from_env();
         assert_eq!(cfg.min_score, 4);
         clear_all();
+    }
+}
+
+#[cfg(test)]
+mod verdict_mapping_tests {
+    use super::score_from_verdict;
+    use dk_runner::steps::agent_review::provider::ReviewVerdict;
+    use dk_runner::findings::{Finding, Severity};
+
+    fn f(sev: Severity) -> Finding {
+        Finding { severity: sev, check_name: "x".into(), message: "m".into(),
+                  file_path: None, line: None, symbol: None }
+    }
+
+    #[test]
+    fn approve_no_issues_is_5() {
+        assert_eq!(score_from_verdict(&ReviewVerdict::Approve, &[]), 5);
+    }
+    #[test]
+    fn approve_with_warnings_is_4() {
+        assert_eq!(score_from_verdict(&ReviewVerdict::Approve, &[f(Severity::Warning)]), 4);
+    }
+    #[test]
+    fn comment_is_3() {
+        assert_eq!(score_from_verdict(&ReviewVerdict::Comment, &[]), 3);
+    }
+    #[test]
+    fn request_changes_with_only_warnings_is_2() {
+        assert_eq!(score_from_verdict(&ReviewVerdict::RequestChanges, &[f(Severity::Warning)]), 2);
+    }
+    #[test]
+    fn request_changes_with_errors_is_1() {
+        assert_eq!(score_from_verdict(&ReviewVerdict::RequestChanges, &[f(Severity::Error)]), 1);
     }
 }

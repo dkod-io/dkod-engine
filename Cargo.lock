@@ -949,6 +949,7 @@ dependencies = [
  "async-nats",
  "chrono",
  "dirs",
+ "dk-runner",
  "open",
  "prost",
  "prost-types",
