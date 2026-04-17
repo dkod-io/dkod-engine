@@ -47,7 +47,12 @@ impl ClaudeReviewProvider {
             .or_else(|_| std::env::var("ANTHROPIC_API_KEY"))
             .ok()?;
         let model = std::env::var("DKOD_REVIEW_MODEL").ok();
-        Self::new(api_key, model, None).ok()
+        Self::new(api_key, model, None)
+            .map_err(|e| {
+                tracing::error!("ClaudeReviewProvider failed to initialise: {e:#}");
+                e
+            })
+            .ok()
     }
 
     fn is_opus_4_7_or_later(&self) -> bool {
@@ -323,6 +328,28 @@ mod tests {
             let p = ClaudeReviewProvider::new("k".into(), None, None).unwrap();
             assert!(p.adaptive_thinking, "expected {v:?} to leave thinking on");
         }
+        clear_env();
+    }
+
+    #[test]
+    fn from_env_returns_none_when_effort_invalid() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        clear_env();
+        std::env::set_var("ANTHROPIC_API_KEY", "k");
+        std::env::set_var("DKOD_REVIEW_EFFORT", "turbo");
+        // The invalid effort now causes new() to Err; from_env() logs via
+        // tracing::error and returns None instead of a silent, unloggable skip.
+        assert!(ClaudeReviewProvider::from_env().is_none());
+        clear_env();
+    }
+
+    #[test]
+    fn from_env_returns_some_when_valid() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        clear_env();
+        std::env::set_var("ANTHROPIC_API_KEY", "k");
+        // Defaults (xhigh effort, adaptive on) are valid.
+        assert!(ClaudeReviewProvider::from_env().is_some());
         clear_env();
     }
 }
