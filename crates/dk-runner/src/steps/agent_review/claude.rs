@@ -20,15 +20,25 @@ impl ClaudeReviewProvider {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(120))
             .build()?;
-        let effort = std::env::var("DKOD_REVIEW_EFFORT").unwrap_or_else(|_| "xhigh".to_string());
+        const DEFAULT_EFFORT: &str = "xhigh";
         const VALID_EFFORTS: &[&str] = &["max", "xhigh", "high", "medium", "low"];
-        if !VALID_EFFORTS.contains(&effort.as_str()) {
-            anyhow::bail!(
-                "DKOD_REVIEW_EFFORT has invalid value {:?}; valid values: {}",
-                effort,
-                VALID_EFFORTS.join(", ")
-            );
-        }
+        // Invalid values fall back to the default with a warning — matches the
+        // tolerant pattern used for DKOD_REVIEW_MIN_SCORE in dk-mcp's GateConfig.
+        // Bailing here would also make ClaudeReviewProvider::new flakey under
+        // parallel tests that temporarily set this env var in sibling modules.
+        let effort = match std::env::var("DKOD_REVIEW_EFFORT") {
+            Ok(v) if VALID_EFFORTS.contains(&v.as_str()) => v,
+            Ok(v) => {
+                tracing::warn!(
+                    "DKOD_REVIEW_EFFORT has invalid value {:?}; valid values: {}. Falling back to {:?}.",
+                    v,
+                    VALID_EFFORTS.join(", "),
+                    DEFAULT_EFFORT
+                );
+                DEFAULT_EFFORT.to_string()
+            }
+            Err(_) => DEFAULT_EFFORT.to_string(),
+        };
         let adaptive_thinking = std::env::var("DKOD_REVIEW_ADAPTIVE_THINKING")
             .map(|v| !matches!(v.to_lowercase().as_str(), "0" | "false" | "no" | "off"))
             .unwrap_or(true);
@@ -292,18 +302,13 @@ mod tests {
     }
 
     #[test]
-    fn invalid_effort_value_is_rejected() {
+    fn invalid_effort_value_falls_back_to_default() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         clear_env();
         std::env::set_var("DKOD_REVIEW_EFFORT", "extreme");
-        let result = ClaudeReviewProvider::new("k".into(), None, None);
-        let err = match result {
-            Err(e) => e,
-            Ok(_) => panic!("expected Err for invalid effort"),
-        };
-        let msg = format!("{err}");
-        assert!(msg.contains("DKOD_REVIEW_EFFORT"), "msg was: {msg}");
-        assert!(msg.contains("extreme"), "msg was: {msg}");
+        let p = ClaudeReviewProvider::new("k".into(), None, None)
+            .expect("invalid effort should fall back, not bail");
+        assert_eq!(p.effort, "xhigh");
         clear_env();
     }
 
@@ -332,14 +337,16 @@ mod tests {
     }
 
     #[test]
-    fn from_env_returns_none_when_effort_invalid() {
+    fn from_env_falls_back_to_default_effort_when_invalid() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         clear_env();
         std::env::set_var("ANTHROPIC_API_KEY", "k");
         std::env::set_var("DKOD_REVIEW_EFFORT", "turbo");
-        // The invalid effort now causes new() to Err; from_env() logs via
-        // tracing::error and returns None instead of a silent, unloggable skip.
-        assert!(ClaudeReviewProvider::from_env().is_none());
+        // Invalid effort now logs a warning and falls back to the default,
+        // so from_env() still returns Some. This keeps the provider factory
+        // robust against stray env vars and avoids cross-module test races.
+        let p = ClaudeReviewProvider::from_env().expect("fallback should succeed");
+        assert_eq!(p.effort, "xhigh");
         clear_env();
     }
 
