@@ -10,7 +10,7 @@ fn approve_request_has_override_reason_and_snapshot() {
             threshold: Some(4),
             findings_count: 3,
             provider: "openrouter".into(),
-            model: "anthropic/claude-sonnet-4".into(),
+            model: "anthropic/claude-opus-4.7".into(),
         }),
     };
     assert_eq!(
@@ -30,7 +30,7 @@ fn record_review_request_shape() {
         summary: Some("LGTM with minor warnings".into()),
         findings: vec![],
         provider: "anthropic".into(),
-        model: "claude-sonnet-4-6".into(),
+        model: "claude-opus-4-7".into(),
         duration_ms: 12345,
     };
     assert_eq!(req.tier, "deep");

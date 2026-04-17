@@ -1071,7 +1071,7 @@ mod review_snapshot_tests {
             min_score: 4,
             timeout: std::time::Duration::from_secs(180),
             backoff_policy: BackoffPolicy::Strict,
-            model: Some("claude-sonnet-4-6".into()),
+            model: Some("claude-opus-4-7".into()),
         }
     }
 
@@ -1090,7 +1090,7 @@ mod review_snapshot_tests {
         assert_eq!(s.threshold, Some(4));
         assert_eq!(s.findings_count, 3);
         assert_eq!(s.provider, "anthropic");
-        assert_eq!(s.model, "claude-sonnet-4-6");
+        assert_eq!(s.model, "claude-opus-4-7");
     }
 
     #[test]
