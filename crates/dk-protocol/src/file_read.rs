@@ -42,6 +42,11 @@ pub async fn handle_file_read(
         .read_file(&req.path, &git_repo)
         .map_err(|e| Status::not_found(format!("File not found: {e}")))?;
 
+    // Record the read so the STALE_OVERLAY pre-write check can detect when
+    // this session's local view of `path` predates a competing submitted
+    // changeset touching the same path.
+    ws.mark_read(&req.path);
+
     info!(
         session_id = %req.session_id,
         path = %req.path,

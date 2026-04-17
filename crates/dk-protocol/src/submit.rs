@@ -5,6 +5,8 @@ use tracing::{info, warn};
 
 use dk_engine::workspace::overlay::OverlayEntry;
 
+use crate::file_write::release_on_submit_enabled;
+use crate::merge::release_locks_and_emit;
 use crate::server::ProtocolServer;
 use crate::validation::validate_file_path;
 use crate::{ChangeType, SubmitError, SubmitRequest, SubmitResponse, SubmitStatus};
@@ -347,6 +349,36 @@ pub async fn handle_submit(
         repo_id: repo_id.to_string(),
         event_id: uuid::Uuid::new_v4().to_string(),
     });
+
+    // ── Release-on-submit (DKOD_RELEASE_ON_SUBMIT) ──
+    // Locks historically lived until `dk_merge`, which is 1–5 minutes after
+    // this point when DKOD_CODE_REVIEW + the LAND fix-loop are enabled.
+    // Releasing here collapses the hold window from minutes to the few
+    // milliseconds between submit and the blocked waiter's next
+    // `dk_file_write`. The idempotent call in `handle_merge` still runs,
+    // so crashed-before-merge sessions don't leave stranded locks.
+    //
+    // Gated so PR1 ships flag-off and the testbed can flip it only after
+    // the STALE_OVERLAY backstop counter stays at zero.
+    if release_on_submit_enabled() {
+        let n = release_locks_and_emit(
+            server,
+            repo_id,
+            sid,
+            &req.session_id,
+            &changeset_id.to_string(),
+        )
+        .await;
+        if n > 0 {
+            info!(
+                session_id = %req.session_id,
+                changeset_id = %changeset_id,
+                symbols = n,
+                "lock released on submit"
+            );
+            crate::metrics::incr_locks_released_on_submit(n as u64);
+        }
+    }
 
     // Read HEAD version without holding the GitRepository across awaits.
     let new_version = {
