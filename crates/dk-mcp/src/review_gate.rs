@@ -50,8 +50,8 @@ pub struct GateConfig {
     pub timeout: Duration,
     /// How provider errors and timeouts are handled — see [`BackoffPolicy`].
     pub backoff_policy: BackoffPolicy,
-    /// Optional provider-specific model override (e.g. `anthropic/claude-sonnet-4-5`).
-    /// When `None`, the provider implementation picks its default model.
+    /// Optional provider-specific model override (e.g. `anthropic/claude-opus-4.7` for OpenRouter,
+    /// `claude-opus-4-7` for Anthropic). When `None`, the provider implementation picks its default model.
     pub model: Option<String>,
 }
 
