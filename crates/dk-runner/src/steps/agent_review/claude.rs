@@ -21,7 +21,7 @@ impl ClaudeReviewProvider {
         Ok(Self {
             client,
             api_key,
-            model: model.unwrap_or_else(|| "claude-sonnet-4-6".to_string()),
+            model: model.unwrap_or_else(|| "claude-opus-4-7".to_string()),
             max_tokens: max_tokens.unwrap_or(4096),
         })
     }
