@@ -21,8 +21,16 @@ impl ClaudeReviewProvider {
             .timeout(Duration::from_secs(120))
             .build()?;
         let effort = std::env::var("DKOD_REVIEW_EFFORT").unwrap_or_else(|_| "xhigh".to_string());
+        const VALID_EFFORTS: &[&str] = &["max", "xhigh", "high", "medium", "low"];
+        if !VALID_EFFORTS.contains(&effort.as_str()) {
+            anyhow::bail!(
+                "DKOD_REVIEW_EFFORT has invalid value {:?}; valid values: {}",
+                effort,
+                VALID_EFFORTS.join(", ")
+            );
+        }
         let adaptive_thinking = std::env::var("DKOD_REVIEW_ADAPTIVE_THINKING")
-            .map(|v| v != "0")
+            .map(|v| !matches!(v.to_lowercase().as_str(), "0" | "false" | "no" | "off"))
             .unwrap_or(true);
         Ok(Self {
             client,
@@ -43,10 +51,17 @@ impl ClaudeReviewProvider {
     }
 
     fn is_opus_4_7_or_later(&self) -> bool {
-        self.model.starts_with("claude-opus-4-7")
-            || self.model.starts_with("claude-opus-4-8")
-            || self.model.starts_with("claude-opus-4-9")
-            || self.model.starts_with("claude-opus-5")
+        let Some(rest) = self.model.strip_prefix("claude-opus-") else {
+            return false;
+        };
+        let mut parts = rest.split('-');
+        let major = parts.next().and_then(|s| s.parse::<u32>().ok());
+        let minor = parts.next().and_then(|s| s.parse::<u32>().ok());
+        match (major, minor) {
+            (Some(m), _) if m >= 5 => true,
+            (Some(4), Some(n)) if n >= 7 => true,
+            _ => false,
+        }
     }
 }
 
@@ -170,17 +185,22 @@ mod tests {
     fn is_opus_4_7_or_later_matches_new_models() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         clear_env();
-        let p = ClaudeReviewProvider::new("k".into(), Some("claude-opus-4-7".into()), None).unwrap();
-        assert!(p.is_opus_4_7_or_later());
-        let p = ClaudeReviewProvider::new(
-            "k".into(),
-            Some("claude-opus-4-7-20260101".into()),
-            None,
-        )
-        .unwrap();
-        assert!(p.is_opus_4_7_or_later());
-        let p = ClaudeReviewProvider::new("k".into(), Some("claude-opus-5".into()), None).unwrap();
-        assert!(p.is_opus_4_7_or_later());
+        for name in [
+            "claude-opus-4-7",
+            "claude-opus-4-7-20260101",
+            "claude-opus-4-8",
+            "claude-opus-4-9",
+            "claude-opus-4-10",
+            "claude-opus-4-11",
+            "claude-opus-4-15-preview",
+            "claude-opus-5",
+            "claude-opus-5-0",
+            "claude-opus-6",
+            "claude-opus-7-0-20270101",
+        ] {
+            let p = ClaudeReviewProvider::new("k".into(), Some(name.into()), None).unwrap();
+            assert!(p.is_opus_4_7_or_later(), "expected {name} to match");
+        }
     }
 
     #[test]
@@ -264,5 +284,45 @@ mod tests {
         let json = serde_json::to_string(&body).unwrap();
         assert!(!json.contains("\"thinking\""));
         assert!(!json.contains("\"output_config\""));
+    }
+
+    #[test]
+    fn invalid_effort_value_is_rejected() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        clear_env();
+        std::env::set_var("DKOD_REVIEW_EFFORT", "extreme");
+        let result = ClaudeReviewProvider::new("k".into(), None, None);
+        let err = match result {
+            Err(e) => e,
+            Ok(_) => panic!("expected Err for invalid effort"),
+        };
+        let msg = format!("{err}");
+        assert!(msg.contains("DKOD_REVIEW_EFFORT"), "msg was: {msg}");
+        assert!(msg.contains("extreme"), "msg was: {msg}");
+        clear_env();
+    }
+
+    #[test]
+    fn adaptive_thinking_disable_variants_case_insensitive() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        for v in ["0", "false", "False", "FALSE", "no", "NO", "off", "Off"] {
+            clear_env();
+            std::env::set_var("DKOD_REVIEW_ADAPTIVE_THINKING", v);
+            let p = ClaudeReviewProvider::new("k".into(), None, None).unwrap();
+            assert!(!p.adaptive_thinking, "expected {v} to disable");
+        }
+        clear_env();
+    }
+
+    #[test]
+    fn adaptive_thinking_enable_variants() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        for v in ["1", "true", "yes", "on", ""] {
+            clear_env();
+            std::env::set_var("DKOD_REVIEW_ADAPTIVE_THINKING", v);
+            let p = ClaudeReviewProvider::new("k".into(), None, None).unwrap();
+            assert!(p.adaptive_thinking, "expected {v:?} to leave thinking on");
+        }
+        clear_env();
     }
 }
