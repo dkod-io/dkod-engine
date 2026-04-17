@@ -3,9 +3,9 @@
 import grpc
 import warnings
 
-from dkod._generated.dkod.v1 import agent_pb2 as dkod_dot_v1_dot_agent__pb2
+from dkod.v1 import agent_pb2 as dkod_dot_v1_dot_agent__pb2
 
-GRPC_GENERATED_VERSION = '1.78.0'
+GRPC_GENERATED_VERSION = '1.80.0'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -94,6 +94,31 @@ class AgentServiceStub(object):
                 request_serializer=dkod_dot_v1_dot_agent__pb2.PushRequest.SerializeToString,
                 response_deserializer=dkod_dot_v1_dot_agent__pb2.PushResponse.FromString,
                 _registered_method=True)
+        self.Approve = channel.unary_unary(
+                '/dkod.v1.AgentService/Approve',
+                request_serializer=dkod_dot_v1_dot_agent__pb2.ApproveRequest.SerializeToString,
+                response_deserializer=dkod_dot_v1_dot_agent__pb2.ApproveResponse.FromString,
+                _registered_method=True)
+        self.Resolve = channel.unary_unary(
+                '/dkod.v1.AgentService/Resolve',
+                request_serializer=dkod_dot_v1_dot_agent__pb2.ResolveRequest.SerializeToString,
+                response_deserializer=dkod_dot_v1_dot_agent__pb2.ResolveResponse.FromString,
+                _registered_method=True)
+        self.Close = channel.unary_unary(
+                '/dkod.v1.AgentService/Close',
+                request_serializer=dkod_dot_v1_dot_agent__pb2.CloseRequest.SerializeToString,
+                response_deserializer=dkod_dot_v1_dot_agent__pb2.CloseResponse.FromString,
+                _registered_method=True)
+        self.Review = channel.unary_unary(
+                '/dkod.v1.AgentService/Review',
+                request_serializer=dkod_dot_v1_dot_agent__pb2.ReviewRequest.SerializeToString,
+                response_deserializer=dkod_dot_v1_dot_agent__pb2.ReviewResponse.FromString,
+                _registered_method=True)
+        self.RecordReview = channel.unary_unary(
+                '/dkod.v1.AgentService/RecordReview',
+                request_serializer=dkod_dot_v1_dot_agent__pb2.RecordReviewRequest.SerializeToString,
+                response_deserializer=dkod_dot_v1_dot_agent__pb2.RecordReviewResponse.FromString,
+                _registered_method=True)
 
 
 class AgentServiceServicer(object):
@@ -178,6 +203,41 @@ class AgentServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def Approve(self, request, context):
+        """Approve a submitted changeset (platform-level state transition)
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Resolve(self, request, context):
+        """Resolve conflicts on a changeset
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Close(self, request, context):
+        """Close a session and destroy its workspace
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Review(self, request, context):
+        """Get code review results for a changeset
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def RecordReview(self, request, context):
+        """Record a completed code review result (called by the harness after deep review)
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_AgentServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -240,6 +300,31 @@ def add_AgentServiceServicer_to_server(servicer, server):
                     servicer.Push,
                     request_deserializer=dkod_dot_v1_dot_agent__pb2.PushRequest.FromString,
                     response_serializer=dkod_dot_v1_dot_agent__pb2.PushResponse.SerializeToString,
+            ),
+            'Approve': grpc.unary_unary_rpc_method_handler(
+                    servicer.Approve,
+                    request_deserializer=dkod_dot_v1_dot_agent__pb2.ApproveRequest.FromString,
+                    response_serializer=dkod_dot_v1_dot_agent__pb2.ApproveResponse.SerializeToString,
+            ),
+            'Resolve': grpc.unary_unary_rpc_method_handler(
+                    servicer.Resolve,
+                    request_deserializer=dkod_dot_v1_dot_agent__pb2.ResolveRequest.FromString,
+                    response_serializer=dkod_dot_v1_dot_agent__pb2.ResolveResponse.SerializeToString,
+            ),
+            'Close': grpc.unary_unary_rpc_method_handler(
+                    servicer.Close,
+                    request_deserializer=dkod_dot_v1_dot_agent__pb2.CloseRequest.FromString,
+                    response_serializer=dkod_dot_v1_dot_agent__pb2.CloseResponse.SerializeToString,
+            ),
+            'Review': grpc.unary_unary_rpc_method_handler(
+                    servicer.Review,
+                    request_deserializer=dkod_dot_v1_dot_agent__pb2.ReviewRequest.FromString,
+                    response_serializer=dkod_dot_v1_dot_agent__pb2.ReviewResponse.SerializeToString,
+            ),
+            'RecordReview': grpc.unary_unary_rpc_method_handler(
+                    servicer.RecordReview,
+                    request_deserializer=dkod_dot_v1_dot_agent__pb2.RecordReviewRequest.FromString,
+                    response_serializer=dkod_dot_v1_dot_agent__pb2.RecordReviewResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -566,6 +651,141 @@ class AgentService(object):
             '/dkod.v1.AgentService/Push',
             dkod_dot_v1_dot_agent__pb2.PushRequest.SerializeToString,
             dkod_dot_v1_dot_agent__pb2.PushResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Approve(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dkod.v1.AgentService/Approve',
+            dkod_dot_v1_dot_agent__pb2.ApproveRequest.SerializeToString,
+            dkod_dot_v1_dot_agent__pb2.ApproveResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Resolve(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dkod.v1.AgentService/Resolve',
+            dkod_dot_v1_dot_agent__pb2.ResolveRequest.SerializeToString,
+            dkod_dot_v1_dot_agent__pb2.ResolveResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Close(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dkod.v1.AgentService/Close',
+            dkod_dot_v1_dot_agent__pb2.CloseRequest.SerializeToString,
+            dkod_dot_v1_dot_agent__pb2.CloseResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Review(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dkod.v1.AgentService/Review',
+            dkod_dot_v1_dot_agent__pb2.ReviewRequest.SerializeToString,
+            dkod_dot_v1_dot_agent__pb2.ReviewResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RecordReview(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dkod.v1.AgentService/RecordReview',
+            dkod_dot_v1_dot_agent__pb2.RecordReviewRequest.SerializeToString,
+            dkod_dot_v1_dot_agent__pb2.RecordReviewResponse.FromString,
             options,
             channel_credentials,
             insecure,

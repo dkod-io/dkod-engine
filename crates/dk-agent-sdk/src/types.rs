@@ -1,7 +1,8 @@
 // Re-export proto types that SDK consumers will use directly.
 pub use dk_protocol::{
-    CallEdgeRef, CodebaseSummary, ConflictDetail, DependencyRef, MergeConflict, MergeSuccess,
-    RecentOverwriteWarning, SubmitError, SymbolOverwrite, SymbolRef, SymbolResult,
+    CallEdgeRef, CodebaseSummary, ConflictDetail, ConflictWarning, DependencyRef, FileEntry,
+    MergeConflict, MergeSuccess, RecentOverwriteWarning, ReviewFindingProto, ReviewResultProto,
+    SemanticConflict, SubmitError, SymbolChange, SymbolOverwrite, SymbolRef, SymbolResult,
     VerifyStepResult, WatchEvent,
 };
 
@@ -88,4 +89,111 @@ pub enum MergeResult {
     Conflict(MergeConflict),
     /// Merge blocked by recent overwrite — agent must force or abort.
     OverwriteWarning(RecentOverwriteWarning),
+}
+
+/// Result of a FILE_READ operation.
+#[derive(Debug)]
+pub struct FileReadResult {
+    pub content: String,
+    pub hash: String,
+    pub modified_in_session: bool,
+}
+
+/// Result of a FILE_WRITE operation.
+#[derive(Debug)]
+pub struct FileWriteResult {
+    pub new_hash: String,
+    pub detected_changes: Vec<SymbolChange>,
+    pub conflict_warnings: Vec<ConflictWarning>,
+}
+
+/// Result of a FILE_LIST operation.
+#[derive(Debug)]
+pub struct FileListResult {
+    pub files: Vec<FileEntry>,
+}
+
+/// Result of a GET_SESSION_STATUS operation.
+#[derive(Debug)]
+pub struct SessionStatusResult {
+    pub session_id: String,
+    pub base_commit: String,
+    pub files_modified: Vec<String>,
+    pub symbols_modified: Vec<String>,
+    pub overlay_size_bytes: u64,
+    pub active_other_sessions: u32,
+}
+
+/// Push destination mode.
+#[derive(Debug, Clone, Copy)]
+pub enum PushMode {
+    Branch,
+    Pr,
+}
+
+/// Conflict resolution strategy.
+#[derive(Debug, Clone, Copy)]
+pub enum ResolutionMode {
+    Proceed,
+    KeepYours,
+    KeepTheirs,
+    Manual,
+}
+
+/// Result of a PRE_SUBMIT_CHECK operation.
+#[derive(Debug)]
+pub struct PreSubmitResult {
+    pub has_conflicts: bool,
+    pub potential_conflicts: Vec<SemanticConflict>,
+    pub files_modified: u32,
+    pub symbols_changed: u32,
+}
+
+/// Result of a PUSH operation.
+#[derive(Debug)]
+pub struct PushResult {
+    pub branch_name: String,
+    pub pr_url: String,
+    pub commit_hash: String,
+    pub changeset_ids: Vec<String>,
+}
+
+/// Result of an APPROVE operation.
+#[derive(Debug)]
+pub struct ApproveResult {
+    pub success: bool,
+    pub changeset_id: String,
+    pub new_state: String,
+    pub message: String,
+}
+
+/// Result of a RESOLVE operation.
+#[derive(Debug)]
+pub struct ResolveResult {
+    pub success: bool,
+    pub changeset_id: String,
+    pub new_state: String,
+    pub message: String,
+    pub conflicts_resolved: i32,
+    pub conflicts_remaining: i32,
+}
+
+/// Result of a CLOSE operation.
+#[derive(Debug)]
+pub struct CloseResult {
+    pub success: bool,
+    pub message: String,
+}
+
+/// Result of a REVIEW query (list of AI reviews for the changeset).
+#[derive(Debug)]
+pub struct ReviewListResult {
+    pub reviews: Vec<ReviewResultProto>,
+}
+
+/// Result of a RECORD_REVIEW operation.
+#[derive(Debug)]
+pub struct RecordReviewResult {
+    pub review_id: String,
+    pub accepted: bool,
 }

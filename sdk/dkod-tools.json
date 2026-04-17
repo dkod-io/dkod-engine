@@ -165,5 +165,67 @@
     "allowed_callers": [
       "code_execution_20260120"
     ]
+  },
+  {
+    "name": "dkod_list_files",
+    "description": "List files in this session's workspace, optionally filtered by path prefix. Modified files are tagged. Response is JSON: {files: [{path, modified_in_session}], total}.",
+    "input_schema": {
+      "properties": {
+        "prefix": {
+          "description": "Optional path prefix filter (e.g. 'src/')",
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id"
+      ],
+      "type": "object"
+    },
+    "allowed_callers": [
+      "code_execution_20260120"
+    ]
+  },
+  {
+    "name": "dkod_verify",
+    "description": "Run verification pipeline (lint, test, type-check) on the session's changeset. Returns step-by-step results. Response is JSON: {changeset_id, passed, steps: [{step_name, status, output, required}]}.",
+    "input_schema": {
+      "properties": {
+        "session_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id"
+      ],
+      "type": "object"
+    },
+    "allowed_callers": [
+      "code_execution_20260120"
+    ]
+  },
+  {
+    "name": "dkod_merge",
+    "description": "Merge the verified changeset into a Git commit. Session is cleared on success. Changeset must be in 'approved' state. Response is JSON: {commit_hash, merged_version, auto_rebased, auto_rebased_files, conflicts}.",
+    "input_schema": {
+      "properties": {
+        "message": {
+          "description": "Optional commit message (auto-generated if omitted)",
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id"
+      ],
+      "type": "object"
+    },
+    "allowed_callers": [
+      "code_execution_20260120"
+    ]
   }
 ]

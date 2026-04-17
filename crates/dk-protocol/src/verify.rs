@@ -7,8 +7,8 @@ use dk_runner::Runner;
 
 use crate::server::ProtocolServer;
 use crate::{VerifyRequest, VerifyStepResult};
-use crate::proto::dkod::v1::Finding as ProtoFinding;
-use crate::proto::dkod::v1::Suggestion as ProtoSuggestion;
+use crate::Finding as ProtoFinding;
+use crate::Suggestion as ProtoSuggestion;
 
 pub async fn handle_verify(
     server: &ProtocolServer,
