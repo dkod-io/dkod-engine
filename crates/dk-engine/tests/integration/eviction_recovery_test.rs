@@ -243,13 +243,13 @@ async fn resume_contended_stays_stranded(pool: PgPool) {
         "expected ResumeResult::Contended, got {result:?}"
     );
 
-    // 5. A should be re-stranded (stranded_at set again).
-    // The new_session row won't exist since we rolled back; the dead_session
-    // row was already stranded — strand() is idempotent.
+    // 5. The original dead_session row should still be stranded after the failed resume.
+    // The new_session was never fully committed; we're verifying the original stranded row
+    // stayed stranded (strand() is idempotent and re-strand on contention is a no-op here).
     let stranded_at: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
         "SELECT stranded_at FROM session_workspaces WHERE session_id = $1",
     )
-    .bind(new_session)
+    .bind(dead_session)
     .fetch_optional(&pool)
     .await
     .unwrap()

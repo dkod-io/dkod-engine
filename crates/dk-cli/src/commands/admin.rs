@@ -61,6 +61,12 @@ pub async fn run(args: AdminArgs) -> Result<()> {
             );
 
             let resp = client.abandon(request).await?.into_inner();
+            if !resp.success {
+                anyhow::bail!(
+                    "failed to abandon session {} (changeset {}, reason {})",
+                    session_id, resp.changeset_id, resp.abandoned_reason
+                );
+            }
             println!(
                 "Abandoned session {} (changeset {}, reason {})",
                 session_id, resp.changeset_id, resp.abandoned_reason

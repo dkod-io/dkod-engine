@@ -1003,6 +1003,17 @@ impl WorkspaceManager {
 
         // OUT OF TRANSACTION: validate changeset_id, then rehydrate overlay + graph.
         let Some(changeset_id) = changeset_id_opt else {
+            // The DB row has already been committed (session_id rotated, stranded_at cleared).
+            // Re-strand so it remains recoverable rather than stuck in a non-live, non-stranded limbo.
+            let _ = sqlx::query(
+                "UPDATE session_workspaces
+                    SET stranded_at     = now(),
+                        stranded_reason = 'resume_failed'
+                  WHERE session_id = $1",
+            )
+            .bind(new_session)
+            .execute(&self.db)
+            .await;
             return Err(dk_core::Error::Internal(
                 "resume: workspace has no changeset_id — invalid state for resume".into(),
             ));
@@ -1012,6 +1023,22 @@ impl WorkspaceManager {
             crate::workspace::session_workspace::WorkspaceMode::Persistent { expires_at: None }
         } else {
             crate::workspace::session_workspace::WorkspaceMode::Ephemeral
+        };
+
+        // Helper to re-strand the row if rehydration fails after the commit.
+        // This compensates for the committed session_id rotation, leaving the row
+        // recoverable (stranded) rather than stuck in a neither-live-nor-stranded state.
+        let re_strand_on_failure = |db: PgPool, sid: uuid::Uuid, e: dk_core::Error| async move {
+            let _ = sqlx::query(
+                "UPDATE session_workspaces
+                    SET stranded_at     = now(),
+                        stranded_reason = 'resume_failed'
+                  WHERE session_id = $1",
+            )
+            .bind(sid)
+            .execute(&db)
+            .await;
+            e
         };
 
         // Build the rehydrated SessionWorkspace in-memory WITHOUT inserting a new
@@ -1036,15 +1063,21 @@ impl WorkspaceManager {
         // reference the OLD workspace_id (PK). The new SessionWorkspace has a
         // freshly generated ws.id, so we use restore_from_workspace_id to load
         // from the old workspace PK row instead of ws.overlay.restore_from_db().
-        ws.overlay
+        if let Err(e) = ws.overlay
             .restore_from_workspace_id(&self.db, workspace_id)
             .await
-            .map_err(|e| dk_core::Error::Internal(e.to_string()))?;
+            .map_err(|e| dk_core::Error::Internal(e.to_string()))
+        {
+            return Err(re_strand_on_failure(self.db.clone(), new_session, e).await);
+        }
 
         // Rebuild the semantic graph from overlay content.
-        ws.reindex_from_overlay()
+        if let Err(e) = ws.reindex_from_overlay()
             .await
-            .map_err(|e| dk_core::Error::Internal(format!("resume: reindex_from_overlay: {e}")))?;
+            .map_err(|e| dk_core::Error::Internal(format!("resume: reindex_from_overlay: {e}")))
+        {
+            return Err(re_strand_on_failure(self.db.clone(), new_session, e).await);
+        }
 
         // Eagerly re-acquire symbol locks over every changed symbol.
         // Collect (file_path, qualified_name) pairs from the overlay + graph.

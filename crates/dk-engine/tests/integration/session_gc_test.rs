@@ -149,9 +149,34 @@ async fn should_pin_returns_false_for_terminal_states(pool: PgPool) {
 
 #[sqlx::test]
 async fn should_pin_returns_false_when_session_has_no_changeset(pool: PgPool) {
-    let mgr = WorkspaceManager::new(pool);
-    let missing = Uuid::new_v4();
-    assert!(!mgr.should_pin(&missing).await);
+    let mgr = WorkspaceManager::new(pool.clone());
+
+    // Insert a real session_workspaces row with changeset_id = NULL to exercise
+    // the "row exists but no changeset" branch (not just the "no row at all" branch).
+    let session_id = Uuid::new_v4();
+    let repo_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO repositories (id, name, path, created_at)
+         VALUES ($1, $2, $3, now())
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(repo_id)
+    .bind(format!("test-repo-{session_id}"))
+    .bind(format!("/tmp/repo-{session_id}"))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO session_workspaces (session_id, repo_id, agent_id, base_commit_hash, intent)
+         VALUES ($1, $2, 'agent-test', 'initial', 'test')",
+    )
+    .bind(session_id)
+    .bind(repo_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    assert!(!mgr.should_pin(&session_id).await);
 }
 
 #[sqlx::test]
@@ -395,10 +420,13 @@ async fn insert_workspace_with_changeset(pool: &PgPool, state: dk_engine::change
 }
 
 #[sqlx::test]
+#[serial_test::serial]
 async fn flag_off_strands_nonterminal_on_expiry(pool: PgPool) {
     use dk_engine::changeset::ChangesetState;
 
     // Safely set the flag for this test (restore on drop).
+    // #[serial_test::serial] ensures no other test mutates DKOD_PIN_NONTERMINAL
+    // concurrently (process-global env races with parallel sqlx tests otherwise).
     struct EnvGuard(&'static str, Option<String>);
     impl Drop for EnvGuard {
         fn drop(&mut self) {

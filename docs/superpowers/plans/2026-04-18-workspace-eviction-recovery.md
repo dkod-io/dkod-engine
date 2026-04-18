@@ -65,21 +65,21 @@ Create `migrations/016_workspaces_stranded_at.sql`:
 -- strand → resume / abandon flow. All columns are nullable and additive —
 -- existing rows are unaffected.
 
-ALTER TABLE workspaces
+ALTER TABLE session_workspaces
     ADD COLUMN stranded_at       TIMESTAMPTZ,
     ADD COLUMN stranded_reason   TEXT,
     ADD COLUMN abandoned_at      TIMESTAMPTZ,
     ADD COLUMN abandoned_reason  TEXT,
-    ADD COLUMN superseded_by     UUID REFERENCES workspaces(session_id);
+    ADD COLUMN superseded_by     UUID REFERENCES session_workspaces(session_id);
 
 -- Partial index: the stranded_sweep scans only rows where stranded_at IS NOT NULL.
-CREATE INDEX idx_workspaces_stranded_at
-    ON workspaces (stranded_at)
+CREATE INDEX idx_session_workspaces_stranded_at
+    ON session_workspaces (stranded_at)
     WHERE stranded_at IS NOT NULL;
 
 -- Partial index: startup_reconcile filters on non-abandoned rows missing a live session.
-CREATE INDEX idx_workspaces_alive
-    ON workspaces (session_id)
+CREATE INDEX idx_session_workspaces_alive
+    ON session_workspaces (session_id)
     WHERE stranded_at IS NULL AND abandoned_at IS NULL;
 ```
 
@@ -2348,7 +2348,7 @@ Expected: no warnings.
 
 Run via the Claude Code plugin:
 
-```
+```bash
 /coderabbit:review --base main
 ```
 

@@ -683,5 +683,6 @@ mod tests {
         assert!(ChangesetState::Merged.is_terminal());
         assert!(ChangesetState::Rejected.is_terminal());
         assert!(ChangesetState::Closed.is_terminal());
+        assert!(!ChangesetState::Draft.is_terminal());
     }
 }

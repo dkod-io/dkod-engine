@@ -459,6 +459,41 @@ impl DkodMcp {
         }
     }
 
+    /// Get a gRPC client, establishing a connection even when no sessions are present.
+    ///
+    /// Unlike `get_client()`, this bypasses the sessions-check gate and will always
+    /// attempt to connect (or reuse a cached client). Use only for tools like
+    /// `dk_abandon` that must work regardless of whether an active session exists.
+    async fn force_connect_client(&self) -> Result<AuthenticatedClient, McpError> {
+        let mut cached = self.grpc_client.lock().await;
+
+        // Fast path: client already exists.
+        if let Some(client) = cached.as_ref() {
+            return Ok(client.clone());
+        }
+
+        // No cached client — establish a fresh connection from stored connection state.
+        let (addr, env_token) = {
+            let conn = self.connection.read().await;
+            (conn.server_addr.clone(), conn.auth_token.clone())
+        };
+        let api_base = derive_api_base(&addr);
+        let token = crate::auth::resolve_token(&api_base, env_token.as_deref())
+            .await
+            .map_err(|e| {
+                McpError::internal_error(format!("auth connect failed: {e}"), None)
+            })?;
+
+        let new_client = crate::grpc::connect_with_auth(&addr, token)
+            .await
+            .map_err(|e| {
+                McpError::internal_error(format!("gRPC connect failed: {e}"), None)
+            })?;
+
+        *cached = Some(new_client.clone());
+        Ok(new_client)
+    }
+
     /// Get a clone of the cached gRPC client, or return an error if not connected.
     ///
     /// If sessions exist in memory but the gRPC client was cleared (e.g. after
@@ -1769,7 +1804,10 @@ impl DkodMcp {
         // DKOD_RELEASE_ON_SUBMIT=0 in the MCP's own env.
         if response.status == crate::SubmitStatus::Accepted as i32
             && std::env::var("DKOD_RELEASE_ON_SUBMIT")
-                .map(|v| !matches!(v.as_str(), "0" | "false" | "FALSE" | "no"))
+                .map(|v| {
+                    let v = v.trim().to_ascii_lowercase();
+                    !matches!(v.as_str(), "0" | "false" | "off" | "no")
+                })
                 .unwrap_or(true)
         {
             text.push_str(
@@ -3134,7 +3172,10 @@ impl DkodMcp {
     ) -> Result<CallToolResult, McpError> {
         let AbandonParams { session_id } = params;
 
-        let mut client = self.get_client().await?;
+        // Use force_connect_client so abandon works even when sessions map is empty
+        // (e.g. fresh MCP start where the user wants to clean up a stranded session
+        // without first calling dk_connect).
+        let mut client = self.force_connect_client().await?;
 
         let request = crate::AbandonRequest {
             session_id: session_id.clone(),

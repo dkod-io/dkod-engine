@@ -84,10 +84,11 @@ pub async fn handle_connect(
                     let mgr = server.engine().workspace_manager();
                     match mgr.resume(&dead, new_sid, &agent_id).await {
                         Ok(ResumeResult::Ok(_)) => {
-                            let base_commit = mgr
+                            let ws = mgr
                                 .get_workspace(&new_sid)
-                                .map(|w| w.base_commit.clone())
-                                .unwrap_or_default();
+                                .ok_or_else(|| Status::internal("rehydrated workspace not found"))?;
+                            let base_commit = ws.base_commit.clone();
+                            let changeset_id = ws.changeset_id;
                             info!(
                                 resume_from = %dead,
                                 new_session_id = %new_sid,
@@ -96,6 +97,7 @@ pub async fn handle_connect(
                             return Ok(Response::new(ConnectResponse {
                                 session_id: new_sid.to_string(),
                                 codebase_version: base_commit,
+                                changeset_id: changeset_id.to_string(),
                                 ..Default::default()
                             }));
                         }
