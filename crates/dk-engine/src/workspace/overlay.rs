@@ -228,6 +228,39 @@ impl FileOverlay {
         Ok(())
     }
 
+    /// Restore overlay state from a *specific* workspace_id in the database.
+    ///
+    /// Used by [`WorkspaceManager::resume`] to rehydrate a resumed workspace's
+    /// overlay from the old (stranded) workspace's persisted overlay rows, since
+    /// the new workspace's `id` differs from the old one.
+    pub async fn restore_from_workspace_id(
+        &self,
+        db: &sqlx::PgPool,
+        source_workspace_id: uuid::Uuid,
+    ) -> Result<()> {
+        let rows: Vec<(String, Vec<u8>, String, String)> = sqlx::query_as(
+            r#"
+            SELECT file_path, content, content_hash, change_type
+              FROM session_overlay_files
+             WHERE workspace_id = $1
+            "#,
+        )
+        .bind(source_workspace_id)
+        .fetch_all(db)
+        .await?;
+
+        for (path, content, hash, change_type) in rows {
+            let entry = match change_type.as_str() {
+                "added" => OverlayEntry::Added { content, hash },
+                "deleted" => OverlayEntry::Deleted,
+                _ => OverlayEntry::Modified { content, hash },
+            };
+            self.entries.insert(path, entry);
+        }
+
+        Ok(())
+    }
+
     /// Delete every `session_overlay_files` row for a given workspace.
     /// Used by `abandon_stranded` to release persisted overlay bytes.
     pub async fn drop_for_workspace(db: &sqlx::PgPool, workspace_id: uuid::Uuid) -> Result<()> {

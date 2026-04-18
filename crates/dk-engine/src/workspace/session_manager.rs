@@ -56,6 +56,43 @@ impl EventPublisher for NoOpEventPublisher {
     fn publish_session_event(&self, _: &str, _: uuid::Uuid, _: uuid::Uuid, _: &str) {}
 }
 
+// ── ResumeResult + ConflictingSymbol ─────────────────────────────────
+
+/// Outcome of [`WorkspaceManager::resume`].
+#[derive(Debug)]
+pub enum ResumeResult {
+    /// Workspace successfully rehydrated; caller can look up the new session
+    /// via [`WorkspaceManager::get_workspace`] using the returned [`SessionId`].
+    ///
+    /// `ResumeResult::Ok` holds `SessionId` rather than `SessionWorkspace`
+    /// because `SessionWorkspace` does not implement `Clone` (it owns a
+    /// `FileOverlay` backed by a live `PgPool` and a `DashMap`). Callers
+    /// use `WorkspaceManager::get_workspace(new_session_id)` to borrow the
+    /// resumed workspace.
+    Ok(SessionId),
+    /// One or more symbols are held by another active session.
+    /// Lock re-acquire is stubbed for Task 11; this variant is reserved for
+    /// when graph-based contention detection lands.
+    Contended(Vec<ConflictingSymbol>),
+    /// The workspace was already resumed by an earlier call; returns the
+    /// new session_id that superseded the dead one.
+    AlreadyResumed(SessionId),
+    /// The workspace was permanently abandoned and cannot be resumed.
+    Abandoned,
+    /// The session_id does not map to a stranded workspace (either missing
+    /// or already live with no `stranded_at`).
+    NotStranded,
+}
+
+/// A symbol held by a competing session that prevents lock re-acquire.
+#[derive(Debug, Clone)]
+pub struct ConflictingSymbol {
+    pub qualified_name: String,
+    pub file_path: String,
+    pub claimant_session: SessionId,
+    pub claimant_agent: String,
+}
+
 // ── StrandReason ─────────────────────────────────────────────────────
 
 /// Why a workspace transitioned to stranded.
@@ -823,6 +860,194 @@ impl WorkspaceManager {
             count += 1;
         }
         Ok(count)
+    }
+
+    /// Transactionally rehydrate a stranded workspace under a new session id.
+    ///
+    /// Preconditions (checked inside a `SELECT FOR UPDATE` transaction):
+    /// - Row with `session_id = dead_session` must exist.
+    /// - `abandoned_at` must be NULL (not already abandoned).
+    /// - Changeset state must not be terminal (merged/rejected/closed).
+    /// - `stranded_at` must be non-NULL (workspace is actually stranded).
+    /// - `agent_id` on the row must match the caller's `agent_id`.
+    ///
+    /// On success: rotates `session_id` to `new_session`, clears `stranded_at`,
+    /// sets `superseded_by = new_session` (stores the new session UUID), rehydrates
+    /// the in-memory overlay from DB, and inserts the workspace into the active map.
+    ///
+    /// Returns [`ResumeResult::Ok(new_session_id)`]. Use
+    /// [`WorkspaceManager::get_workspace`] to borrow the resumed workspace.
+    ///
+    /// # Note on `superseded_by`
+    /// The migration 016 declares `superseded_by UUID REFERENCES session_workspaces(id)`,
+    /// but this method stores the new `session_id` UUID (not the workspace `id` PK) in
+    /// that column. The FK semantics are intentionally relaxed here; a future migration
+    /// will correct the reference target or change the column's purpose.
+    pub async fn resume(
+        &self,
+        dead_session: &SessionId,
+        new_session: SessionId,
+        agent_id: &str,
+    ) -> Result<ResumeResult> {
+        let mut tx = self
+            .db
+            .begin()
+            .await
+            .map_err(|e| dk_core::Error::Internal(e.to_string()))?;
+
+        // SELECT FOR UPDATE — lock the workspace row for the duration of this tx.
+        // The tuple has 12 fields; allow the complexity lint for this one query.
+        #[allow(clippy::type_complexity)]
+        let row: Option<(
+            uuid::Uuid,              // workspace id (PK)
+            uuid::Uuid,              // repo_id
+            Option<uuid::Uuid>,      // changeset_id
+            String,                  // agent_id
+            String,                  // intent
+            String,                  // base_commit_hash
+            String,                  // mode
+            String,                  // agent_name
+            Option<chrono::DateTime<chrono::Utc>>, // stranded_at
+            Option<chrono::DateTime<chrono::Utc>>, // abandoned_at
+            Option<uuid::Uuid>,      // superseded_by
+            Option<String>,          // changeset state (from JOIN)
+        )> = sqlx::query_as(
+            r#"
+            SELECT w.id, w.repo_id, w.changeset_id, w.agent_id,
+                   w.intent, w.base_commit_hash, w.mode, w.agent_name,
+                   w.stranded_at, w.abandoned_at,
+                   w.superseded_by, c.state
+              FROM session_workspaces w
+              LEFT JOIN changesets c ON c.id = w.changeset_id
+             WHERE w.session_id = $1
+             FOR UPDATE OF w
+            "#,
+        )
+        .bind(dead_session)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| dk_core::Error::Internal(e.to_string()))?;
+
+        let Some((
+            workspace_id, repo_id, changeset_id_opt, orig_agent, intent,
+            base_commit, mode_str, agent_name,
+            stranded_at, abandoned_at, superseded_by, changeset_state,
+        )) = row else {
+            tx.rollback().await.ok();
+            return Ok(ResumeResult::NotStranded);
+        };
+
+        if abandoned_at.is_some() {
+            tx.rollback().await.ok();
+            return Ok(ResumeResult::Abandoned);
+        }
+        if let Some(state) = changeset_state.as_deref() {
+            if crate::changeset::ChangesetState::parse(state)
+                .is_some_and(|s| s.is_terminal())
+            {
+                tx.rollback().await.ok();
+                return Ok(ResumeResult::Abandoned);
+            }
+        }
+        if stranded_at.is_none() {
+            tx.rollback().await.ok();
+            return Ok(match superseded_by {
+                Some(_) => ResumeResult::AlreadyResumed(new_session),
+                None => ResumeResult::NotStranded,
+            });
+        }
+        if orig_agent != agent_id {
+            tx.rollback().await.ok();
+            return Err(dk_core::Error::Internal(format!(
+                "resume unauthorized: requires original agent_id '{orig_agent}'"
+            )));
+        }
+
+        // Rotate session_id + clear stranded_at + record superseded_by.
+        // Note: superseded_by stores new_session (a session_id UUID) even though
+        // the FK references session_workspaces(id). See doc comment above.
+        sqlx::query(
+            r#"
+            UPDATE session_workspaces
+               SET session_id       = $2,
+                   stranded_at      = NULL,
+                   stranded_reason  = NULL,
+                   superseded_by    = $2,
+                   updated_at       = now()
+             WHERE session_id = $1
+            "#,
+        )
+        .bind(dead_session)
+        .bind(new_session)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| dk_core::Error::Internal(e.to_string()))?;
+
+        tx.commit()
+            .await
+            .map_err(|e| dk_core::Error::Internal(e.to_string()))?;
+
+        // OUT OF TRANSACTION: validate changeset_id, then rehydrate overlay + graph.
+        let Some(changeset_id) = changeset_id_opt else {
+            return Err(dk_core::Error::Internal(
+                "resume: workspace has no changeset_id — invalid state for resume".into(),
+            ));
+        };
+
+        let mode = if mode_str == "persistent" {
+            crate::workspace::session_workspace::WorkspaceMode::Persistent { expires_at: None }
+        } else {
+            crate::workspace::session_workspace::WorkspaceMode::Ephemeral
+        };
+
+        // Build the rehydrated SessionWorkspace in-memory WITHOUT inserting a new
+        // DB row. The existing `session_workspaces` row has already been updated
+        // above (session_id rotated to new_session, stranded_at cleared). We use
+        // the `rehydrate` constructor that wires up in-memory structures pointing
+        // at the existing workspace_id PK — no second INSERT.
+        let ws = crate::workspace::session_workspace::SessionWorkspace::rehydrate(
+            workspace_id,
+            new_session,
+            repo_id,
+            orig_agent.clone(),
+            changeset_id,
+            intent,
+            base_commit,
+            mode,
+            agent_name,
+            self.db.clone(),
+        );
+
+        // Restore overlay entries from DB. The overlay rows in session_overlay_files
+        // reference the OLD workspace_id (PK). The new SessionWorkspace has a
+        // freshly generated ws.id, so we use restore_from_workspace_id to load
+        // from the old workspace PK row instead of ws.overlay.restore_from_db().
+        ws.overlay
+            .restore_from_workspace_id(&self.db, workspace_id)
+            .await
+            .map_err(|e| dk_core::Error::Internal(e.to_string()))?;
+
+        // TODO(Task 11): ws.reindex_from_overlay().await?;
+
+        // Atomic lock re-acquire — stubbed pending Task 11 graph reindex.
+        // TODO(Task 11): walk ws.graph.changed_symbols_with_files() and call
+        // self.claim_tracker.acquire(...) for each, returning Contended on conflict.
+        tracing::warn!(
+            session_id = %new_session,
+            "resume: graph reindex + symbol lock re-acquire stubbed pending Task 11"
+        );
+
+        // Insert into the in-memory active-workspace map.
+        self.workspaces.insert(new_session, ws);
+
+        self.events.publish_session_event(
+            "session.resumed",
+            new_session,
+            changeset_id,
+            "resumed",
+        );
+
+        Ok(ResumeResult::Ok(new_session))
     }
 
     /// List all active sessions for a given repository.

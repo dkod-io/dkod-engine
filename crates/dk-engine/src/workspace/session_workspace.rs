@@ -147,6 +147,49 @@ impl SessionWorkspace {
         }
     }
 
+    /// Rehydrate a workspace from existing database state without inserting a new row.
+    ///
+    /// Used by [`WorkspaceManager::resume`] to reconstruct an in-memory
+    /// `SessionWorkspace` after the DB row has already been updated (session_id
+    /// rotated, stranded_at cleared). Unlike [`SessionWorkspace::new`], this
+    /// constructor does **not** insert a new `session_workspaces` row — it only
+    /// wires up the in-memory structures pointing at the existing `workspace_id`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn rehydrate(
+        workspace_id: WorkspaceId,
+        session_id: SessionId,
+        repo_id: RepoId,
+        agent_id: AgentId,
+        changeset_id: Uuid,
+        intent: String,
+        base_commit: String,
+        mode: WorkspaceMode,
+        agent_name: String,
+        db: PgPool,
+    ) -> Self {
+        let now = Instant::now();
+        let overlay = FileOverlay::new(workspace_id, db);
+        let graph = SessionGraph::empty();
+
+        Self {
+            id: workspace_id,
+            session_id,
+            repo_id,
+            agent_id,
+            agent_name,
+            changeset_id,
+            intent,
+            base_commit,
+            overlay,
+            graph,
+            mode,
+            state: WorkspaceState::Active,
+            created_at: now,
+            last_active: now,
+            files_read: Arc::new(DashMap::new()),
+        }
+    }
+
     /// Create a new workspace and persist metadata to the database.
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
@@ -336,6 +379,16 @@ impl SessionWorkspace {
     /// for `path`, or `None` if this session has never read it.
     pub fn last_read(&self, path: &str) -> Option<DateTime<Utc>> {
         self.files_read.get(path).map(|e| *e.value())
+    }
+
+    /// STUB (Task 11): re-parse overlay content to rebuild the semantic graph.
+    ///
+    /// Task 10 uses this as a placeholder; Task 11 will fill it in by walking
+    /// the overlay's changed file set, parsing each file, and re-populating
+    /// `self.graph` with the resulting symbols and call-graph edges.
+    pub async fn reindex_from_overlay(&mut self) -> dk_core::Result<()> {
+        tracing::warn!("reindex_from_overlay: stubbed (Task 11 pending)");
+        Ok(())
     }
 
     /// Build the overlay vector for `commit_tree_overlay`.
