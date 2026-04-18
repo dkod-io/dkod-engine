@@ -178,6 +178,87 @@ async fn strand_sets_stranded_at_and_is_idempotent(pool: PgPool) {
     assert_eq!(stranded_at2, Some(first_ts));
 }
 
+// ── Pin-guard integration tests (require DATABASE_URL / sqlx::test) ──
+
+/// Helper: insert a workspace with an artificially old `last_active` so that
+/// any positive `idle_ttl` (or even zero) triggers the GC candidate check.
+fn make_expired_test_workspace(session_id: Uuid) -> SessionWorkspace {
+    // new_test sets last_active = now; since idle_ttl of Duration::ZERO is
+    // "any idle time > 0", we use a tiny non-zero TTL (1ms) and the workspace
+    // will always be a candidate after a tiny amount of runtime has passed.
+    // For sqlx::test (not paused), we just use Duration::ZERO as idle_ttl.
+    SessionWorkspace::new_test(
+        session_id,
+        Uuid::new_v4(),
+        "test-agent".to_string(),
+        "test intent".to_string(),
+        "abc123".to_string(),
+        WorkspaceMode::Ephemeral,
+    )
+}
+
+#[sqlx::test]
+async fn gc_skips_pinned_workspace(pool: PgPool) {
+    use dk_engine::changeset::ChangesetState;
+    // Insert DB row with non-terminal state (Submitted = pinned).
+    let session_id = insert_workspace_with_changeset(&pool, ChangesetState::Submitted).await;
+
+    let mgr = WorkspaceManager::new(pool.clone());
+    // Register the workspace in-memory.
+    let ws = make_expired_test_workspace(session_id);
+    mgr.insert_test_workspace(ws);
+    assert_eq!(mgr.total_active(), 1);
+
+    // DKOD_PIN_NONTERMINAL defaults to on; use idle_ttl=0 so the workspace
+    // is always a GC candidate.
+    let evicted = mgr
+        .gc_expired_sessions_async(
+            std::time::Duration::ZERO,
+            std::time::Duration::from_secs(3600),
+        )
+        .await;
+
+    assert!(
+        !evicted.contains(&session_id),
+        "pinned (non-terminal) workspace must not be evicted"
+    );
+    assert!(
+        mgr.get_workspace(&session_id).is_some(),
+        "pinned workspace must remain in the in-memory map"
+    );
+}
+
+#[sqlx::test]
+async fn gc_evicts_terminal_workspace(pool: PgPool) {
+    use dk_engine::changeset::ChangesetState;
+    // Insert DB row with terminal state (Closed = not pinned).
+    let session_id = insert_workspace_with_changeset(&pool, ChangesetState::Closed).await;
+
+    let mgr = WorkspaceManager::new(pool.clone());
+    let ws = make_expired_test_workspace(session_id);
+    mgr.insert_test_workspace(ws);
+    assert_eq!(mgr.total_active(), 1);
+
+    let evicted = mgr
+        .gc_expired_sessions_async(
+            std::time::Duration::ZERO,
+            std::time::Duration::from_secs(3600),
+        )
+        .await;
+
+    assert!(evicted.contains(&session_id), "terminal workspace must be evicted");
+    assert_eq!(mgr.total_active(), 0, "terminal workspace must be removed from map");
+
+    // Terminal workspaces are evicted (not stranded) — stranded_at stays NULL.
+    let (stranded_at,): (Option<chrono::DateTime<chrono::Utc>>,) =
+        sqlx::query_as("SELECT stranded_at FROM session_workspaces WHERE session_id = $1")
+            .bind(session_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(stranded_at.is_none(), "terminal workspace must NOT be stranded");
+}
+
 /// Test helper. Inserts a session_workspaces row + matching changesets row, returns session_id.
 async fn insert_workspace_with_changeset(pool: &PgPool, state: dk_engine::changeset::ChangesetState) -> Uuid {
     let session_id = Uuid::new_v4();

@@ -19,6 +19,20 @@ use crate::workspace::session_workspace::{
     SessionId, SessionWorkspace, WorkspaceMode,
 };
 
+// ── Feature flag helper ───────────────────────────────────────────────
+
+/// Returns `true` when `DKOD_PIN_NONTERMINAL` is enabled (default: on).
+///
+/// Opt out with `DKOD_PIN_NONTERMINAL=0` (also `false`, `off`, `no`).
+fn pin_flag_enabled() -> bool {
+    std::env::var("DKOD_PIN_NONTERMINAL")
+        .map(|v| {
+            let v = v.trim().to_ascii_lowercase();
+            !matches!(v.as_str(), "0" | "false" | "off" | "no")
+        })
+        .unwrap_or(true)
+}
+
 // ── EventPublisher ────────────────────────────────────────────────────
 
 /// Hook interface for emitting workspace lifecycle events.
@@ -336,17 +350,74 @@ impl WorkspaceManager {
     }
 
     /// Destroy workspaces for sessions that no longer exist.
-    /// Call this when a session disconnects or during periodic cleanup.
+    ///
+    /// Pin-aware: non-terminal workspaces are stranded instead of evicted
+    /// when `DKOD_PIN_NONTERMINAL` is enabled (default: on). Terminal
+    /// workspaces are evicted as before. Callers without a Tokio runtime
+    /// fall back to legacy (immediate eviction, no pin guard).
     pub fn cleanup_disconnected(&self, active_session_ids: &[uuid::Uuid]) {
-        let to_remove: Vec<uuid::Uuid> = self.workspaces.iter()
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            tokio::task::block_in_place(|| {
+                handle.block_on(self.cleanup_disconnected_async(active_session_ids))
+            })
+        } else {
+            // Fallback: pre-Epic-B behavior for callers without a Tokio runtime.
+            let to_remove: Vec<uuid::Uuid> = self
+                .workspaces
+                .iter()
+                .filter(|entry| !active_session_ids.contains(entry.key()))
+                .map(|entry| *entry.key())
+                .collect();
+            for sid in &to_remove {
+                self.last_touched.remove(sid);
+                self.workspaces.remove(sid);
+            }
+            self.evict_from_cache(&to_remove);
+        }
+    }
+
+    /// Async pin-aware implementation of `cleanup_disconnected`.
+    ///
+    /// Candidates = sessions in-memory but NOT in the `active_session_ids` list.
+    /// If pinned (flag-on + non-terminal): skip.
+    /// Else if non-terminal (flag-off): strand with `CleanupDisconnected`.
+    /// Else (terminal): evict.
+    pub async fn cleanup_disconnected_async(&self, active_session_ids: &[uuid::Uuid]) {
+        let candidates: Vec<SessionId> = self
+            .workspaces
+            .iter()
             .filter(|entry| !active_session_ids.contains(entry.key()))
             .map(|entry| *entry.key())
             .collect();
-        for sid in &to_remove {
-            self.last_touched.remove(sid);
-            self.workspaces.remove(sid);
+
+        let flag_on = pin_flag_enabled();
+        let mut evicted = Vec::new();
+        for sid in candidates {
+            let non_terminal = self.should_pin(&sid).await;
+            if flag_on && non_terminal {
+                // Pinned: skip entirely.
+                continue;
+            }
+            if non_terminal {
+                // Flag is off but the workspace would have been pinned: strand
+                // instead of hard-deleting so the changeset can be recovered.
+                // strand() already calls evict_from_cache internally — do NOT
+                // push sid into evicted to avoid double-eviction.
+                if let Err(e) = self.strand(&sid, StrandReason::CleanupDisconnected).await {
+                    tracing::warn!("strand during cleanup_disconnected failed: {e}");
+                    // strand failed: ensure manual eviction so the entry is cleaned up.
+                    evicted.push(sid);
+                }
+            } else {
+                // Terminal: evict as today.
+                self.last_touched.remove(&sid);
+                self.workspaces.remove(&sid);
+                evicted.push(sid);
+            }
         }
-        self.evict_from_cache(&to_remove);
+        if !evicted.is_empty() {
+            self.evict_from_cache(&evicted);
+        }
     }
 
     /// Remove workspaces that are idle beyond `idle_ttl` or alive beyond `max_ttl`.
@@ -354,30 +425,103 @@ impl WorkspaceManager {
     /// Returns the list of expired session IDs. This complements [`gc_expired`]
     /// (which handles persistent workspace deadlines) by enforcing activity-based
     /// and hard-maximum lifetime limits on **all** workspaces.
+    ///
+    /// Pin-aware: non-terminal workspaces survive (they remain in memory) when
+    /// `DKOD_PIN_NONTERMINAL` is enabled (default: on). Terminal workspaces are
+    /// evicted as before. With `DKOD_PIN_NONTERMINAL=0`, legacy behavior: no pinning.
     pub fn gc_expired_sessions(
         &self,
         idle_ttl: std::time::Duration,
         max_ttl: std::time::Duration,
     ) -> Vec<SessionId> {
-        let now = Instant::now();
-        let mut expired = Vec::new();
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            tokio::task::block_in_place(|| {
+                handle.block_on(self.gc_expired_sessions_async(idle_ttl, max_ttl))
+            })
+        } else {
+            // Fallback: preserve the pre-Epic-B legacy behavior for callers without
+            // a Tokio runtime (rare — only admin scripts).
+            self.gc_expired_sessions_legacy(idle_ttl, max_ttl)
+        }
+    }
 
+    /// Activity-based GC with Epic B pin guard. Non-terminal workspaces survive
+    /// (they remain in memory). Terminal workspaces are evicted as before.
+    /// With `DKOD_PIN_NONTERMINAL=0`, legacy behavior: no pinning.
+    pub async fn gc_expired_sessions_async(
+        &self,
+        idle_ttl: std::time::Duration,
+        max_ttl: std::time::Duration,
+    ) -> Vec<SessionId> {
+        let now = tokio::time::Instant::now();
+        // Collect candidate session IDs without holding DashMap guards across awaits.
+        let candidates: Vec<SessionId> = self
+            .workspaces
+            .iter()
+            .filter(|entry| {
+                let ws = entry.value();
+                let idle = now.duration_since(ws.last_active);
+                let total = now.duration_since(ws.created_at);
+                idle > idle_ttl || total > max_ttl
+            })
+            .map(|entry| *entry.key())
+            .collect();
+
+        let flag_on = pin_flag_enabled();
+        let mut evicted = Vec::new();
+        for sid in candidates {
+            let non_terminal = self.should_pin(&sid).await;
+            if flag_on && non_terminal {
+                // Pinned: skip entirely.
+                continue;
+            }
+            if non_terminal {
+                // Flag is off but the workspace would have been pinned: strand
+                // instead of hard-deleting so the changeset can be recovered.
+                // strand() already calls evict_from_cache internally — do NOT
+                // push sid into evicted to avoid double-eviction.
+                if let Err(e) = self.strand(&sid, StrandReason::IdleTtl).await {
+                    tracing::warn!("strand during gc failed: {e}");
+                    // strand failed: ensure manual eviction so the entry is cleaned up.
+                    evicted.push(sid);
+                }
+            } else {
+                // Terminal: evict as today.
+                self.last_touched.remove(&sid);
+                self.workspaces.remove(&sid);
+                evicted.push(sid);
+            }
+        }
+        if !evicted.is_empty() {
+            self.evict_from_cache(&evicted);
+        }
+        evicted
+    }
+
+    /// Legacy (pre-Epic-B) GC — no pin guard, no async.
+    ///
+    /// Used as fallback when there is no Tokio runtime available.
+    fn gc_expired_sessions_legacy(
+        &self,
+        idle_ttl: std::time::Duration,
+        max_ttl: std::time::Duration,
+    ) -> Vec<SessionId> {
+        let now = tokio::time::Instant::now();
+        let mut expired = Vec::new();
         self.workspaces.retain(|_session_id, ws| {
             let idle = now.duration_since(ws.last_active);
             let total = now.duration_since(ws.created_at);
-
             if idle > idle_ttl || total > max_ttl {
                 expired.push(ws.session_id);
-                false // remove
+                false
             } else {
-                true // keep
+                true
             }
         });
         for sid in &expired {
             self.last_touched.remove(sid);
         }
         self.evict_from_cache(&expired);
-
         expired
     }
 
