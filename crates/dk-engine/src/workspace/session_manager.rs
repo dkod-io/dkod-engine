@@ -19,6 +19,29 @@ use crate::workspace::session_workspace::{
     SessionId, SessionWorkspace, WorkspaceMode,
 };
 
+// ── EventPublisher ────────────────────────────────────────────────────
+
+/// Hook interface for emitting workspace lifecycle events.
+///
+/// Implemented by `dk-protocol` (forwarding to its event bus) in the live server;
+/// defaults to a no-op for pre-existing constructors and tests.
+pub trait EventPublisher: Send + Sync {
+    fn publish_session_event(
+        &self,
+        name: &str,
+        session_id: uuid::Uuid,
+        changeset_id: uuid::Uuid,
+        reason: &str,
+    );
+}
+
+/// No-op publisher used when callers don't wire an event bus.
+pub struct NoOpEventPublisher;
+
+impl EventPublisher for NoOpEventPublisher {
+    fn publish_session_event(&self, _: &str, _: uuid::Uuid, _: uuid::Uuid, _: &str) {}
+}
+
 // ── StrandReason ─────────────────────────────────────────────────────
 
 /// Why a workspace transitioned to stranded.
@@ -77,6 +100,8 @@ pub struct WorkspaceManager {
     cache: Arc<dyn WorkspaceCache>,
     /// Tracks when each session was last touched in L2 cache to debounce.
     last_touched: DashMap<SessionId, Instant>,
+    claim_tracker: Arc<dyn crate::conflict::ClaimTracker>,
+    events: Arc<dyn EventPublisher>,
 }
 
 impl WorkspaceManager {
@@ -90,12 +115,32 @@ impl WorkspaceManager {
     /// Use this constructor when a `ValkeyCache` or other L2 cache is
     /// available. Pass `Arc::new(NoOpCache)` to opt-out of caching.
     pub fn with_cache(db: PgPool, cache: Arc<dyn WorkspaceCache>) -> Self {
+        Self::with_deps(
+            db,
+            cache,
+            Arc::new(crate::conflict::LocalClaimTracker::new()),
+            Arc::new(NoOpEventPublisher),
+        )
+    }
+
+    /// Create a workspace manager with full dependency injection.
+    ///
+    /// Use this constructor when wiring a real `ClaimTracker` (e.g. Valkey-backed)
+    /// and/or a real `EventPublisher` (e.g. the protocol event bus).
+    pub fn with_deps(
+        db: PgPool,
+        cache: Arc<dyn WorkspaceCache>,
+        claim_tracker: Arc<dyn crate::conflict::ClaimTracker>,
+        events: Arc<dyn EventPublisher>,
+    ) -> Self {
         Self {
             workspaces: DashMap::new(),
             agent_counters: DashMap::new(),
             db,
             cache,
             last_touched: DashMap::new(),
+            claim_tracker,
+            events,
         }
     }
 
@@ -352,15 +397,29 @@ impl WorkspaceManager {
     }
 
     /// Mark a workspace as stranded. Idempotent: a second call on an already-
-    /// stranded row does not change stranded_at. Drops the in-memory entry.
-    ///
-    /// Lock release and event emission are added in Task 4b once ClaimTracker +
-    /// EventPublisher are injected into WorkspaceManager — do not add them here.
+    /// stranded row does not change stranded_at. Drops the in-memory entry,
+    /// releases all symbol locks held by the session, and emits a
+    /// `session.stranded` lifecycle event.
     pub async fn strand(
         &self,
         session_id: &SessionId,
         reason: StrandReason,
     ) -> Result<()> {
+        // Fetch (repo_id, changeset_id) before mutating — idempotent even if
+        // the row is already stranded because COALESCE guards the update below.
+        let ids: Option<(Uuid, Uuid)> = sqlx::query_as(
+            r#"
+            SELECT repo_id, changeset_id
+            FROM session_workspaces
+            WHERE session_id = $1
+            LIMIT 1
+            "#,
+        )
+        .bind(session_id)
+        .fetch_optional(&self.db)
+        .await
+        .map_err(|e| dk_core::Error::Internal(e.to_string()))?;
+
         sqlx::query(
             r#"
             UPDATE session_workspaces
@@ -374,6 +433,21 @@ impl WorkspaceManager {
         .execute(&self.db)
         .await
         .map_err(|e| dk_core::Error::Internal(e.to_string()))?;
+
+        // Release all symbol locks held by this session (idempotent — returns
+        // empty vec if none are held).
+        if let Some((repo_id, changeset_id)) = ids {
+            self.claim_tracker
+                .release_locks(repo_id, *session_id)
+                .await;
+
+            self.events.publish_session_event(
+                "session.stranded",
+                *session_id,
+                changeset_id,
+                reason.as_str(),
+            );
+        }
 
         self.last_touched.remove(session_id);
         self.workspaces.remove(session_id);
