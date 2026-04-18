@@ -9,7 +9,8 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Number of symbol locks released on `dk_submit` (flag-gated site).
-/// Zero while `DKOD_RELEASE_ON_SUBMIT=0`; strictly monotonic while on.
+/// Default-on; stays at zero only while an operator has explicitly opted
+/// out via `DKOD_RELEASE_ON_SUBMIT=0`, strictly monotonic otherwise.
 static LOCKS_RELEASED_ON_SUBMIT_TOTAL: AtomicU64 = AtomicU64::new(0);
 
 /// Number of `dk_file_write` calls rejected by the STALE_OVERLAY pre-check.

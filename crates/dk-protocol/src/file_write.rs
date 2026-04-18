@@ -13,14 +13,21 @@ use crate::{ConflictWarning, FileWriteRequest, FileWriteResponse, SymbolChange};
 const STALE_OVERLAY_PREFIX: &str = "STALE_OVERLAY";
 
 /// Env flag for the release-locks-at-submit + STALE_OVERLAY behavior.
-/// Off by default in PR1; flipped in the testbed after zero-incident soak.
+///
+/// **Default: on.** Opt out with `DKOD_RELEASE_ON_SUBMIT=0` (also `false`,
+/// `FALSE`, `no`) if you need to revert to the old "release at merge"
+/// behavior. The flag is preserved as a rollback valve — flipping it off
+/// makes both the release-at-submit call site in `handle_submit` and the
+/// STALE_OVERLAY pre-write check in `handle_file_write` no-ops in a single
+/// place.
+///
 /// Shared with `submit.rs` so both call sites read the flag with identical
 /// semantics — preventing drift if one handler's parse logic is ever
 /// tweaked without the other.
 pub(crate) fn release_on_submit_enabled() -> bool {
     std::env::var("DKOD_RELEASE_ON_SUBMIT")
-        .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes"))
-        .unwrap_or(false)
+        .map(|v| !matches!(v.as_str(), "0" | "false" | "FALSE" | "no"))
+        .unwrap_or(true)
 }
 
 /// Handle a FileWrite RPC.

@@ -1746,16 +1746,16 @@ impl DkodMcp {
             }
         }
 
-        // Behavior-change cue: on Accepted submits with the release-on-
-        // submit flag set, let agents know that symbol locks released on
-        // this call so other sessions watching for `symbol.lock.released`
-        // will unblock. Only shown when the flag is set in the MCP's own
-        // env, mirroring the engine, to avoid surprising operators running
-        // with the flag off.
+        // Behavior-change cue: on Accepted submits, let agents know that
+        // symbol locks released on this call so other sessions watching
+        // for `symbol.lock.released` will unblock. Default-on in the engine
+        // since 0.3.0; this mirrors that default and suppresses the note
+        // only when the operator has explicitly opted out by setting
+        // DKOD_RELEASE_ON_SUBMIT=0 in the MCP's own env.
         if response.status == crate::SubmitStatus::Accepted as i32
             && std::env::var("DKOD_RELEASE_ON_SUBMIT")
-                .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes"))
-                .unwrap_or(false)
+                .map(|v| !matches!(v.as_str(), "0" | "false" | "FALSE" | "no"))
+                .unwrap_or(true)
         {
             text.push_str(
                 "\nLocks released on submit. Sessions waiting on \

@@ -1,12 +1,12 @@
 //! STALE_OVERLAY pre-write policy.
 //!
-//! When locks release at `dk_submit` (under `DKOD_RELEASE_ON_SUBMIT=1`), a
-//! waiting session can acquire a contested symbol seconds after the holder
-//! submits — far sooner than the old "locks release at merge" window. The
-//! recovery contract tells agents to re-read the file before writing, but if
-//! they skip that step their overlay is still pinned to `base_commit` and
-//! they will silently clobber the submitted (but not-yet-merged) overlay
-//! from the other session.
+//! Locks now release at `dk_submit` (default on; opt out with
+//! `DKOD_RELEASE_ON_SUBMIT=0`), so a waiting session can acquire a
+//! contested symbol seconds after the holder submits — far sooner than the
+//! old "locks release at merge" window. The recovery contract tells agents
+//! to re-read the file before writing, but if they skip that step their
+//! overlay is still pinned to `base_commit` and they will silently clobber
+//! the submitted (but not-yet-merged) overlay from the other session.
 //!
 //! This module is the engine-side backstop. It is deliberately pure so it
 //! can be unit-tested without Postgres; the live handler is a thin wrapper
