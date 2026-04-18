@@ -605,7 +605,7 @@ impl WorkspaceManager {
               JOIN changesets c ON c.id = w.changeset_id
              WHERE w.stranded_at IS NULL
                AND w.abandoned_at IS NULL
-               AND c.state NOT IN ('merged', 'rejected', 'closed')
+               AND c.state NOT IN ('merged', 'rejected', 'closed', 'draft')
             "#,
         )
         .fetch_all(&self.db)
@@ -706,7 +706,7 @@ impl WorkspaceManager {
     /// false on missing workspace/changeset so the caller falls through to
     /// the existing eviction path.
     pub async fn should_pin(&self, session_id: &SessionId) -> bool {
-        let row: Option<(String,)> = sqlx::query_as(
+        let row: Option<(String,)> = match sqlx::query_as(
             r#"
             SELECT c.state
             FROM session_workspaces w
@@ -718,8 +718,18 @@ impl WorkspaceManager {
         .bind(session_id)
         .fetch_optional(&self.db)
         .await
-        .ok()
-        .flatten();
+        {
+            Ok(row) => row,
+            Err(e) => {
+                tracing::error!(
+                    session_id = %session_id,
+                    error = %e,
+                    "should_pin lookup failed; failing closed (treating as pinned)"
+                );
+                crate::metrics::incr_workspace_pinned("lookup_error");
+                return true;
+            }
+        };
 
         let pinned = match row {
             Some((state,)) => crate::changeset::ChangesetState::parse(&state)
@@ -785,15 +795,16 @@ impl WorkspaceManager {
         session_id: &SessionId,
         reason: AbandonReason,
     ) -> Result<()> {
-        // Fetch workspace row PK (id), changeset_id, repo_id, and prior abandoned_at.
+        // Fetch workspace row PK (id), changeset_id, repo_id, stranded_at, and prior abandoned_at.
         type AbandonRow = (
-            uuid::Uuid,
-            Option<uuid::Uuid>,
-            uuid::Uuid,
-            Option<chrono::DateTime<chrono::Utc>>,
+            uuid::Uuid,                              // id
+            Option<uuid::Uuid>,                      // changeset_id
+            uuid::Uuid,                              // repo_id
+            Option<chrono::DateTime<chrono::Utc>>,   // stranded_at
+            Option<chrono::DateTime<chrono::Utc>>,   // abandoned_at
         );
         let row: Option<AbandonRow> = sqlx::query_as(
-            "SELECT id, changeset_id, repo_id, abandoned_at
+            "SELECT id, changeset_id, repo_id, stranded_at, abandoned_at
                FROM session_workspaces WHERE session_id = $1",
         )
         .bind(session_id)
@@ -801,11 +812,16 @@ impl WorkspaceManager {
         .await
         .map_err(|e| dk_core::Error::Internal(e.to_string()))?;
 
-        let Some((workspace_id, changeset_id_opt, repo_id, already_abandoned)) = row else {
-            return Ok(());
+        let Some((workspace_id, changeset_id_opt, repo_id, stranded_at, already_abandoned)) = row else {
+            return Ok(()); // no row — idempotent no-op
         };
         if already_abandoned.is_some() {
-            return Ok(());
+            return Ok(()); // already abandoned — idempotent no-op
+        }
+        if stranded_at.is_none() {
+            return Err(dk_core::Error::Internal(
+                "abandon precondition failed: workspace is not stranded".into(),
+            ));
         }
 
         // Wrap the three DB mutations in a single transaction so a mid-sequence
@@ -923,6 +939,21 @@ impl WorkspaceManager {
         new_session: SessionId,
         agent_id: &str,
     ) -> Result<ResumeResult> {
+        // Early redirect check: has this dead_session already been resumed?
+        // If a redirect row exists, the rotation already committed — return the
+        // stored successor without touching the DB further.
+        let redirect: Option<(uuid::Uuid,)> = sqlx::query_as(
+            "SELECT successor_session_id FROM session_resume_redirects WHERE dead_session_id = $1",
+        )
+        .bind(dead_session)
+        .fetch_optional(&self.db)
+        .await
+        .map_err(|e| dk_core::Error::Internal(e.to_string()))?;
+        if let Some((successor,)) = redirect {
+            crate::metrics::incr_workspace_resumed("already_resumed");
+            return Ok(ResumeResult::AlreadyResumed(successor));
+        }
+
         let mut tx = self
             .db
             .begin()
@@ -1004,6 +1035,20 @@ impl WorkspaceManager {
                 "resume unauthorized: requires original agent_id '{orig_agent}'"
             )));
         }
+
+        // Persist the redirect BEFORE rotating session_id so a concurrent resume
+        // sees a deterministic lookup path even if it races through the FOR UPDATE.
+        sqlx::query(
+            "INSERT INTO session_resume_redirects (dead_session_id, successor_session_id)
+             VALUES ($1, $2)
+             ON CONFLICT (dead_session_id) DO UPDATE
+               SET successor_session_id = EXCLUDED.successor_session_id",
+        )
+        .bind(dead_session)
+        .bind(new_session)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| dk_core::Error::Internal(e.to_string()))?;
 
         // Rotate session_id + clear stranded_at + record superseded_by.
         // Note: superseded_by stores new_session (a session_id UUID) even though
