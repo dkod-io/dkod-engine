@@ -1,6 +1,7 @@
 use tonic::{Response, Status};
 use tracing::{info, warn};
 
+use dk_engine::workspace::session_manager::ResumeResult;
 use dk_engine::workspace::session_workspace::WorkspaceMode;
 
 use crate::server::ProtocolServer;
@@ -55,9 +56,9 @@ pub async fn handle_connect(
                         None => {
                             warn!(
                                 resume_session_id = %resume_id,
-                                "CONNECT: resume requested but no snapshot found \
-                                 (session may have expired beyond snapshot TTL)"
+                                "CONNECT: resume snapshot not found; trying stranded workspace rehydrate"
                             );
+                            // Fall through to rehydrate path below (keep resumed_snapshot as None).
                         }
                     }
                 }
@@ -66,6 +67,101 @@ pub async fn handle_connect(
                         "resume_session_id '{}' is not a valid UUID",
                         resume_id_str
                     )));
+                }
+            }
+        }
+    }
+
+    // Epic B: stranded-workspace rehydrate fallback.
+    // Runs when snapshot-resume yielded nothing, but resume_session_id points to
+    // a stranded workspace row. Uses WorkspaceManager::resume.
+    if resumed_snapshot.is_none() {
+        if let Some(ref ws_config) = req.workspace_config {
+            if let Some(ref resume_id_str) = ws_config.resume_session_id {
+                if let Ok(dead) = resume_id_str.parse::<uuid::Uuid>() {
+                    let new_sid = uuid::Uuid::new_v4();
+                    let agent_id = req.agent_id.clone();
+                    let mgr = server.engine().workspace_manager();
+                    match mgr.resume(&dead, new_sid, &agent_id).await {
+                        Ok(ResumeResult::Ok(_)) => {
+                            let base_commit = mgr
+                                .get_workspace(&new_sid)
+                                .map(|w| w.base_commit.clone())
+                                .unwrap_or_default();
+                            info!(
+                                resume_from = %dead,
+                                new_session_id = %new_sid,
+                                "CONNECT: rehydrated stranded workspace"
+                            );
+                            return Ok(Response::new(ConnectResponse {
+                                session_id: new_sid.to_string(),
+                                codebase_version: base_commit,
+                                ..Default::default()
+                            }));
+                        }
+                        Ok(ResumeResult::Contended(syms)) => {
+                            let mut st = Status::failed_precondition("resume contended");
+                            st.metadata_mut().insert(
+                                "dk-error",
+                                tonic::metadata::MetadataValue::try_from("RESUME_CONTENDED")
+                                    .expect("static ascii"),
+                            );
+                            let json_syms: Vec<serde_json::Value> = syms
+                                .iter()
+                                .map(|s| {
+                                    serde_json::json!({
+                                        "qualified_name": s.qualified_name,
+                                        "file_path": s.file_path,
+                                        "claimant_session": s.claimant_session.to_string(),
+                                        "claimant_agent": s.claimant_agent,
+                                    })
+                                })
+                                .collect();
+                            if let Ok(json) = serde_json::to_string(&json_syms) {
+                                if let Ok(mv) =
+                                    tonic::metadata::MetadataValue::try_from(json.as_str())
+                                {
+                                    st.metadata_mut()
+                                        .insert("dk-conflicting-symbols", mv);
+                                }
+                            }
+                            return Err(st);
+                        }
+                        Ok(ResumeResult::AlreadyResumed(resumed_sid)) => {
+                            let mut st = Status::already_exists("already resumed");
+                            st.metadata_mut().insert(
+                                "dk-error",
+                                tonic::metadata::MetadataValue::try_from("ALREADY_RESUMED")
+                                    .expect("static"),
+                            );
+                            st.metadata_mut().insert(
+                                "dk-new-session-id",
+                                tonic::metadata::MetadataValue::try_from(
+                                    resumed_sid.to_string().as_str(),
+                                )
+                                .expect("uuid is ascii"),
+                            );
+                            return Err(st);
+                        }
+                        Ok(ResumeResult::Abandoned) => {
+                            let mut st =
+                                Status::failed_precondition("session abandoned");
+                            st.metadata_mut().insert(
+                                "dk-error",
+                                tonic::metadata::MetadataValue::try_from("SESSION_ABANDONED")
+                                    .expect("static"),
+                            );
+                            return Err(st);
+                        }
+                        Ok(ResumeResult::NotStranded) => {
+                            warn!(
+                                resume_session_id = %dead,
+                                "CONNECT: resume requested but workspace not stranded \
+                                 — falling through to new session"
+                            );
+                        }
+                        Err(e) => return Err(Status::internal(e.to_string())),
+                    }
                 }
             }
         }
