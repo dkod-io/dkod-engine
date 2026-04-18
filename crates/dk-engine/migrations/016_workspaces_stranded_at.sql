@@ -4,18 +4,18 @@
 -- existing rows are unaffected.
 
 ALTER TABLE session_workspaces
-    ADD COLUMN stranded_at       TIMESTAMPTZ,
-    ADD COLUMN stranded_reason   TEXT,
-    ADD COLUMN abandoned_at      TIMESTAMPTZ,
-    ADD COLUMN abandoned_reason  TEXT,
-    ADD COLUMN superseded_by     UUID REFERENCES session_workspaces(id);
+    ADD COLUMN IF NOT EXISTS stranded_at       TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS stranded_reason   TEXT,
+    ADD COLUMN IF NOT EXISTS abandoned_at      TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS abandoned_reason  TEXT,
+    ADD COLUMN IF NOT EXISTS superseded_by     UUID REFERENCES session_workspaces(id);
 
 -- Partial index: the stranded_sweep scans only rows where stranded_at IS NOT NULL.
-CREATE INDEX idx_workspaces_stranded_at
+CREATE INDEX IF NOT EXISTS idx_workspaces_stranded_at
     ON session_workspaces (stranded_at)
     WHERE stranded_at IS NOT NULL;
 
 -- Partial index: startup_reconcile filters on non-abandoned rows missing a live session.
-CREATE INDEX idx_workspaces_alive
+CREATE INDEX IF NOT EXISTS idx_workspaces_alive
     ON session_workspaces (session_id)
     WHERE stranded_at IS NULL AND abandoned_at IS NULL;
