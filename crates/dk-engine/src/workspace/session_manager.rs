@@ -414,24 +414,28 @@ impl WorkspaceManager {
     /// workspaces are evicted as before. Callers without a Tokio runtime
     /// fall back to legacy (immediate eviction, no pin guard).
     pub fn cleanup_disconnected(&self, active_session_ids: &[uuid::Uuid]) {
+        // `block_in_place` panics on a current-thread runtime; fall through to
+        // the legacy sync path in that case (and for callers with no runtime).
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            tokio::task::block_in_place(|| {
-                handle.block_on(self.cleanup_disconnected_async(active_session_ids))
-            })
-        } else {
-            // Fallback: pre-Epic-B behavior for callers without a Tokio runtime.
-            let to_remove: Vec<uuid::Uuid> = self
-                .workspaces
-                .iter()
-                .filter(|entry| !active_session_ids.contains(entry.key()))
-                .map(|entry| *entry.key())
-                .collect();
-            for sid in &to_remove {
-                self.last_touched.remove(sid);
-                self.workspaces.remove(sid);
+            if matches!(handle.runtime_flavor(), tokio::runtime::RuntimeFlavor::MultiThread) {
+                tokio::task::block_in_place(|| {
+                    handle.block_on(self.cleanup_disconnected_async(active_session_ids))
+                });
+                return;
             }
-            self.evict_from_cache(&to_remove);
         }
+        // Fallback: pre-Epic-B behavior — immediate eviction with no pin guard.
+        let to_remove: Vec<uuid::Uuid> = self
+            .workspaces
+            .iter()
+            .filter(|entry| !active_session_ids.contains(entry.key()))
+            .map(|entry| *entry.key())
+            .collect();
+        for sid in &to_remove {
+            self.last_touched.remove(sid);
+            self.workspaces.remove(sid);
+        }
+        self.evict_from_cache(&to_remove);
     }
 
     /// Async pin-aware implementation of `cleanup_disconnected`.
@@ -492,15 +496,18 @@ impl WorkspaceManager {
         idle_ttl: std::time::Duration,
         max_ttl: std::time::Duration,
     ) -> Vec<SessionId> {
+        // `block_in_place` only works on the multi-threaded runtime. On a
+        // current-thread runtime (e.g. `#[sqlx::test]`) it panics, so we fall
+        // through to the legacy sync path. Callers on a multi-threaded runtime
+        // get the pin-aware async path via block_in_place + block_on.
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            tokio::task::block_in_place(|| {
-                handle.block_on(self.gc_expired_sessions_async(idle_ttl, max_ttl))
-            })
-        } else {
-            // Fallback: preserve the pre-Epic-B legacy behavior for callers without
-            // a Tokio runtime (rare — only admin scripts).
-            self.gc_expired_sessions_legacy(idle_ttl, max_ttl)
+            if matches!(handle.runtime_flavor(), tokio::runtime::RuntimeFlavor::MultiThread) {
+                return tokio::task::block_in_place(|| {
+                    handle.block_on(self.gc_expired_sessions_async(idle_ttl, max_ttl))
+                });
+            }
         }
+        self.gc_expired_sessions_legacy(idle_ttl, max_ttl)
     }
 
     /// Activity-based GC with Epic B pin guard. Non-terminal workspaces survive
@@ -536,19 +543,22 @@ impl WorkspaceManager {
             if non_terminal {
                 // Flag is off but the workspace would have been pinned: strand
                 // instead of hard-deleting so the changeset can be recovered.
-                // strand() already calls evict_from_cache internally — do NOT
-                // push sid into evicted to avoid double-eviction.
+                // strand() removes the in-memory entry itself; evict_from_cache
+                // is idempotent so the later sweep is harmless.
                 if let Err(e) = self.strand(&sid, StrandReason::IdleTtl).await {
                     tracing::warn!("strand during gc failed: {e}");
                     // strand failed: ensure manual eviction so the entry is cleaned up.
-                    evicted.push(sid);
+                    self.last_touched.remove(&sid);
+                    self.workspaces.remove(&sid);
                 }
             } else {
                 // Terminal: evict as today.
                 self.last_touched.remove(&sid);
                 self.workspaces.remove(&sid);
-                evicted.push(sid);
             }
+            // Whether stranded or terminal-evicted, the session left the
+            // in-memory map — report it in `evicted` so callers see it.
+            evicted.push(sid);
         }
         if !evicted.is_empty() {
             self.evict_from_cache(&evicted);
