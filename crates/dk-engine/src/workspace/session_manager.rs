@@ -183,6 +183,7 @@ impl WorkspaceManager {
         self.cache.as_ref()
     }
 
+
     /// Auto-assign the next agent name for a repository.
     ///
     /// Returns "agent-1", "agent-2", etc. incrementing per repo.
@@ -799,6 +800,29 @@ impl WorkspaceManager {
         self.workspaces.remove(session_id);
         self.last_touched.remove(session_id);
         Ok(())
+    }
+
+    /// Auto-abandon stranded workspaces past their TTL. Returns the number
+    /// of rows abandoned. Called from the engine's periodic GC loop.
+    pub async fn sweep_stranded(&self, ttl: std::time::Duration) -> Result<usize> {
+        let ttl_secs = ttl.as_secs() as f64;
+        let rows: Vec<(uuid::Uuid,)> = sqlx::query_as(
+            "SELECT session_id FROM session_workspaces
+              WHERE stranded_at IS NOT NULL
+                AND abandoned_at IS NULL
+                AND stranded_at + make_interval(secs => $1) < now()",
+        )
+        .bind(ttl_secs)
+        .fetch_all(&self.db)
+        .await
+        .map_err(|e| dk_core::Error::Internal(e.to_string()))?;
+
+        let mut count = 0;
+        for (sid,) in rows {
+            self.abandon_stranded(&sid, AbandonReason::AutoTtl).await?;
+            count += 1;
+        }
+        Ok(count)
     }
 
     /// List all active sessions for a given repository.

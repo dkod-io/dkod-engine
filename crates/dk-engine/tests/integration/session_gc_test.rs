@@ -336,6 +336,31 @@ async fn abandon_stranded_is_idempotent(pool: PgPool) {
     assert_eq!(first, second);
 }
 
+#[sqlx::test]
+async fn sweep_stranded_auto_abandons_past_ttl(pool: PgPool) {
+    use dk_engine::changeset::ChangesetState;
+    use dk_engine::workspace::session_manager::StrandReason;
+    let mgr = WorkspaceManager::new(pool.clone());
+    let young = insert_workspace_with_changeset(&pool, ChangesetState::Submitted).await;
+    let old   = insert_workspace_with_changeset(&pool, ChangesetState::Submitted).await;
+    mgr.strand(&young, StrandReason::IdleTtl).await.unwrap();
+    mgr.strand(&old,   StrandReason::IdleTtl).await.unwrap();
+    sqlx::query(
+        "UPDATE session_workspaces SET stranded_at = now() - interval '5 hours' WHERE session_id = $1"
+    ).bind(old).execute(&pool).await.unwrap();
+
+    let n = mgr.sweep_stranded(std::time::Duration::from_secs(4 * 3600)).await.unwrap();
+    assert_eq!(n, 1);
+    let old_aband: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
+        "SELECT abandoned_at FROM session_workspaces WHERE session_id = $1"
+    ).bind(old).fetch_one(&pool).await.unwrap();
+    let young_aband: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
+        "SELECT abandoned_at FROM session_workspaces WHERE session_id = $1"
+    ).bind(young).fetch_one(&pool).await.unwrap();
+    assert!(old_aband.is_some());
+    assert!(young_aband.is_none());
+}
+
 /// Test helper. Inserts a session_workspaces row + matching changesets row, returns session_id.
 async fn insert_workspace_with_changeset(pool: &PgPool, state: dk_engine::changeset::ChangesetState) -> Uuid {
     let session_id = Uuid::new_v4();

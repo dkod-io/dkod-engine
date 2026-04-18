@@ -48,7 +48,7 @@ pub struct Engine {
     type_info_store: TypeInfoStore,
     changeset_store: ChangesetStore,
     pipeline_store: PipelineStore,
-    workspace_manager: WorkspaceManager,
+    workspace_manager: Arc<WorkspaceManager>,
     repo_locks: DashMap<RepoId, Arc<RwLock<()>>>,
 }
 
@@ -82,7 +82,7 @@ impl Engine {
         let type_info_store = TypeInfoStore::new(db.clone());
         let changeset_store = ChangesetStore::new(db.clone());
         let pipeline_store = PipelineStore::new(db.clone());
-        let workspace_manager = WorkspaceManager::with_cache(db.clone(), cache);
+        let workspace_manager = Arc::new(WorkspaceManager::with_cache(db.clone(), cache));
 
         Ok(Self {
             db,
@@ -120,6 +120,11 @@ impl Engine {
         &self.workspace_manager
     }
 
+    /// Returns a cloned `Arc` handle to the workspace manager.
+    pub fn workspace_manager_arc(&self) -> Arc<WorkspaceManager> {
+        Arc::clone(&self.workspace_manager)
+    }
+
     /// Returns a reference to the call graph store for direct DB queries.
     pub fn call_graph_store(&self) -> &CallGraphStore {
         &self.call_graph_store
@@ -148,6 +153,43 @@ impl Engine {
     /// Remove the repo lock entry for a deleted repo.
     pub fn remove_repo_lock(&self, repo_id: RepoId) {
         self.repo_locks.remove(&repo_id);
+    }
+
+    /// Spawn a background Tokio task that runs the periodic GC loop.
+    ///
+    /// Every `tick` the loop:
+    /// 1. Calls [`WorkspaceManager::gc_expired_sessions_async`] (activity-based GC).
+    /// 2. Calls [`WorkspaceManager::sweep_stranded`] (auto-abandon stranded
+    ///    workspaces that have exceeded `stranded_ttl`).
+    ///
+    /// The returned `JoinHandle` can be aborted on shutdown. This method is
+    /// idempotent — callers are responsible for not calling it twice.
+    pub fn spawn_gc_loop(
+        &self,
+        tick: std::time::Duration,
+        idle_ttl: std::time::Duration,
+        max_ttl: std::time::Duration,
+        stranded_ttl: std::time::Duration,
+    ) -> tokio::task::JoinHandle<()> {
+        let mgr = Arc::clone(&self.workspace_manager);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tick);
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                // 1. Activity-based GC.
+                let evicted = mgr.gc_expired_sessions_async(idle_ttl, max_ttl).await;
+                if !evicted.is_empty() {
+                    tracing::info!(count = evicted.len(), "gc: evicted expired sessions");
+                }
+                // 2. Sweep stranded workspaces past TTL.
+                match mgr.sweep_stranded(stranded_ttl).await {
+                    Ok(n) if n > 0 => tracing::info!(count = n, "gc: abandoned stranded sessions"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("gc: sweep_stranded error: {e}"),
+                }
+            }
+        })
     }
 
     // ── Repository lifecycle ──
