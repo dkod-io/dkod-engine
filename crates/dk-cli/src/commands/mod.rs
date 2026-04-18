@@ -1,4 +1,5 @@
 pub mod add;
+pub mod admin;
 pub mod agent;
 pub mod branch;
 pub mod cat;

@@ -89,6 +89,26 @@ impl ProtocolServer {
         self.auth_config.validate(token)
     }
 
+    /// Check whether the bearer token in `metadata` carries admin scope.
+    ///
+    /// Extracts the `authorization: Bearer <token>` header, decodes the JWT
+    /// claims **without re-validating the signature** (the token was already
+    /// validated by the interceptor/BearerAuth on the way in), and returns
+    /// `true` when the `scope` claim equals `"admin"` or contains `"admin"`.
+    ///
+    /// Returns `false` (not an error) if there is no auth header or the token
+    /// is not a JWT, so callers can safely fall through to the owner-check.
+    pub(crate) fn has_admin_scope(&self, metadata: &tonic::metadata::MetadataMap) -> bool {
+        let Some(val) = metadata.get("authorization") else {
+            return false;
+        };
+        let Ok(header) = val.to_str() else {
+            return false;
+        };
+        let token = header.strip_prefix("Bearer ").unwrap_or(header);
+        crate::auth::token_has_admin_scope(token)
+    }
+
     /// Look up a session by its string-encoded UUID.  Returns an error if the
     /// ID is malformed or the session has expired / does not exist.
     pub(crate) fn validate_session(&self, session_id_str: &str) -> Result<AgentSession, Status> {
@@ -253,7 +273,7 @@ impl crate::agent_service_server::AgentService for ProtocolServer {
         &self,
         request: Request<crate::AbandonRequest>,
     ) -> Result<Response<crate::AbandonResponse>, Status> {
-        crate::abandon::handle_abandon(self, request.into_inner()).await
+        crate::abandon::handle_abandon(self, request).await
     }
 
     async fn review(

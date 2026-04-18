@@ -145,6 +145,28 @@ impl AuthConfig {
     }
 }
 
+// ── Public helpers ──────────────────────────────────────────────────
+
+/// Returns `true` when the JWT `scope` claim equals `"admin"` or contains the
+/// word `"admin"` (space-separated scopes).  Does **not** re-validate the
+/// signature — use only after the token has already been authenticated.
+pub fn token_has_admin_scope(token: &str) -> bool {
+    // Peek at the claims without re-validating the signature (the token has
+    // already been authenticated by the BearerAuth interceptor on ingress).
+    use jsonwebtoken::{decode, DecodingKey, Validation};
+    let mut v = Validation::new(jsonwebtoken::Algorithm::HS256);
+    v.insecure_disable_signature_validation();
+    v.validate_exp = false;
+    // Do not require issuer or specific claims — we only care about `scope`.
+    v.required_spec_claims.clear();
+
+    if let Ok(data) = decode::<DkodClaims>(token, &DecodingKey::from_secret(b""), &v) {
+        let scope = data.claims.scope;
+        return scope == "admin" || scope.split_whitespace().any(|s| s == "admin");
+    }
+    false
+}
+
 // ── Private helpers ─────────────────────────────────────────────────
 
 /// Decode and validate a JWT using HMAC-SHA256.

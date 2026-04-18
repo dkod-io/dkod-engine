@@ -146,6 +146,9 @@ enum Commands {
         action: FilesAction,
     },
 
+    /// Admin operations (requires admin JWT scope)
+    Admin(commands::admin::AdminArgs),
+
     /// Index a repository for semantic search
     Index {
         /// Repository name
@@ -337,6 +340,9 @@ fn main() -> Result<()> {
         }
         Commands::Login => {
             run_async(commands::device_login::run(out, &server))
+        }
+        Commands::Admin(args) => {
+            run_async(commands::admin::run(args))
         }
 
         // ── Git subcommands ──────────────────────────────────
