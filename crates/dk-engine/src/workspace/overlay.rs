@@ -227,6 +227,16 @@ impl FileOverlay {
 
         Ok(())
     }
+
+    /// Delete every `session_overlay_files` row for a given workspace.
+    /// Used by `abandon_stranded` to release persisted overlay bytes.
+    pub async fn drop_for_workspace(db: &sqlx::PgPool, workspace_id: uuid::Uuid) -> Result<()> {
+        sqlx::query("DELETE FROM session_overlay_files WHERE workspace_id = $1")
+            .bind(workspace_id)
+            .execute(db)
+            .await?;
+        Ok(())
+    }
 }
 
 // ── Test helpers ─────────────────────────────────────────────────────
@@ -319,5 +329,74 @@ mod tests {
             "added"
         );
         assert_eq!(OverlayEntry::Deleted.change_type_str(), "deleted");
+    }
+
+    #[sqlx::test]
+    async fn drop_for_workspace_removes_all_overlay_rows(pool: sqlx::PgPool) {
+        let workspace_id = Uuid::new_v4();
+        let repo_id = Uuid::new_v4();
+
+        // Insert repo (referenced by session_workspaces FK)
+        sqlx::query(
+            "INSERT INTO repositories (id, name, path, created_at)
+             VALUES ($1, $2, $3, now())
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(repo_id)
+        .bind(format!("test-repo-{}", workspace_id))
+        .bind(format!("/tmp/repo-{}", workspace_id))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Insert session workspace (required by FK)
+        sqlx::query(
+            "INSERT INTO session_workspaces (session_id, repo_id, agent_id, base_commit_hash, intent)
+             VALUES ($1, $2, 'agent-test', 'initial', 'test')",
+        )
+        .bind(workspace_id)
+        .bind(repo_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Insert overlay rows
+        for p in ["a.rs", "b.rs"] {
+            sqlx::query(
+                "INSERT INTO session_overlay_files (workspace_id, file_path, content, content_hash, change_type)
+                 VALUES ($1, $2, $3, 'h', 'modified')",
+            )
+            .bind(workspace_id)
+            .bind(p)
+            .bind(b"c".as_slice())
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        // Verify rows exist
+        let (count_before,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM session_overlay_files WHERE workspace_id = $1",
+        )
+        .bind(workspace_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count_before, 2);
+
+        // Execute drop_for_workspace
+        FileOverlay::drop_for_workspace(&pool, workspace_id)
+            .await
+            .unwrap();
+
+        // Verify all rows deleted
+        let (count_after,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM session_overlay_files WHERE workspace_id = $1",
+        )
+        .bind(workspace_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count_after, 0);
     }
 }
