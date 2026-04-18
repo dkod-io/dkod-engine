@@ -82,6 +82,9 @@ struct ConnectParams {
     intent: String,
     /// Agent name (optional, auto-assigned if empty)
     agent_name: Option<String>,
+    /// Optional: session ID to resume. Used for reconnecting after eviction — if the
+    /// stranded workspace still exists in the database, the overlay + locks are rehydrated.
+    resume_session_id: Option<String>,
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -197,6 +200,12 @@ struct PushParams {
 struct CloseParams {
     /// Session ID from dk_connect (required when multiple sessions are active)
     session_id: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct AbandonParams {
+    /// Session ID of the stranded workspace to abandon
+    session_id: String,
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -982,6 +991,7 @@ impl DkodMcp {
             repo,
             intent,
             agent_name,
+            resume_session_id,
         } = params;
 
         // Extract connection params, then drop the lock before the gRPC call.
@@ -1023,12 +1033,17 @@ impl DkodMcp {
             self.get_client().await?
         };
 
+        let workspace_config = resume_session_id.clone().map(|rsid| crate::WorkspaceConfig {
+            resume_session_id: Some(rsid),
+            ..Default::default()
+        });
+
         let request = crate::ConnectRequest {
             agent_id: "claude-code".to_string(),
             auth_token: String::new(), // Auth is now in gRPC metadata, not the proto field.
             codebase: repo.clone(),
             intent: intent.clone(),
-            workspace_config: None,
+            workspace_config: workspace_config.clone(),
             agent_name: agent_name.clone().unwrap_or_default(),
         };
 
@@ -1061,7 +1076,7 @@ impl DkodMcp {
                     auth_token: String::new(),
                     codebase: repo.clone(),
                     intent: intent.clone(),
-                    workspace_config: None,
+                    workspace_config,
                     agent_name: agent_name.unwrap_or_default(),
                 };
                 client
@@ -3105,6 +3120,49 @@ impl DkodMcp {
         }
 
         Ok(CallToolResult::success(vec![Content::text(output)]))
+    }
+
+    // ── Tool 15: dk_abandon ──
+
+    /// Force-abandon a stranded workspace (owner-authorized).
+    #[tool(
+        description = "Force-abandon a stranded workspace (owner-authorized). Use when a session is stranded and you want to drop it instead of resuming. Releases overlay, marks changeset rejected, tombstones the workspace row."
+    )]
+    async fn dk_abandon(
+        &self,
+        Parameters(params): Parameters<AbandonParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let AbandonParams { session_id } = params;
+
+        let mut client = self.get_client().await?;
+
+        let request = crate::AbandonRequest {
+            session_id: session_id.clone(),
+        };
+
+        let response = client
+            .abandon(request)
+            .await
+            .map_err(|e| McpError::internal_error(format!("ABANDON RPC failed: {e}"), None))?
+            .into_inner();
+
+        let text = if response.success {
+            format!(
+                "Abandoned session {}.\nchangeset_id: {}\nreason: {}",
+                session_id, response.changeset_id, response.abandoned_reason,
+            )
+        } else {
+            format!(
+                "Abandon failed for session {}.\nchangeset_id: {}\nreason: {}",
+                session_id, response.changeset_id, response.abandoned_reason,
+            )
+        };
+
+        if response.success {
+            Ok(CallToolResult::success(vec![Content::text(text)]))
+        } else {
+            Ok(CallToolResult::error(vec![Content::text(text)]))
+        }
     }
 }
 
