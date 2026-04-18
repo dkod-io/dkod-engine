@@ -167,8 +167,8 @@ impl SessionWorkspace {
         sqlx::query(
             r#"
             INSERT INTO session_workspaces
-                (id, session_id, repo_id, base_commit_hash, state, mode, agent_id, intent, agent_name)
-            VALUES ($1, $2, $3, $4, 'active', $5, $6, $7, $8)
+                (id, session_id, repo_id, base_commit_hash, state, mode, agent_id, intent, agent_name, changeset_id)
+            VALUES ($1, $2, $3, $4, 'active', $5, $6, $7, $8, $9)
             "#,
         )
         .bind(id)
@@ -179,6 +179,7 @@ impl SessionWorkspace {
         .bind(&agent_id)
         .bind(&intent)
         .bind(&agent_name)
+        .bind(changeset_id)
         .execute(&db)
         .await?;
 
