@@ -65,6 +65,15 @@ impl ChangesetState {
                 | (Self::Approved, Self::Merged)
         )
     }
+
+    /// True when the changeset is in a terminal state and its backing
+    /// workspace no longer needs to be preserved.
+    ///
+    /// Used by the workspace pin guard (Epic B) to decide
+    /// whether to evict or skip a candidate workspace.
+    pub fn is_terminal(&self) -> bool {
+        matches!(self, Self::Merged | Self::Rejected | Self::Closed)
+    }
 }
 
 impl std::fmt::Display for ChangesetState {
@@ -664,5 +673,15 @@ mod tests {
         assert_eq!(cs.source_branch, cloned.source_branch);
         assert_eq!(cs.target_branch, cloned.target_branch);
         assert_eq!(cs.state, cloned.state);
+    }
+
+    #[test]
+    fn is_terminal_partitions_changeset_states() {
+        assert!(!ChangesetState::Submitted.is_terminal());
+        assert!(!ChangesetState::Verifying.is_terminal());
+        assert!(!ChangesetState::Approved.is_terminal());
+        assert!(ChangesetState::Merged.is_terminal());
+        assert!(ChangesetState::Rejected.is_terminal());
+        assert!(ChangesetState::Closed.is_terminal());
     }
 }
