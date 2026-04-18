@@ -10,6 +10,7 @@ pub mod proto {
 
 pub use proto::dkod::v1::*;
 
+pub mod abandon;
 pub mod auth;
 pub mod connect;
 pub mod context;

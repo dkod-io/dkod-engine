@@ -251,11 +251,9 @@ impl crate::agent_service_server::AgentService for ProtocolServer {
 
     async fn abandon(
         &self,
-        _request: Request<crate::AbandonRequest>,
+        request: Request<crate::AbandonRequest>,
     ) -> Result<Response<crate::AbandonResponse>, Status> {
-        Err(Status::unimplemented(
-            "abandon is a platform-level operation; use the managed server",
-        ))
+        crate::abandon::handle_abandon(self, request.into_inner()).await
     }
 
     async fn review(
