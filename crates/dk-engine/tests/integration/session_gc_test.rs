@@ -287,6 +287,55 @@ async fn startup_reconcile_strands_orphaned_nonterminal_workspaces(pool: PgPool)
     assert!(at_terminal.is_none(), "terminal-changeset rows must not be stranded");
 }
 
+#[sqlx::test]
+async fn abandon_stranded_tombstones_and_rejects_changeset(pool: PgPool) {
+    use dk_engine::changeset::ChangesetState;
+    use dk_engine::workspace::session_manager::{AbandonReason, StrandReason};
+    let mgr = WorkspaceManager::new(pool.clone());
+    let session_id = insert_workspace_with_changeset(&pool, ChangesetState::Submitted).await;
+    let workspace_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM session_workspaces WHERE session_id = $1"
+    ).bind(session_id).fetch_one(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO session_overlay_files(workspace_id, file_path, content, content_hash, change_type)
+         VALUES ($1, 'x.rs', 'c', 'h', 'modified')",
+    ).bind(workspace_id).execute(&pool).await.unwrap();
+
+    mgr.strand(&session_id, StrandReason::IdleTtl).await.unwrap();
+    mgr.abandon_stranded(&session_id, AbandonReason::AutoTtl).await.unwrap();
+
+    let (abandoned_at, reason, changeset_state, overlay_count): (Option<chrono::DateTime<chrono::Utc>>, Option<String>, String, i64) =
+        sqlx::query_as(
+            "SELECT w.abandoned_at, w.abandoned_reason, c.state,
+                    (SELECT COUNT(*) FROM session_overlay_files WHERE workspace_id = w.id)
+               FROM session_workspaces w
+               JOIN changesets c ON c.id = w.changeset_id
+              WHERE w.session_id = $1"
+        ).bind(session_id).fetch_one(&pool).await.unwrap();
+    assert!(abandoned_at.is_some());
+    assert_eq!(reason.as_deref(), Some("auto_ttl"));
+    assert_eq!(changeset_state, "rejected");
+    assert_eq!(overlay_count, 0);
+}
+
+#[sqlx::test]
+async fn abandon_stranded_is_idempotent(pool: PgPool) {
+    use dk_engine::changeset::ChangesetState;
+    use dk_engine::workspace::session_manager::{AbandonReason, StrandReason};
+    let mgr = WorkspaceManager::new(pool.clone());
+    let session_id = insert_workspace_with_changeset(&pool, ChangesetState::Submitted).await;
+    mgr.strand(&session_id, StrandReason::IdleTtl).await.unwrap();
+    mgr.abandon_stranded(&session_id, AbandonReason::AutoTtl).await.unwrap();
+    let first: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
+        "SELECT abandoned_at FROM session_workspaces WHERE session_id = $1"
+    ).bind(session_id).fetch_one(&pool).await.unwrap();
+    mgr.abandon_stranded(&session_id, AbandonReason::Explicit { caller: "agent-test".into() }).await.unwrap();
+    let second: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
+        "SELECT abandoned_at FROM session_workspaces WHERE session_id = $1"
+    ).bind(session_id).fetch_one(&pool).await.unwrap();
+    assert_eq!(first, second);
+}
+
 /// Test helper. Inserts a session_workspaces row + matching changesets row, returns session_id.
 async fn insert_workspace_with_changeset(pool: &PgPool, state: dk_engine::changeset::ChangesetState) -> Uuid {
     let session_id = Uuid::new_v4();

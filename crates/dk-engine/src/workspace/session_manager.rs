@@ -78,6 +78,26 @@ impl StrandReason {
     }
 }
 
+// ── AbandonReason ────────────────────────────────────────────────────
+
+/// Why a workspace was permanently abandoned.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AbandonReason {
+    AutoTtl,
+    Explicit { caller: String },
+    Admin { operator: String },
+}
+
+impl AbandonReason {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::AutoTtl => "auto_ttl",
+            Self::Explicit { .. } => "explicit",
+            Self::Admin { .. } => "admin",
+        }
+    }
+}
+
 // ── SessionInfo ─────────────────────────────────────────────────────
 
 /// Lightweight snapshot of a session workspace, suitable for JSON serialization.
@@ -701,6 +721,84 @@ impl WorkspaceManager {
         }
 
         parts.join("; ")
+    }
+
+    /// Terminal cleanup for a stranded workspace: mark the changeset rejected,
+    /// delete overlay rows, tombstone the workspace row, emit session.abandoned,
+    /// release any residual locks. Idempotent.
+    pub async fn abandon_stranded(
+        &self,
+        session_id: &SessionId,
+        reason: AbandonReason,
+    ) -> Result<()> {
+        // Fetch workspace row PK (id), changeset_id, repo_id, and prior abandoned_at.
+        type AbandonRow = (
+            uuid::Uuid,
+            Option<uuid::Uuid>,
+            uuid::Uuid,
+            Option<chrono::DateTime<chrono::Utc>>,
+        );
+        let row: Option<AbandonRow> = sqlx::query_as(
+            "SELECT id, changeset_id, repo_id, abandoned_at
+               FROM session_workspaces WHERE session_id = $1",
+        )
+        .bind(session_id)
+        .fetch_optional(&self.db)
+        .await
+        .map_err(|e| dk_core::Error::Internal(e.to_string()))?;
+
+        let Some((workspace_id, changeset_id_opt, repo_id, already_abandoned)) = row else {
+            return Ok(());
+        };
+        if already_abandoned.is_some() {
+            return Ok(());
+        }
+
+        // 1. Drop overlay rows.
+        crate::workspace::overlay::FileOverlay::drop_for_workspace(&self.db, workspace_id).await?;
+
+        // 2. Mark changeset rejected (skip if already in a terminal state).
+        if let Some(changeset_id) = changeset_id_opt {
+            sqlx::query(
+                "UPDATE changesets
+                    SET state = 'rejected',
+                        reason = $2,
+                        updated_at = now()
+                  WHERE id = $1
+                    AND state NOT IN ('merged', 'rejected', 'closed')",
+            )
+            .bind(changeset_id)
+            .bind(format!("session_abandoned:{}", reason.as_str()))
+            .execute(&self.db)
+            .await
+            .map_err(|e| dk_core::Error::Internal(e.to_string()))?;
+        }
+
+        // 3. Tombstone workspace row.
+        sqlx::query(
+            "UPDATE session_workspaces
+                SET abandoned_at     = now(),
+                    abandoned_reason = $2
+              WHERE session_id = $1",
+        )
+        .bind(session_id)
+        .bind(reason.as_str())
+        .execute(&self.db)
+        .await
+        .map_err(|e| dk_core::Error::Internal(e.to_string()))?;
+
+        // 4. Release any residual locks (safe if strand already released them).
+        let _ = self.claim_tracker.release_locks(repo_id, *session_id).await;
+
+        // 5. Emit event.
+        let cs_for_event = changeset_id_opt.unwrap_or_else(uuid::Uuid::nil);
+        self.events
+            .publish_session_event("session.abandoned", *session_id, cs_for_event, reason.as_str());
+
+        // 6. Ensure in-memory state is gone.
+        self.workspaces.remove(session_id);
+        self.last_touched.remove(session_id);
+        Ok(())
     }
 
     /// List all active sessions for a given repository.
