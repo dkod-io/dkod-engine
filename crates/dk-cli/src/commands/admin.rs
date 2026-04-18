@@ -28,15 +28,20 @@ pub enum AdminCommand {
     },
 }
 
-pub async fn run(args: AdminArgs) -> Result<()> {
+/// `global_server` is the top-level `--server` flag value (from `Cli::server`).
+/// It is used as a fallback when the subcommand-local `--server` flag is not set,
+/// giving `dk --server <addr> admin abandon ...` the expected behaviour.
+pub async fn run(args: AdminArgs, global_server: Option<String>) -> Result<()> {
     match args.command {
         AdminCommand::Abandon {
             session_id,
             operator,
             server,
         } => {
-            // Resolve the server address: explicit flag > DKOD_GRPC_ADDR > default.
+            // Resolve the server address:
+            //   subcommand --server flag > global --server flag > DKOD_GRPC_ADDR > default.
             let addr = server
+                .or(global_server)
                 .or_else(|| std::env::var("DKOD_GRPC_ADDR").ok())
                 .unwrap_or_else(|| "https://agent.dkod.io:443".to_string());
 

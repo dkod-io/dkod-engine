@@ -1136,6 +1136,26 @@ impl DkodMcp {
         {
             let mut sessions = self.sessions.write().await;
             sessions.insert(response.session_id.clone(), session_data);
+            // If this was a resume, evict the stale entry for the old session_id
+            // so it no longer appears as an "active" session in the MCP map.
+            if let Some(ref old_sid) = resume_session_id {
+                if old_sid != &response.session_id {
+                    sessions.remove(old_sid);
+                }
+            }
+        }
+        // Tear down any background tasks still running for the resumed (old) session.
+        if let Some(ref old_sid) = resume_session_id {
+            if old_sid != &response.session_id {
+                if let Some(flag) = self.nats_cancellations.lock().await.remove(old_sid.as_str()) {
+                    flag.store(true, std::sync::atomic::Ordering::Release);
+                }
+                if let Some(handle) = self.nats_tasks.lock().await.remove(old_sid.as_str()) {
+                    handle.abort();
+                }
+                self.pending_warnings.lock().await.remove(old_sid.as_str());
+                self.cleanup_watch_for_session(old_sid).await;
+            }
         }
 
         // Subscribe to NATS conflict events for this session (optional — skipped if
@@ -3200,6 +3220,33 @@ impl DkodMcp {
         };
 
         if response.success {
+            // Clean up local MCP session state (session map, NATS task, Watch task).
+            {
+                let mut sessions = self.sessions.write().await;
+                sessions.remove(&session_id);
+                if sessions.is_empty() {
+                    let mut cached = self.grpc_client.lock().await;
+                    *cached = None;
+                }
+            }
+            {
+                let mut cancellations = self.nats_cancellations.lock().await;
+                if let Some(flag) = cancellations.remove(&session_id) {
+                    flag.store(true, std::sync::atomic::Ordering::Release);
+                }
+            }
+            {
+                let mut tasks = self.nats_tasks.lock().await;
+                if let Some(handle) = tasks.remove(&session_id) {
+                    handle.abort();
+                }
+            }
+            {
+                let mut w = self.pending_warnings.lock().await;
+                w.remove(&session_id);
+            }
+            self.cleanup_watch_for_session(&session_id).await;
+
             Ok(CallToolResult::success(vec![Content::text(text)]))
         } else {
             Ok(CallToolResult::error(vec![Content::text(text)]))

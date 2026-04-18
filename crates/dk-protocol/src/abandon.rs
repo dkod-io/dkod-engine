@@ -56,8 +56,10 @@ pub async fn handle_abandon(
     };
 
     // Owner check: admins bypass it; regular callers must be the original agent.
+    // Use permission_denied (authenticated but not authorized) rather than
+    // unauthenticated (which implies identity is unknown).
     if !is_admin && orig_agent != caller_agent {
-        return Err(Status::unauthenticated(format!(
+        return Err(Status::permission_denied(format!(
             "abandon requires original agent_id '{orig_agent}'"
         )));
     }

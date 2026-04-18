@@ -101,6 +101,22 @@ impl AuthConfig {
         }
     }
 
+    /// Fully validate a bearer token and return the complete `DkodClaims`.
+    ///
+    /// Unlike [`validate`], which returns only the agent id, this method
+    /// returns the entire validated claims struct so callers can inspect
+    /// fields such as `scope` without an additional insecure decode pass.
+    ///
+    /// Returns `None` for non-JWT auth modes (SharedSecret / External) where
+    /// no claims struct exists.
+    pub fn validate_claims(&self, token: &str) -> Option<DkodClaims> {
+        match self {
+            AuthConfig::Jwt { secret } => validate_jwt_full(token, secret).ok(),
+            AuthConfig::Dual { jwt_secret, .. } => validate_jwt_full(token, jwt_secret).ok(),
+            AuthConfig::SharedSecret { .. } | AuthConfig::External => None,
+        }
+    }
+
     /// Issue a new JWT for the given agent.
     ///
     /// Only available when a JWT secret is configured (Jwt or Dual mode).
@@ -147,24 +163,15 @@ impl AuthConfig {
 
 // ── Public helpers ──────────────────────────────────────────────────
 
-/// Returns `true` when the JWT `scope` claim equals `"admin"` or contains the
-/// word `"admin"` (space-separated scopes).  Does **not** re-validate the
-/// signature — use only after the token has already been authenticated.
-pub fn token_has_admin_scope(token: &str) -> bool {
-    // Peek at the claims without re-validating the signature (the token has
-    // already been authenticated by the BearerAuth interceptor on ingress).
-    use jsonwebtoken::{decode, DecodingKey, Validation};
-    let mut v = Validation::new(jsonwebtoken::Algorithm::HS256);
-    v.insecure_disable_signature_validation();
-    v.validate_exp = false;
-    // Do not require issuer or specific claims — we only care about `scope`.
-    v.required_spec_claims.clear();
-
-    if let Ok(data) = decode::<DkodClaims>(token, &DecodingKey::from_secret(b""), &v) {
-        let scope = data.claims.scope;
-        return scope == "admin" || scope.split_whitespace().any(|s| s == "admin");
-    }
-    false
+/// Returns `true` when `claims.scope` equals `"admin"` or contains the
+/// word `"admin"` (space-separated scopes).
+///
+/// Callers **must** pass claims that have already been fully verified
+/// (signature + expiry) by [`AuthConfig::validate`].  Never call this
+/// with claims obtained via an insecure decode path.
+pub fn claims_have_admin_scope(claims: &DkodClaims) -> bool {
+    let scope = &claims.scope;
+    scope == "admin" || scope.split_whitespace().any(|s| s == "admin")
 }
 
 // ── Private helpers ─────────────────────────────────────────────────
@@ -176,8 +183,8 @@ pub fn token_has_admin_scope(token: &str) -> bool {
 /// - Issuer: "dkod"
 /// - Required claims: sub, exp, iss
 ///
-/// Returns the `sub` claim (agent id) on success.
-fn validate_jwt(token: &str, secret: &str) -> Result<String, Status> {
+/// Returns the full `DkodClaims` on success.
+fn validate_jwt_full(token: &str, secret: &str) -> Result<DkodClaims, Status> {
     if secret.len() < 32 {
         tracing::error!("JWT secret is too short (< 32 bytes); check server configuration");
         return Err(Status::unauthenticated("JWT validation failed"));
@@ -194,7 +201,12 @@ fn validate_jwt(token: &str, secret: &str) -> Result<String, Status> {
     )
     .map_err(|e| Status::unauthenticated(format!("JWT validation failed: {e}")))?;
 
-    Ok(token_data.claims.sub)
+    Ok(token_data.claims)
+}
+
+/// Decode and validate a JWT, returning just the `sub` claim (agent id).
+fn validate_jwt(token: &str, secret: &str) -> Result<String, Status> {
+    validate_jwt_full(token, secret).map(|c| c.sub)
 }
 
 // ── Tests ───────────────────────────────────────────────────────────

@@ -91,13 +91,14 @@ impl ProtocolServer {
 
     /// Check whether the bearer token in `metadata` carries admin scope.
     ///
-    /// Extracts the `authorization: Bearer <token>` header, decodes the JWT
-    /// claims **without re-validating the signature** (the token was already
-    /// validated by the interceptor/BearerAuth on the way in), and returns
-    /// `true` when the `scope` claim equals `"admin"` or contains `"admin"`.
+    /// Extracts the `authorization: Bearer <token>` header, performs a full
+    /// signature + expiry validation using the server's configured secret, and
+    /// returns `true` when the `scope` claim equals `"admin"` or contains the
+    /// word `"admin"`.
     ///
-    /// Returns `false` (not an error) if there is no auth header or the token
-    /// is not a JWT, so callers can safely fall through to the owner-check.
+    /// Returns `false` (not an error) if there is no auth header, the token
+    /// is not a JWT, or signature validation fails — callers can then fall
+    /// through to the owner-check.
     pub(crate) fn has_admin_scope(&self, metadata: &tonic::metadata::MetadataMap) -> bool {
         let Some(val) = metadata.get("authorization") else {
             return false;
@@ -106,7 +107,13 @@ impl ProtocolServer {
             return false;
         };
         let token = header.strip_prefix("Bearer ").unwrap_or(header);
-        crate::auth::token_has_admin_scope(token)
+        // Perform full signature validation via the configured AuthConfig; only
+        // tokens that pass cryptographic verification can claim admin scope.
+        self.auth_config
+            .validate_claims(token)
+            .as_ref()
+            .map(crate::auth::claims_have_admin_scope)
+            .unwrap_or(false)
     }
 
     /// Look up a session by its string-encoded UUID.  Returns an error if the

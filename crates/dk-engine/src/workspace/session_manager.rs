@@ -798,8 +798,20 @@ impl WorkspaceManager {
             return Ok(());
         }
 
-        // 1. Drop overlay rows.
-        crate::workspace::overlay::FileOverlay::drop_for_workspace(&self.db, workspace_id).await?;
+        // Wrap the three DB mutations in a single transaction so a mid-sequence
+        // crash does not leave the row in an inconsistent state.
+        let mut tx = self
+            .db
+            .begin()
+            .await
+            .map_err(|e| dk_core::Error::Internal(e.to_string()))?;
+
+        // 1. Drop overlay rows (inlined so we can use the transaction connection).
+        sqlx::query("DELETE FROM session_overlay_files WHERE workspace_id = $1")
+            .bind(workspace_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| dk_core::Error::Internal(e.to_string()))?;
 
         // 2. Mark changeset rejected (skip if already in a terminal state).
         if let Some(changeset_id) = changeset_id_opt {
@@ -813,7 +825,7 @@ impl WorkspaceManager {
             )
             .bind(changeset_id)
             .bind(format!("session_abandoned:{}", reason.as_str()))
-            .execute(&self.db)
+            .execute(&mut *tx)
             .await
             .map_err(|e| dk_core::Error::Internal(e.to_string()))?;
         }
@@ -827,9 +839,13 @@ impl WorkspaceManager {
         )
         .bind(session_id)
         .bind(reason.as_str())
-        .execute(&self.db)
+        .execute(&mut *tx)
         .await
         .map_err(|e| dk_core::Error::Internal(e.to_string()))?;
+
+        tx.commit()
+            .await
+            .map_err(|e| dk_core::Error::Internal(e.to_string()))?;
 
         // 4. Release any residual locks (safe if strand already released them).
         let _ = self.claim_tracker.release_locks(repo_id, *session_id).await;
@@ -962,9 +978,11 @@ impl WorkspaceManager {
         if stranded_at.is_none() {
             tx.rollback().await.ok();
             let result = match superseded_by {
-                Some(_) => {
+                Some(stored_successor) => {
+                    // Return the *stored* successor, not the caller-supplied new_session,
+                    // so the client receives the actual session that won the resume race.
                     crate::metrics::incr_workspace_resumed("already_resumed");
-                    ResumeResult::AlreadyResumed(new_session)
+                    ResumeResult::AlreadyResumed(stored_successor)
                 }
                 None => ResumeResult::NotStranded,
             };

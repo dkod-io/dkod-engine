@@ -38,6 +38,7 @@ pub async fn require_live_session(
                w.stranded_reason, w.abandoned_reason, w.base_commit_hash
           FROM session_workspaces w
          WHERE w.session_id = $1
+         LIMIT 1
         "#,
     )
     .bind(sid)
@@ -55,50 +56,46 @@ pub async fn require_live_session(
 
     if let Some(at) = abandoned_at {
         let mut st = Status::failed_precondition("session abandoned");
+        // Static ASCII strings — always valid MetadataValue; safe to unwrap.
         st.metadata_mut().insert(
             "dk-error",
-            MetadataValue::try_from("SESSION_ABANDONED").unwrap(),
+            MetadataValue::try_from("SESSION_ABANDONED").expect("static ascii"),
         );
-        st.metadata_mut().insert(
-            "dk-changeset-id",
-            MetadataValue::try_from(changeset_str.as_str()).unwrap(),
-        );
-        if let Some(r) = abandoned_reason {
-            st.metadata_mut().insert(
-                "dk-abandoned-reason",
-                MetadataValue::try_from(r.as_str()).unwrap(),
-            );
+        if let Ok(mv) = MetadataValue::try_from(changeset_str.as_str()) {
+            st.metadata_mut().insert("dk-changeset-id", mv);
         }
-        st.metadata_mut().insert(
-            "dk-abandoned-at",
-            MetadataValue::try_from(at.to_rfc3339().as_str()).unwrap(),
-        );
+        if let Some(r) = abandoned_reason {
+            if let Ok(mv) = MetadataValue::try_from(r.as_str()) {
+                st.metadata_mut().insert("dk-abandoned-reason", mv);
+            }
+        }
+        let at_str = at.to_rfc3339();
+        if let Ok(mv) = MetadataValue::try_from(at_str.as_str()) {
+            st.metadata_mut().insert("dk-abandoned-at", mv);
+        }
         return Err(st);
     }
     if let Some(at) = stranded_at {
         let mut st = Status::failed_precondition("session stranded");
         st.metadata_mut().insert(
             "dk-error",
-            MetadataValue::try_from("SESSION_STRANDED").unwrap(),
+            MetadataValue::try_from("SESSION_STRANDED").expect("static ascii"),
         );
-        st.metadata_mut().insert(
-            "dk-changeset-id",
-            MetadataValue::try_from(changeset_str.as_str()).unwrap(),
-        );
-        st.metadata_mut().insert(
-            "dk-base-commit",
-            MetadataValue::try_from(base_commit.as_str()).unwrap(),
-        );
-        if let Some(r) = stranded_reason {
-            st.metadata_mut().insert(
-                "dk-stranded-reason",
-                MetadataValue::try_from(r.as_str()).unwrap(),
-            );
+        if let Ok(mv) = MetadataValue::try_from(changeset_str.as_str()) {
+            st.metadata_mut().insert("dk-changeset-id", mv);
         }
-        st.metadata_mut().insert(
-            "dk-stranded-at",
-            MetadataValue::try_from(at.to_rfc3339().as_str()).unwrap(),
-        );
+        if let Ok(mv) = MetadataValue::try_from(base_commit.as_str()) {
+            st.metadata_mut().insert("dk-base-commit", mv);
+        }
+        if let Some(r) = stranded_reason {
+            if let Ok(mv) = MetadataValue::try_from(r.as_str()) {
+                st.metadata_mut().insert("dk-stranded-reason", mv);
+            }
+        }
+        let at_str = at.to_rfc3339();
+        if let Ok(mv) = MetadataValue::try_from(at_str.as_str()) {
+            st.metadata_mut().insert("dk-stranded-at", mv);
+        }
         return Err(st);
     }
 

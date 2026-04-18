@@ -24,7 +24,7 @@ pub async fn handle_connect(
     req: ConnectRequest,
 ) -> Result<Response<ConnectResponse>, Status> {
     // 1. Auth
-    let _authed_agent_id = server.validate_auth(&req.auth_token)?;
+    let authed_agent_id = server.validate_auth(&req.auth_token)?;
 
     // Check for session resume.
     //
@@ -80,7 +80,9 @@ pub async fn handle_connect(
             if let Some(ref resume_id_str) = ws_config.resume_session_id {
                 if let Ok(dead) = resume_id_str.parse::<uuid::Uuid>() {
                     let new_sid = uuid::Uuid::new_v4();
-                    let agent_id = req.agent_id.clone();
+                    // Use the JWT-validated identity rather than the client-supplied
+                    // agent_id to prevent a client from claiming another agent's session.
+                    let agent_id = authed_agent_id.clone();
                     let mgr = server.engine().workspace_manager();
                     match mgr.resume(&dead, new_sid, &agent_id).await {
                         Ok(ResumeResult::Ok(_)) => {
@@ -89,15 +91,18 @@ pub async fn handle_connect(
                                 .ok_or_else(|| Status::internal("rehydrated workspace not found"))?;
                             let base_commit = ws.base_commit.clone();
                             let changeset_id = ws.changeset_id;
+                            let workspace_id = ws.id;
                             info!(
                                 resume_from = %dead,
                                 new_session_id = %new_sid,
+                                workspace_id = %workspace_id,
                                 "CONNECT: rehydrated stranded workspace"
                             );
                             return Ok(Response::new(ConnectResponse {
                                 session_id: new_sid.to_string(),
                                 codebase_version: base_commit,
                                 changeset_id: changeset_id.to_string(),
+                                workspace_id: workspace_id.to_string(),
                                 ..Default::default()
                             }));
                         }

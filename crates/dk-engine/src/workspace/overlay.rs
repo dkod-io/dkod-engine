@@ -228,11 +228,14 @@ impl FileOverlay {
         Ok(())
     }
 
-    /// Restore overlay state from a *specific* workspace_id in the database.
+    /// Restore overlay state from a *specific* workspace_id in the database,
+    /// then re-key the rows to the current workspace's id.
     ///
     /// Used by [`WorkspaceManager::resume`] to rehydrate a resumed workspace's
-    /// overlay from the old (stranded) workspace's persisted overlay rows, since
-    /// the new workspace's `id` differs from the old one.
+    /// overlay from the old (stranded) workspace's persisted overlay rows.
+    /// After loading, the rows are UPDATE'd to point at `self.workspace_id` so
+    /// that a subsequent eviction of the resumed session can still find them by
+    /// the new workspace id.
     pub async fn restore_from_workspace_id(
         &self,
         db: &sqlx::PgPool,
@@ -256,6 +259,21 @@ impl FileOverlay {
                 _ => OverlayEntry::Modified { content, hash },
             };
             self.entries.insert(path, entry);
+        }
+
+        // Re-key the persisted rows to the current workspace_id so that a
+        // future eviction of this (resumed) workspace can restore from the DB
+        // using the new workspace id.
+        if source_workspace_id != self.workspace_id {
+            sqlx::query(
+                "UPDATE session_overlay_files
+                    SET workspace_id = $1
+                  WHERE workspace_id = $2",
+            )
+            .bind(self.workspace_id)
+            .bind(source_workspace_id)
+            .execute(db)
+            .await?;
         }
 
         Ok(())

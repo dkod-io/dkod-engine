@@ -69,10 +69,14 @@ impl ChangesetState {
     /// True when the changeset is in a terminal state and its backing
     /// workspace no longer needs to be preserved.
     ///
+    /// `Draft` is considered terminal because it represents a pre-submit
+    /// workspace that was never progressed — there is no protected in-flight
+    /// state worth pinning.
+    ///
     /// Used by the workspace pin guard (Epic B) to decide
     /// whether to evict or skip a candidate workspace.
     pub fn is_terminal(&self) -> bool {
-        matches!(self, Self::Merged | Self::Rejected | Self::Closed)
+        matches!(self, Self::Draft | Self::Merged | Self::Rejected | Self::Closed)
     }
 }
 
@@ -683,6 +687,6 @@ mod tests {
         assert!(ChangesetState::Merged.is_terminal());
         assert!(ChangesetState::Rejected.is_terminal());
         assert!(ChangesetState::Closed.is_terminal());
-        assert!(!ChangesetState::Draft.is_terminal());
+        assert!(ChangesetState::Draft.is_terminal()); // Draft: pre-submit, not worth pinning
     }
 }
