@@ -23,6 +23,10 @@ pub async fn handle_verify(
             return;
         }
     };
+    if let Err(e) = crate::require_live_session::require_live_session(server, &req.session_id).await {
+        let _ = tx.send(Err(e)).await;
+        return;
+    }
 
     let changeset_id = match req.changeset_id.parse::<Uuid>() {
         Ok(id) => id,

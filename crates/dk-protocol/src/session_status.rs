@@ -8,6 +8,7 @@ pub async fn handle_get_session_status(
     req: SessionStatusRequest,
 ) -> Result<tonic::Response<SessionStatusResponse>, Status> {
     let session = server.validate_session(&req.session_id)?;
+    crate::require_live_session::require_live_session(server, &req.session_id).await?;
     server.session_mgr().touch_session(&session.id);
 
     let ws = server

@@ -16,6 +16,7 @@ pub async fn handle_merge(
     req: MergeRequest,
 ) -> Result<MergeResponse, Status> {
     let session = server.validate_session(&req.session_id)?;
+    crate::require_live_session::require_live_session(server, &req.session_id).await?;
     let engine = server.engine();
 
     let sid = req

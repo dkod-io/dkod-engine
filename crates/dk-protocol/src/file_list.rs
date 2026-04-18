@@ -21,6 +21,7 @@ pub async fn handle_file_list(
     }
 
     let session = server.validate_session(&req.session_id)?;
+    crate::require_live_session::require_live_session(server, &req.session_id).await?;
 
     let sid = req
         .session_id

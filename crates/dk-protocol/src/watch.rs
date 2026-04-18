@@ -25,6 +25,10 @@ pub async fn handle_watch(
             return;
         }
     };
+    if let Err(e) = crate::require_live_session::require_live_session(server, &req.session_id).await {
+        let _ = tx.send(Err(e)).await;
+        return;
+    }
 
     // Resolve repo_id: prefer the one from the request, fall back to
     // resolving it from the session's codebase.

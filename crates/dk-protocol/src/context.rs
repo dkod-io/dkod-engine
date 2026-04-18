@@ -24,6 +24,7 @@ pub async fn handle_context(
 ) -> Result<Response<ContextResponse>, Status> {
     // 1. Validate session
     let session = server.validate_session(&req.session_id)?;
+    crate::require_live_session::require_live_session(server, &req.session_id).await?;
 
     // Touch session to keep it alive
     let sid = req

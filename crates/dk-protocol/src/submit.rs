@@ -24,6 +24,7 @@ pub async fn handle_submit(
 ) -> Result<Response<SubmitResponse>, Status> {
     // 1. Validate session
     let session = server.validate_session(&req.session_id)?;
+    crate::require_live_session::require_live_session(server, &req.session_id).await?;
 
     // Validate all file paths before any processing
     for change in &req.changes {
