@@ -21,6 +21,7 @@ pub mod merge;
 pub mod metrics;
 pub mod pre_submit;
 pub mod push;
+pub mod require_live_session;
 pub mod server;
 pub mod session;
 #[cfg(feature = "redis")]

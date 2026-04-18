@@ -12,6 +12,7 @@ categories = ["development-tools"]
 [dependencies]
 dk-core.workspace = true
 dk-engine.workspace = true
+sqlx.workspace = true
 dk-runner.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
