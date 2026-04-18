@@ -525,6 +525,36 @@ impl WorkspaceManager {
         expired
     }
 
+    /// One-shot sweep at server boot: find orphaned non-terminal workspaces
+    /// (rows with no live in-memory workspace, changeset non-terminal,
+    /// stranded_at IS NULL, abandoned_at IS NULL) and mark them stranded so
+    /// callers surface SESSION_STRANDED and can resume. Returns count stranded.
+    pub async fn startup_reconcile(&self) -> Result<usize> {
+        let rows: Vec<(uuid::Uuid,)> = sqlx::query_as(
+            r#"
+            SELECT w.session_id
+              FROM session_workspaces w
+              JOIN changesets c ON c.id = w.changeset_id
+             WHERE w.stranded_at IS NULL
+               AND w.abandoned_at IS NULL
+               AND c.state NOT IN ('merged', 'rejected', 'closed')
+            "#,
+        )
+        .fetch_all(&self.db)
+        .await
+        .map_err(|e| dk_core::Error::Internal(e.to_string()))?;
+
+        let mut count = 0;
+        for (sid,) in rows {
+            if self.workspaces.contains_key(&sid) {
+                continue; // safety belt if called while live (should be empty at boot)
+            }
+            self.strand(&sid, StrandReason::StartupReconcile).await?;
+            count += 1;
+        }
+        Ok(count)
+    }
+
     /// Insert a pre-built workspace (test-only).
     ///
     /// Allows unit tests to insert workspaces with manipulated timestamps

@@ -259,6 +259,34 @@ async fn gc_evicts_terminal_workspace(pool: PgPool) {
     assert!(stranded_at.is_none(), "terminal workspace must NOT be stranded");
 }
 
+#[sqlx::test]
+async fn startup_reconcile_strands_orphaned_nonterminal_workspaces(pool: PgPool) {
+    use dk_engine::changeset::ChangesetState;
+    let mgr = WorkspaceManager::new(pool.clone());
+    let orphan   = insert_workspace_with_changeset(&pool, ChangesetState::Submitted).await;
+    let terminal = insert_workspace_with_changeset(&pool, ChangesetState::Merged).await;
+    let already  = insert_workspace_with_changeset(&pool, ChangesetState::Submitted).await;
+    sqlx::query(
+        "UPDATE session_workspaces
+            SET stranded_at = now() - interval '1 hour', stranded_reason = 'idle_ttl'
+          WHERE session_id = $1",
+    )
+    .bind(already).execute(&pool).await.unwrap();
+
+    let stranded_count = mgr.startup_reconcile().await.unwrap();
+    assert_eq!(stranded_count, 1);
+
+    let at_orphan: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
+        "SELECT stranded_at FROM session_workspaces WHERE session_id = $1",
+    ).bind(orphan).fetch_one(&pool).await.unwrap();
+    assert!(at_orphan.is_some());
+
+    let at_terminal: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
+        "SELECT stranded_at FROM session_workspaces WHERE session_id = $1",
+    ).bind(terminal).fetch_one(&pool).await.unwrap();
+    assert!(at_terminal.is_none(), "terminal-changeset rows must not be stranded");
+}
+
 /// Test helper. Inserts a session_workspaces row + matching changesets row, returns session_id.
 async fn insert_workspace_with_changeset(pool: &PgPool, state: dk_engine::changeset::ChangesetState) -> Uuid {
     let session_id = Uuid::new_v4();
