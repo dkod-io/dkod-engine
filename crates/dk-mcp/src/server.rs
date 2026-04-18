@@ -1479,11 +1479,21 @@ impl DkodMcp {
             .map_err(|e| McpError::internal_error(format!("FILE_WRITE RPC failed: {e}"), None))?
             .into_inner();
 
-        // Distinguish SYMBOL_LOCKED (write rejected, empty hash) from advisory warnings
+        // Distinguish the write-rejected paths. Both SYMBOL_LOCKED and
+        // STALE_OVERLAY come back as "empty hash + conflict_warnings"; they
+        // are disambiguated by the message prefix on the first warning —
+        // see `crates/dk-protocol/src/file_write.rs` (STALE_OVERLAY_PREFIX).
         let write_rejected = response.new_hash.is_empty() && !response.conflict_warnings.is_empty();
         let silent_rejection = response.new_hash.is_empty() && response.conflict_warnings.is_empty();
+        let stale_overlay_rejection = write_rejected
+            && response
+                .conflict_warnings
+                .first()
+                .is_some_and(|cw| cw.message.starts_with("STALE_OVERLAY"));
 
-        let mut text = if write_rejected {
+        let mut text = if stale_overlay_rejection {
+            format!("STALE_OVERLAY — write rejected for {path}\n\n")
+        } else if write_rejected {
             format!("SYMBOL_LOCKED — write rejected for {path}\n\n")
         } else if silent_rejection {
             format!("WRITE REJECTED — server returned no hash and no conflict details for {path}\n")
@@ -1511,7 +1521,19 @@ impl DkodMcp {
         }
 
         if !response.conflict_warnings.is_empty() {
-            if write_rejected {
+            if stale_overlay_rejection {
+                // Raw engine message already carries the competing
+                // changeset id + path. Surface it verbatim plus the
+                // recovery steps.
+                for cw in &response.conflict_warnings {
+                    text.push_str(&cw.message);
+                    text.push('\n');
+                }
+                text.push_str("\nYour write was NOT applied — your session's view predates a \
+                    competing submitted changeset on this file. To proceed:\n");
+                text.push_str("  1. dk_file_read(path)  — refresh your view\n");
+                text.push_str("  2. dk_file_write(path, adapted_content)  — retry\n");
+            } else if write_rejected {
                 text.push_str("Locked symbols:\n");
                 for cw in &response.conflict_warnings {
                     text.push_str(&format!(
@@ -1519,9 +1541,11 @@ impl DkodMcp {
                         cw.symbol_name, cw.conflicting_agent
                     ));
                 }
-                text.push_str("\nYour write was NOT applied. To proceed:\n");
-                text.push_str("  1. dk_watch(filter: \"symbol.lock.released\", wait: true)\n");
-                text.push_str("  2. dk_file_read(path)  — get the merged version\n");
+                text.push_str("\nYour write was NOT applied. Locks now release on the holder's \
+                    next dk_submit, so the typical wait is seconds (not the old merge-bound \
+                    window of minutes). To proceed:\n");
+                text.push_str("  1. dk_watch(filter: \"symbol.lock.released\", wait: true, timeout_ms: 30000)\n");
+                text.push_str("  2. dk_file_read(path)  — refresh your view\n");
                 text.push_str("  3. dk_file_write(path, adapted_content)  — retry\n");
             } else {
                 text.push_str("\nCONFLICT WARNING:\n");
@@ -1720,6 +1744,24 @@ impl DkodMcp {
                     err.message
                 ));
             }
+        }
+
+        // Behavior-change cue: on Accepted submits with the release-on-
+        // submit flag set, let agents know that symbol locks released on
+        // this call so other sessions watching for `symbol.lock.released`
+        // will unblock. Only shown when the flag is set in the MCP's own
+        // env, mirroring the engine, to avoid surprising operators running
+        // with the flag off.
+        if response.status == crate::SubmitStatus::Accepted as i32
+            && std::env::var("DKOD_RELEASE_ON_SUBMIT")
+                .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes"))
+                .unwrap_or(false)
+        {
+            text.push_str(
+                "\nLocks released on submit. Sessions waiting on \
+                 symbol.lock.released for any symbol in this changeset will \
+                 now unblock.\n",
+            );
         }
 
         // Background deep review gate: spawn an async task to call the

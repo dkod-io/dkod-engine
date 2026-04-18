@@ -12,7 +12,10 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+# 0.2.0 ships the release-locks-at-submit + STALE_OVERLAY feature set behind
+# DKOD_RELEASE_ON_SUBMIT=1. Bumping the pin in lockstep with the engine so
+# dk-mcp and dk-server can never drift once the testbed flips the flag on.
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/dkod-io/dkod-engine"
@@ -38,8 +41,8 @@ serde_yml = "0.0.12"
 rmp-serde = "1"
 
 # Internal crates
-dk-core = { path = "crates/dk-core", version = "0.1.0" }
-dk-engine = { path = "crates/dk-engine", version = "0.1.0" }
-dk-protocol = { path = "crates/dk-protocol", version = "0.1.0" }
-dk-runner = { path = "crates/dk-runner", version = "0.1.0" }
-dk-agent-sdk = { path = "crates/dk-agent-sdk", version = "0.1.0" }
+dk-core = { path = "crates/dk-core", version = "0.2.0" }
+dk-engine = { path = "crates/dk-engine", version = "0.2.0" }
+dk-protocol = { path = "crates/dk-protocol", version = "0.2.0" }
+dk-runner = { path = "crates/dk-runner", version = "0.2.0" }
+dk-agent-sdk = { path = "crates/dk-agent-sdk", version = "0.2.0" }

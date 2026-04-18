@@ -3,8 +3,25 @@ use tracing::{info, warn};
 
 use dk_engine::conflict::{AcquireOutcome, SymbolClaim};
 use crate::server::ProtocolServer;
+use crate::stale_overlay::{is_stale, CompetingChangeset};
 use crate::validation::{validate_file_path, MAX_FILE_SIZE};
 use crate::{ConflictWarning, FileWriteRequest, FileWriteResponse, SymbolChange};
+
+/// Message prefix MCP uses to distinguish STALE_OVERLAY from SYMBOL_LOCKED.
+/// Both flow through `ConflictWarning` with an empty `new_hash`, so the
+/// prefix is the contract. Do not change without updating the MCP parser.
+const STALE_OVERLAY_PREFIX: &str = "STALE_OVERLAY";
+
+/// Env flag for the release-locks-at-submit + STALE_OVERLAY behavior.
+/// Off by default in PR1; flipped in the testbed after zero-incident soak.
+/// Shared with `submit.rs` so both call sites read the flag with identical
+/// semantics — preventing drift if one handler's parse logic is ever
+/// tweaked without the other.
+pub(crate) fn release_on_submit_enabled() -> bool {
+    std::env::var("DKOD_RELEASE_ON_SUBMIT")
+        .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes"))
+        .unwrap_or(false)
+}
 
 /// Handle a FileWrite RPC.
 ///
@@ -62,11 +79,89 @@ pub async fn handle_file_write(
     let repo_id_str = repo_id.to_string();
     let changeset_id = ws.changeset_id;
     let agent_name = ws.agent_name.clone();
+    // Snapshot last-read for the STALE_OVERLAY check before we drop ws.
+    let last_read_at = ws.last_read(&req.path);
 
     // Drop workspace guard — overlay write is deferred until after lock acquisition
     drop(ws);
 
     let op = if is_new { "add" } else { "modify" };
+
+    // ── STALE_OVERLAY pre-write check (DKOD_RELEASE_ON_SUBMIT only) ──
+    // Rationale: once locks release at `dk_submit` (instead of `dk_merge`),
+    // a waiter can re-acquire a symbol seconds after the holder submits.
+    // If the waiter skips the re-read step from the SYMBOL_LOCKED recovery
+    // contract, it would silently clobber the still-in-flight overlay.
+    // Best-effort backstop — AST merger at merge remains the final
+    // authority; a race that slips past this check degrades to today's
+    // merge-time reconciliation, not to data loss.
+    if release_on_submit_enabled() {
+        let competitors_raw = match engine
+            .changeset_store()
+            .list_path_competitors(repo_id, &req.path)
+            .await
+        {
+            Ok(rows) => rows,
+            Err(e) => {
+                // Storage error — fail open (don't block the write) so a
+                // transient DB hiccup never blocks user-visible writes.
+                // The spike shows up in the standard tracing output if
+                // this ever becomes chronic.
+                warn!(
+                    session_id = %sid,
+                    path = %req.path,
+                    error = %e,
+                    "STALE_OVERLAY check failed — skipping (fail-open)"
+                );
+                Vec::new()
+            }
+        };
+        let competitors: Vec<CompetingChangeset> = competitors_raw
+            .into_iter()
+            .map(|(cs_id, cs_sid, state, updated)| CompetingChangeset {
+                changeset_id: cs_id,
+                session_id: cs_sid,
+                state,
+                updated_at: updated,
+            })
+            .collect();
+
+        if let Some(stale) = is_stale(sid, last_read_at, &competitors) {
+            info!(
+                session_id = %sid,
+                path = %req.path,
+                competing_changeset = %stale.changeset_id,
+                competing_state = %stale.state,
+                "STALE_OVERLAY: write rejected (session view predates competing submit)"
+            );
+            crate::metrics::incr_stale_overlay_rejected();
+
+            let message = format!(
+                "{prefix}: your overlay for path={path} predates competing \
+                 changeset {cid} (state={state}). Call dk_file_read('{path}') \
+                 to refresh, then retry dk_file_write.",
+                prefix = STALE_OVERLAY_PREFIX,
+                path = req.path,
+                cid = stale.changeset_id,
+                state = stale.state,
+            );
+
+            return Ok(Response::new(FileWriteResponse {
+                new_hash: String::new(),
+                detected_changes: Vec::new(),
+                conflict_warnings: vec![ConflictWarning {
+                    file_path: req.path.clone(),
+                    symbol_name: String::new(),
+                    conflicting_agent: String::new(),
+                    conflicting_session_id: stale
+                        .session_id
+                        .map(|s| s.to_string())
+                        .unwrap_or_default(),
+                    message,
+                }],
+            }));
+        }
+    }
 
     // Detect symbol changes from req.content directly — no overlay needed yet.
     let (detected_changes, all_symbol_changes) =

@@ -4,10 +4,13 @@
 //! `base_commit` in the repository. Reads go through the overlay first, then
 //! fall back to the Git tree at the base commit.
 
+use chrono::{DateTime, Utc};
+use dashmap::DashMap;
 use dk_core::{AgentId, RepoId, Result};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use std::collections::HashSet;
+use std::sync::Arc;
 use tokio::time::Instant;
 use uuid::Uuid;
 
@@ -96,6 +99,13 @@ pub struct SessionWorkspace {
     pub state: WorkspaceState,
     pub created_at: Instant,
     pub last_active: Instant,
+    /// Per-path wall-clock timestamp of the most recent `dk_file_read` in
+    /// this session. Consumed by the STALE_OVERLAY pre-write check so a
+    /// session whose local view predates a competing submitted changeset is
+    /// forced to re-read before writing. Interior-mutable so it can be
+    /// updated through `&SessionWorkspace` (mirrors how `overlay` manages
+    /// its own locking).
+    pub files_read: Arc<DashMap<String, DateTime<Utc>>>,
 }
 
 impl SessionWorkspace {
@@ -133,6 +143,7 @@ impl SessionWorkspace {
             state: WorkspaceState::Active,
             created_at: now,
             last_active: now,
+            files_read: Arc::new(DashMap::new()),
         }
     }
 
@@ -189,6 +200,7 @@ impl SessionWorkspace {
             state: WorkspaceState::Active,
             created_at: now,
             last_active: now,
+            files_read: Arc::new(DashMap::new()),
         })
     }
 
@@ -308,6 +320,21 @@ impl SessionWorkspace {
     /// Touch the workspace to update last-active timestamp.
     pub fn touch(&mut self) {
         self.last_active = Instant::now();
+    }
+
+    /// Record that this session just read `path` at the current wall-clock
+    /// time. Called from `handle_file_read` to feed the STALE_OVERLAY
+    /// pre-write check: a session whose per-path timestamp predates a
+    /// competing submitted changeset touching the same path is forced to
+    /// re-read before the next `dk_file_write` is accepted.
+    pub fn mark_read(&self, path: &str) {
+        self.files_read.insert(path.to_string(), Utc::now());
+    }
+
+    /// Return the wall-clock timestamp of the most recent `dk_file_read`
+    /// for `path`, or `None` if this session has never read it.
+    pub fn last_read(&self, path: &str) -> Option<DateTime<Utc>> {
+        self.files_read.get(path).map(|e| *e.value())
     }
 
     /// Build the overlay vector for `commit_tree_overlay`.

@@ -24,6 +24,7 @@ fn changeset_in_state(state: &str) -> Changeset {
         created_at: Utc::now(),
         updated_at: Utc::now(),
         merged_at: None,
+        parent_changeset_id: None,
     }
 }
 
