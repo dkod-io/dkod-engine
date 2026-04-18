@@ -681,6 +681,8 @@ impl WorkspaceManager {
             );
         }
 
+        crate::metrics::incr_workspace_stranded(reason.as_str());
+
         self.last_touched.remove(session_id);
         self.workspaces.remove(session_id);
         self.evict_from_cache(&[*session_id]);
@@ -709,11 +711,15 @@ impl WorkspaceManager {
         .ok()
         .flatten();
 
-        match row {
+        let pinned = match row {
             Some((state,)) => crate::changeset::ChangesetState::parse(&state)
                 .is_some_and(|s| !s.is_terminal()),
             None => false,
+        };
+        if pinned {
+            crate::metrics::incr_workspace_pinned("non_terminal");
         }
+        pinned
     }
 
     /// Describe which other sessions have modified a given file.
@@ -836,6 +842,8 @@ impl WorkspaceManager {
         // 6. Ensure in-memory state is gone.
         self.workspaces.remove(session_id);
         self.last_touched.remove(session_id);
+
+        crate::metrics::incr_workspace_abandoned(reason.as_str());
         Ok(())
     }
 
@@ -939,6 +947,7 @@ impl WorkspaceManager {
 
         if abandoned_at.is_some() {
             tx.rollback().await.ok();
+            crate::metrics::incr_workspace_resumed("abandoned");
             return Ok(ResumeResult::Abandoned);
         }
         if let Some(state) = changeset_state.as_deref() {
@@ -946,15 +955,20 @@ impl WorkspaceManager {
                 .is_some_and(|s| s.is_terminal())
             {
                 tx.rollback().await.ok();
+                crate::metrics::incr_workspace_resumed("abandoned");
                 return Ok(ResumeResult::Abandoned);
             }
         }
         if stranded_at.is_none() {
             tx.rollback().await.ok();
-            return Ok(match superseded_by {
-                Some(_) => ResumeResult::AlreadyResumed(new_session),
+            let result = match superseded_by {
+                Some(_) => {
+                    crate::metrics::incr_workspace_resumed("already_resumed");
+                    ResumeResult::AlreadyResumed(new_session)
+                }
                 None => ResumeResult::NotStranded,
-            });
+            };
+            return Ok(result);
         }
         if orig_agent != agent_id {
             tx.rollback().await.ok();
@@ -1084,6 +1098,7 @@ impl WorkspaceManager {
             }
             // Re-strand so the DB row isn't left half-transitioned.
             self.strand(&new_session, StrandReason::Explicit).await?;
+            crate::metrics::incr_workspace_resumed("contended");
             return Ok(ResumeResult::Contended(conflicts));
         }
 
@@ -1097,6 +1112,7 @@ impl WorkspaceManager {
             "resumed",
         );
 
+        crate::metrics::incr_workspace_resumed("ok");
         Ok(ResumeResult::Ok(new_session))
     }
 

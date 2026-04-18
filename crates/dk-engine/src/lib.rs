@@ -2,6 +2,7 @@ pub mod changeset;
 pub mod conflict;
 pub mod git;
 pub mod graph;
+pub mod metrics;
 pub mod parser;
 pub mod pipeline;
 pub mod repo;

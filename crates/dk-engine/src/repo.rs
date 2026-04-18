@@ -172,6 +172,7 @@ impl Engine {
         stranded_ttl: std::time::Duration,
     ) -> tokio::task::JoinHandle<()> {
         let mgr = Arc::clone(&self.workspace_manager);
+        let db = self.db.clone();
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(tick);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -188,6 +189,15 @@ impl Engine {
                     Ok(_) => {}
                     Err(e) => tracing::warn!("gc: sweep_stranded error: {e}"),
                 }
+                // 3. Update stranded-active gauge.
+                let active: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM session_workspaces \
+                     WHERE stranded_at IS NOT NULL AND abandoned_at IS NULL",
+                )
+                .fetch_one(&db)
+                .await
+                .unwrap_or(0);
+                crate::metrics::set_workspace_stranded_active(active);
             }
         })
     }
