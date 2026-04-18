@@ -154,6 +154,30 @@ async fn should_pin_returns_false_when_session_has_no_changeset(pool: PgPool) {
     assert!(!mgr.should_pin(&missing).await);
 }
 
+#[sqlx::test]
+async fn strand_sets_stranded_at_and_is_idempotent(pool: PgPool) {
+    use dk_engine::workspace::session_manager::StrandReason;
+    use dk_engine::changeset::ChangesetState;
+    let mgr = WorkspaceManager::new(pool.clone());
+    let session_id = insert_workspace_with_changeset(&pool, ChangesetState::Submitted).await;
+
+    mgr.strand(&session_id, StrandReason::IdleTtl).await.unwrap();
+
+    let (stranded_at, reason): (Option<chrono::DateTime<chrono::Utc>>, Option<String>) = sqlx::query_as(
+        "SELECT stranded_at, stranded_reason FROM session_workspaces WHERE session_id = $1",
+    )
+    .bind(session_id).fetch_one(&pool).await.unwrap();
+    assert!(stranded_at.is_some());
+    assert_eq!(reason.as_deref(), Some("idle_ttl"));
+
+    let first_ts = stranded_at.unwrap();
+    mgr.strand(&session_id, StrandReason::IdleTtl).await.unwrap();
+    let (stranded_at2, _): (Option<chrono::DateTime<chrono::Utc>>, Option<String>) =
+        sqlx::query_as("SELECT stranded_at, stranded_reason FROM session_workspaces WHERE session_id = $1")
+            .bind(session_id).fetch_one(&pool).await.unwrap();
+    assert_eq!(stranded_at2, Some(first_ts));
+}
+
 /// Test helper. Inserts a session_workspaces row + matching changesets row, returns session_id.
 async fn insert_workspace_with_changeset(pool: &PgPool, state: dk_engine::changeset::ChangesetState) -> Uuid {
     let session_id = Uuid::new_v4();

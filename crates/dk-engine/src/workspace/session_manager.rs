@@ -19,6 +19,28 @@ use crate::workspace::session_workspace::{
     SessionId, SessionWorkspace, WorkspaceMode,
 };
 
+// ── StrandReason ─────────────────────────────────────────────────────
+
+/// Why a workspace transitioned to stranded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StrandReason {
+    IdleTtl,
+    CleanupDisconnected,
+    StartupReconcile,
+    Explicit,
+}
+
+impl StrandReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::IdleTtl => "idle_ttl",
+            Self::CleanupDisconnected => "cleanup_disconnected",
+            Self::StartupReconcile => "startup_reconcile",
+            Self::Explicit => "explicit",
+        }
+    }
+}
+
 // ── SessionInfo ─────────────────────────────────────────────────────
 
 /// Lightweight snapshot of a session workspace, suitable for JSON serialization.
@@ -327,6 +349,36 @@ impl WorkspaceManager {
     /// Total number of active workspaces across all repos.
     pub fn total_active(&self) -> usize {
         self.workspaces.len()
+    }
+
+    /// Mark a workspace as stranded. Idempotent: a second call on an already-
+    /// stranded row does not change stranded_at. Drops the in-memory entry.
+    ///
+    /// Lock release and event emission are added in Task 4b once ClaimTracker +
+    /// EventPublisher are injected into WorkspaceManager — do not add them here.
+    pub async fn strand(
+        &self,
+        session_id: &SessionId,
+        reason: StrandReason,
+    ) -> Result<()> {
+        sqlx::query(
+            r#"
+            UPDATE session_workspaces
+               SET stranded_at     = COALESCE(stranded_at, now()),
+                   stranded_reason = COALESCE(stranded_reason, $2)
+             WHERE session_id = $1
+            "#,
+        )
+        .bind(session_id)
+        .bind(reason.as_str())
+        .execute(&self.db)
+        .await
+        .map_err(|e| dk_core::Error::Internal(e.to_string()))?;
+
+        self.last_touched.remove(session_id);
+        self.workspaces.remove(session_id);
+        self.evict_from_cache(&[*session_id]);
+        Ok(())
     }
 
     /// Return true when this workspace's changeset is in a non-terminal state
