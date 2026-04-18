@@ -400,10 +400,11 @@ mod tests {
         .await
         .unwrap();
 
-        // Insert session workspace (required by FK)
+        // Insert session workspace (required by FK); id must equal workspace_id so that
+        // the session_overlay_files FK (workspace_id → session_workspaces.id) resolves.
         sqlx::query(
-            "INSERT INTO session_workspaces (session_id, repo_id, agent_id, base_commit_hash, intent)
-             VALUES ($1, $2, 'agent-test', 'initial', 'test')",
+            "INSERT INTO session_workspaces (id, session_id, repo_id, agent_id, base_commit_hash, intent)
+             VALUES ($1, $1, $2, 'agent-test', 'initial', 'test')",
         )
         .bind(workspace_id)
         .bind(repo_id)
