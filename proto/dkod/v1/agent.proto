@@ -40,6 +40,9 @@ service AgentService {
   // Close a session and destroy its workspace
   rpc Close(CloseRequest) returns (CloseResponse);
 
+  // Abandon a session, discarding its changeset and releasing all locks
+  rpc Abandon(AbandonRequest) returns (AbandonResponse);
+
   // Get code review results for a changeset
   rpc Review(ReviewRequest) returns (ReviewResponse);
 
@@ -553,4 +556,47 @@ message CloseResponse {
   bool success = 1;
   string message = 2;
   string session_id = 3;
+}
+
+// --- ABANDON ---
+
+message AbandonRequest {
+  string session_id = 1;
+}
+
+message AbandonResponse {
+  bool success = 1;
+  string changeset_id = 2;
+  string abandoned_reason = 3;
+}
+
+// --- ERROR DETAIL MESSAGES ---
+// Used as gRPC status detail payloads (google.rpc.Status details).
+// These are future-proof definitions; the server currently conveys
+// this information via response metadata.
+
+message SessionStrandedDetail {
+  string changeset_id = 1;
+  string base_commit = 2;
+  string stranded_reason = 3;
+  string stranded_at_rfc3339 = 4;
+}
+
+message ResumeContendedDetail {
+  message ConflictingSymbol {
+    string qualified_name = 1;
+    string file_path = 2;
+    string claimant_session = 3;
+    string claimant_agent = 4;
+  }
+  repeated ConflictingSymbol symbols = 1;
+}
+
+message AlreadyResumedDetail {
+  string new_session_id = 1;
+}
+
+message SessionAbandonedDetail {
+  string changeset_id = 1;
+  string abandoned_reason = 2;
 }
