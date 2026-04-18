@@ -393,3 +393,52 @@ async fn insert_workspace_with_changeset(pool: &PgPool, state: dk_engine::change
     .execute(pool).await.unwrap();
     session_id
 }
+
+#[sqlx::test]
+async fn flag_off_strands_nonterminal_on_expiry(pool: PgPool) {
+    use dk_engine::changeset::ChangesetState;
+
+    // Safely set the flag for this test (restore on drop).
+    struct EnvGuard(&'static str, Option<String>);
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match &self.1 {
+                Some(v) => std::env::set_var(self.0, v),
+                None => std::env::remove_var(self.0),
+            }
+        }
+    }
+    let _guard = EnvGuard("DKOD_PIN_NONTERMINAL", std::env::var("DKOD_PIN_NONTERMINAL").ok());
+    std::env::set_var("DKOD_PIN_NONTERMINAL", "0");
+
+    let mgr = WorkspaceManager::new(pool.clone());
+    let session_id = insert_workspace_with_changeset(&pool, ChangesetState::Submitted).await;
+
+    // Mirror the pattern from make_expired_test_workspace (lines 185-198).
+    let ws = SessionWorkspace::new_test(
+        session_id,
+        Uuid::new_v4(),
+        "test-agent".to_string(),
+        "test intent".to_string(),
+        "abc123".to_string(),
+        WorkspaceMode::Ephemeral,
+    );
+    mgr.insert_test_workspace(ws);
+
+    let evicted = mgr
+        .gc_expired_sessions_async(
+            std::time::Duration::ZERO,
+            std::time::Duration::from_secs(3600),
+        )
+        .await;
+
+    // With flag off, non-terminal gets stranded (not pinned; not terminal-evicted).
+    assert!(evicted.contains(&session_id));
+    let (stranded_at,): (Option<chrono::DateTime<chrono::Utc>>,) =
+        sqlx::query_as("SELECT stranded_at FROM session_workspaces WHERE session_id = $1")
+            .bind(session_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(stranded_at.is_some(), "non-terminal should be stranded, not silently dropped");
+}
