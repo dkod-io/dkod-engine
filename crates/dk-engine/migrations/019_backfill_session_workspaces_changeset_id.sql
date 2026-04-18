@@ -14,7 +14,7 @@ UPDATE session_workspaces w
        SELECT c.id
          FROM changesets c
         WHERE c.session_id = w.session_id
-        ORDER BY c.created_at DESC
+        ORDER BY c.created_at DESC, c.id DESC
         LIMIT 1
    )
  WHERE w.changeset_id IS NULL;

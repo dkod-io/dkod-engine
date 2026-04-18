@@ -10,7 +10,7 @@ pub mod proto {
 
 pub use proto::dkod::v1::*;
 
-pub mod abandon;
+pub(crate) mod abandon;
 pub mod auth;
 pub mod connect;
 pub mod context;
@@ -22,7 +22,7 @@ pub mod merge;
 pub mod metrics;
 pub mod pre_submit;
 pub mod push;
-pub mod require_live_session;
+pub(crate) mod require_live_session;
 pub mod server;
 pub mod session;
 #[cfg(feature = "redis")]

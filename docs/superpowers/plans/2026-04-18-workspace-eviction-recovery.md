@@ -4,7 +4,7 @@
 
 **Goal:** Implement the Epic B design from `docs/superpowers/specs/2026-04-18-workspace-eviction-recovery-design.md`: pin workspaces with non-terminal changesets, strand+release-locks on unavoidable eviction, resume via `dk_connect{resume_session_id}` backed by overlay rehydration, and auto-abandon at 4 h with `dk_abandon` for explicit early abandon.
 
-**Architecture:** In-process edits to `WorkspaceManager` (pin guard + strand + resume + abandon + startup_reconcile). A new `stranded_at` column on `workspaces` is the single source of truth for stranded-session detection. `dk_connect` gains full overlay-rehydrate resume (extending the existing snapshot-based resume path). A shared `require_live_session` middleware hoist surfaces `SESSION_STRANDED` to callers uniformly. New `dk_abandon` RPC + admin CLI escape hatch. Metric hooks follow PR #74's convention.
+**Architecture:** In-process edits to `WorkspaceManager` (pin guard + strand + resume + abandon + startup_reconcile). A new `stranded_at` column on `session_workspaces` is the single source of truth for stranded-session detection. `dk_connect` gains full overlay-rehydrate resume (extending the existing snapshot-based resume path). A shared `require_live_session` middleware hoist surfaces `SESSION_STRANDED` to callers uniformly. New `dk_abandon` RPC + admin CLI escape hatch. Metric hooks follow PR #74's convention.
 
 **Tech Stack:** Rust (edition 2021), tonic + prost for gRPC, sqlx for Postgres, tokio async runtime, existing `claim_tracker.rs` for lock release, existing `FileOverlay::restore_from_db` for rehydration.
 
@@ -99,7 +99,7 @@ Expected: `Applied 016/migrate workspaces stranded at`.
 Run:
 
 ```bash
-psql "postgres://dkod:dkod@localhost:5432/dkod_test" -c "\d workspaces"
+psql "postgres://dkod:dkod@localhost:5432/dkod_test" -c "\d session_workspaces"
 ```
 
 Expected: the five new columns listed, plus the two partial indexes in the index section.
@@ -221,7 +221,7 @@ async fn insert_workspace_with_changeset(pool: &PgPool, state: ChangesetState) -
     let changeset_id = Uuid::new_v4();
     let repo_id = Uuid::new_v4();
     sqlx::query(
-        "INSERT INTO workspaces (session_id, repo_id, agent_id, changeset_id, state,
+        "INSERT INTO session_workspaces (session_id, repo_id, agent_id, changeset_id, state,
                                  mode, base_commit, created_at, last_active, intent)
          VALUES ($1, $2, 'agent-test', $3, 'active', 'ephemeral', 'initial', now(), now(), 'test')",
     )
@@ -268,7 +268,7 @@ pub async fn should_pin(&self, session_id: &SessionId) -> bool {
     let row: Option<(String,)> = sqlx::query_as(
         r#"
         SELECT c.state
-        FROM workspaces w
+        FROM session_workspaces w
         JOIN changesets c ON c.id = w.changeset_id
         WHERE w.session_id = $1
         LIMIT 1
@@ -326,7 +326,7 @@ async fn strand_sets_stranded_at_and_is_idempotent(pool: PgPool) {
     mgr.strand(&session_id, StrandReason::IdleTtl).await.unwrap();
 
     let (stranded_at, reason): (Option<chrono::DateTime<chrono::Utc>>, Option<String>) = sqlx::query_as(
-        "SELECT stranded_at, stranded_reason FROM workspaces WHERE session_id = $1",
+        "SELECT stranded_at, stranded_reason FROM session_workspaces WHERE session_id = $1",
     )
     .bind(session_id)
     .fetch_one(&pool)
@@ -339,7 +339,7 @@ async fn strand_sets_stranded_at_and_is_idempotent(pool: PgPool) {
     let first_ts = stranded_at.unwrap();
     mgr.strand(&session_id, StrandReason::IdleTtl).await.unwrap();
     let (stranded_at2, _): (Option<chrono::DateTime<chrono::Utc>>, Option<String>) =
-        sqlx::query_as("SELECT stranded_at, stranded_reason FROM workspaces WHERE session_id = $1")
+        sqlx::query_as("SELECT stranded_at, stranded_reason FROM session_workspaces WHERE session_id = $1")
             .bind(session_id)
             .fetch_one(&pool)
             .await
@@ -396,7 +396,7 @@ impl WorkspaceManager {
         // Idempotent UPDATE: only the first call sets stranded_at.
         sqlx::query(
             r#"
-            UPDATE workspaces
+            UPDATE session_workspaces
                SET stranded_at     = COALESCE(stranded_at, now()),
                    stranded_reason = COALESCE(stranded_reason, $2)
              WHERE session_id = $1
@@ -483,12 +483,12 @@ In `crates/dk-protocol/src/server.rs` (or wherever `WorkspaceManager` is constru
 
 - [ ] **Step 3: Update `strand` to release locks + emit**
 
-In Task 4's `strand` body, after the `UPDATE workspaces` query and before the in-memory drop:
+In Task 4's `strand` body, after the `UPDATE session_workspaces` query and before the in-memory drop:
 
 ```rust
 // Fetch repo_id + changeset_id so the release + event call has the right shape.
 let row: Option<(Uuid, Uuid)> = sqlx::query_as(
-    "SELECT repo_id, changeset_id FROM workspaces WHERE session_id = $1",
+    "SELECT repo_id, changeset_id FROM session_workspaces WHERE session_id = $1",
 ).bind(session_id).fetch_optional(&self.db).await.ok().flatten();
 if let Some((repo_id, changeset_id)) = row {
     if let Err(e) = self.claim_tracker.release_session_locks(repo_id, *session_id).await {
@@ -560,7 +560,7 @@ async fn gc_strands_non_pinned_expired_workspace(pool: PgPool) {
     assert_eq!(evicted, vec![session_id]);
     // Terminal-state workspaces are NOT stranded — they're evicted outright.
     let (stranded_at,): (Option<chrono::DateTime<chrono::Utc>>,) =
-        sqlx::query_as("SELECT stranded_at FROM workspaces WHERE session_id = $1")
+        sqlx::query_as("SELECT stranded_at FROM session_workspaces WHERE session_id = $1")
             .bind(session_id)
             .fetch_one(&pool)
             .await
@@ -739,7 +739,7 @@ async fn startup_reconcile_strands_orphaned_nonterminal_workspaces(pool: PgPool)
     let terminal = insert_workspace_with_changeset(&pool, ChangesetState::Merged).await;
     // Control: already stranded — must be left alone.
     let already = insert_workspace_with_changeset(&pool, ChangesetState::Submitted).await;
-    sqlx::query("UPDATE workspaces SET stranded_at = now() - interval '1 hour', stranded_reason = 'idle_ttl' WHERE session_id = $1")
+    sqlx::query("UPDATE session_workspaces SET stranded_at = now() - interval '1 hour', stranded_reason = 'idle_ttl' WHERE session_id = $1")
         .bind(already).execute(&pool).await.unwrap();
 
     let stranded_count = mgr.startup_reconcile().await.unwrap();
@@ -747,7 +747,7 @@ async fn startup_reconcile_strands_orphaned_nonterminal_workspaces(pool: PgPool)
 
     let check = |sid: Uuid| async move {
         let (at, reason): (Option<chrono::DateTime<chrono::Utc>>, Option<String>) =
-            sqlx::query_as("SELECT stranded_at, stranded_reason FROM workspaces WHERE session_id = $1")
+            sqlx::query_as("SELECT stranded_at, stranded_reason FROM session_workspaces WHERE session_id = $1")
                 .bind(sid).fetch_one(&pool).await.unwrap();
         (at, reason)
     };
@@ -781,7 +781,7 @@ pub async fn startup_reconcile(&self) -> Result<usize> {
     let rows: Vec<(Uuid,)> = sqlx::query_as(
         r#"
         SELECT w.session_id
-          FROM workspaces w
+          FROM session_workspaces w
           JOIN changesets c ON c.id = w.changeset_id
          WHERE w.stranded_at IS NULL
            AND w.abandoned_at IS NULL
@@ -916,7 +916,7 @@ async fn abandon_stranded_tombstones_and_rejects_changeset(pool: PgPool) {
     let mgr = WorkspaceManager::new(pool.clone());
     let session_id = insert_workspace_with_changeset(&pool, ChangesetState::Submitted).await;
     // Insert an overlay row so we can verify deletion.
-    let workspace_id: Uuid = sqlx::query_scalar("SELECT workspace_id FROM workspaces WHERE session_id = $1")
+    let workspace_id: Uuid = sqlx::query_scalar("SELECT workspace_id FROM session_workspaces WHERE session_id = $1")
         .bind(session_id).fetch_one(&pool).await.unwrap();
     sqlx::query("INSERT INTO session_overlay_files(workspace_id, file_path, content, content_hash, change_type)
                  VALUES ($1, 'x.rs', 'c', 'h', 'modified')").bind(workspace_id).execute(&pool).await.unwrap();
@@ -928,7 +928,7 @@ async fn abandon_stranded_tombstones_and_rejects_changeset(pool: PgPool) {
         sqlx::query_as(
             "SELECT w.abandoned_at, w.abandoned_reason, c.state,
                     (SELECT COUNT(*) FROM session_overlay_files WHERE workspace_id = w.workspace_id)
-               FROM workspaces w
+               FROM session_workspaces w
                JOIN changesets c ON c.id = w.changeset_id
               WHERE w.session_id = $1"
         ).bind(session_id).fetch_one(&pool).await.unwrap();
@@ -947,10 +947,10 @@ async fn abandon_stranded_is_idempotent(pool: PgPool) {
     mgr.strand(&session_id, StrandReason::IdleTtl).await.unwrap();
     mgr.abandon_stranded(&session_id, AbandonReason::AutoTtl).await.unwrap();
     // Second call — must not error, must not change abandoned_at.
-    let first: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar("SELECT abandoned_at FROM workspaces WHERE session_id = $1")
+    let first: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar("SELECT abandoned_at FROM session_workspaces WHERE session_id = $1")
         .bind(session_id).fetch_one(&pool).await.unwrap();
     mgr.abandon_stranded(&session_id, AbandonReason::Explicit { caller: "agent-test".into() }).await.unwrap();
-    let second: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar("SELECT abandoned_at FROM workspaces WHERE session_id = $1")
+    let second: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar("SELECT abandoned_at FROM session_workspaces WHERE session_id = $1")
         .bind(session_id).fetch_one(&pool).await.unwrap();
     assert_eq!(first, second);
 }
@@ -998,7 +998,7 @@ impl WorkspaceManager {
     ) -> Result<()> {
         // Fetch workspace_id + changeset_id in one query; bail if missing.
         let row: Option<(Uuid, Uuid, Option<chrono::DateTime<chrono::Utc>>)> = sqlx::query_as(
-            "SELECT workspace_id, changeset_id, abandoned_at FROM workspaces WHERE session_id = $1",
+            "SELECT workspace_id, changeset_id, abandoned_at FROM session_workspaces WHERE session_id = $1",
         )
         .bind(session_id)
         .fetch_optional(&self.db)
@@ -1028,7 +1028,7 @@ impl WorkspaceManager {
 
         // 3. Tombstone workspace row.
         sqlx::query(
-            "UPDATE workspaces
+            "UPDATE session_workspaces
                 SET abandoned_at     = now(),
                     abandoned_reason = $2
               WHERE session_id = $1"
@@ -1085,15 +1085,15 @@ async fn sweep_stranded_auto_abandons_past_ttl(pool: PgPool) {
     mgr.strand(&young, StrandReason::IdleTtl).await.unwrap();
     mgr.strand(&old,   StrandReason::IdleTtl).await.unwrap();
     // Backdate `old`
-    sqlx::query("UPDATE workspaces SET stranded_at = now() - interval '5 hours' WHERE session_id = $1")
+    sqlx::query("UPDATE session_workspaces SET stranded_at = now() - interval '5 hours' WHERE session_id = $1")
         .bind(old).execute(&pool).await.unwrap();
 
     let n = mgr.sweep_stranded(std::time::Duration::from_secs(4 * 3600)).await.unwrap();
     assert_eq!(n, 1);
     let (old_aband, young_aband): (Option<chrono::DateTime<chrono::Utc>>, Option<chrono::DateTime<chrono::Utc>>) = sqlx::query_as(
         "SELECT
-            (SELECT abandoned_at FROM workspaces WHERE session_id=$1),
-            (SELECT abandoned_at FROM workspaces WHERE session_id=$2)",
+            (SELECT abandoned_at FROM session_workspaces WHERE session_id=$1),
+            (SELECT abandoned_at FROM session_workspaces WHERE session_id=$2)",
     ).bind(old).bind(young).fetch_one(&pool).await.unwrap();
     assert!(old_aband.is_some());
     assert!(young_aband.is_none());
@@ -1118,7 +1118,7 @@ impl WorkspaceManager {
     pub async fn sweep_stranded(&self, ttl: std::time::Duration) -> Result<usize> {
         let ttl_secs = ttl.as_secs() as i64;
         let rows: Vec<(Uuid,)> = sqlx::query_as(
-            "SELECT session_id FROM workspaces
+            "SELECT session_id FROM session_workspaces
               WHERE stranded_at IS NOT NULL
                 AND abandoned_at IS NULL
                 AND stranded_at + make_interval(secs => $1::double precision) < now()"
@@ -1217,7 +1217,7 @@ async fn resume_happy_path_restores_overlay_and_locks(pool: PgPool) {
 
     // DB: stranded_at cleared, superseded_by set, session_id rotated
     let (stranded_at, superseded_by, session_id): (Option<chrono::DateTime<chrono::Utc>>, Option<Uuid>, Uuid) =
-        sqlx::query_as("SELECT stranded_at, superseded_by, session_id FROM workspaces WHERE workspace_id = (SELECT workspace_id FROM workspaces WHERE session_id = $1 UNION SELECT workspace_id FROM workspaces WHERE session_id = $2)")
+        sqlx::query_as("SELECT stranded_at, superseded_by, session_id FROM session_workspaces WHERE workspace_id = (SELECT workspace_id FROM session_workspaces WHERE session_id = $1 UNION SELECT workspace_id FROM session_workspaces WHERE session_id = $2)")
             .bind(dead).bind(new_session).fetch_one(&pool).await.unwrap();
     assert!(stranded_at.is_none());
     assert_eq!(superseded_by, Some(new_session));
@@ -1264,7 +1264,7 @@ impl WorkspaceManager {
     /// - Preconditions: stranded_at IS NOT NULL, changeset non-terminal.
     /// - Steps: SELECT FOR UPDATE, overlay.restore_from_db, reindex graph,
     ///   atomic claim_tracker.acquire over overlay's changed symbols,
-    ///   UPDATE workspaces SET session_id/stranded_at/superseded_by.
+    ///   UPDATE session_workspaces SET session_id/stranded_at/superseded_by.
     /// - Caller must have already authorized agent_id against the row.
     pub async fn resume(
         &self,
@@ -1285,7 +1285,7 @@ impl WorkspaceManager {
                 SELECT w.workspace_id, w.repo_id, w.changeset_id, w.agent_id,
                        w.intent, w.base_commit, w.stranded_at, w.abandoned_at,
                        c.state
-                  FROM workspaces w
+                  FROM session_workspaces w
                   JOIN changesets c ON c.id = w.changeset_id
                  WHERE w.session_id = $1
                  FOR UPDATE OF w
@@ -1308,7 +1308,7 @@ impl WorkspaceManager {
         if stranded_at.is_none() {
             // Already resumed — look up who took over.
             let new_owner: Option<(Uuid,)> = sqlx::query_as(
-                "SELECT superseded_by FROM workspaces WHERE session_id = $1",
+                "SELECT superseded_by FROM session_workspaces WHERE session_id = $1",
             )
             .bind(dead_session)
             .fetch_optional(&mut *tx)
@@ -1336,7 +1336,7 @@ impl WorkspaceManager {
         // Rotate session_id + clear stranded_at.
         sqlx::query(
             r#"
-            UPDATE workspaces
+            UPDATE session_workspaces
                SET session_id       = $2,
                    stranded_at      = NULL,
                    stranded_reason  = NULL,
@@ -1663,7 +1663,7 @@ pub async fn require_live_session(
             r#"
             SELECT w.stranded_at, w.abandoned_at, w.changeset_id,
                    w.stranded_reason, w.abandoned_reason, w.base_commit
-              FROM workspaces w
+              FROM session_workspaces w
              WHERE w.session_id = $1
             "#,
         )
@@ -1854,7 +1854,7 @@ pub async fn handle_abandon(
     let row: Option<(String, Uuid, Option<chrono::DateTime<chrono::Utc>>, Option<chrono::DateTime<chrono::Utc>>)> =
         sqlx::query_as(
             "SELECT agent_id, changeset_id, stranded_at, abandoned_at
-               FROM workspaces WHERE session_id = $1",
+               FROM session_workspaces WHERE session_id = $1",
         )
         .bind(sid)
         .fetch_optional(server.engine().db())
@@ -2002,7 +2002,7 @@ git commit -m "feat(protocol): connect resumes stranded workspaces via Workspace
 - [ ] **Step 1: Locate `dk_close` definition**
 
 ```bash
-grep -n "fn handle_tool_close\|\"dk_close\"" /Users/haimari/vsCode/haim-ari/github/dkod-engine/crates/dk-mcp/src/server.rs
+git grep -n "fn handle_tool_close\|\"dk_close\"" -- crates/dk-mcp/src/server.rs
 ```
 
 Expected: a `handle_tool_close`-style function and a dispatch entry.
@@ -2034,7 +2034,7 @@ git commit -m "feat(mcp): dk_abandon tool + dk_connect resume_session_id"
 - [ ] **Step 1: Locate DB init + Server::serve**
 
 ```bash
-grep -n "PgPool\|Server::builder\|serve" /Users/haimari/vsCode/haim-ari/github/dkod-engine/crates/dk-server/src/main.rs
+git grep -n "PgPool\|Server::builder\|serve" -- crates/dk-server/src/main.rs
 ```
 
 - [ ] **Step 2: Insert the reconcile call**
@@ -2247,7 +2247,7 @@ Call `incr_workspace_stranded(reason.as_str())` inside `strand` just before the 
 Update the gauge from the GC loop after each `sweep_stranded` call:
 
 ```rust
-let active: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM workspaces WHERE stranded_at IS NOT NULL AND abandoned_at IS NULL")
+let active: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM session_workspaces WHERE stranded_at IS NOT NULL AND abandoned_at IS NULL")
     .fetch_one(pool).await.unwrap_or(0);
 crate::metrics::set_workspace_stranded_active(active);
 ```
@@ -2299,18 +2299,33 @@ git commit -m "chore(engine): raise idle_ttl 30m→60m to cover slow LLM turns"
 **Files:**
 - Covered by Task 5 (`pin_flag_enabled`). Verify here.
 
-- [ ] **Step 1: Add integration test asserting flag-off preserves legacy behavior**
+- [ ] **Step 1: Add integration test asserting flag-off strands (not hard-evicts) non-terminal workspaces**
+
+When `DKOD_PIN_NONTERMINAL=0` the pin guard is bypassed, so GC *can* evict a non-terminal workspace — but the
+implementation strands it first (preserving recoverability) rather than hard-deleting the row. The actual
+behavior is: **flag-off still preserves recoverability by stranding non-terminal workspaces on expiry
+rather than hard-deleting them**. The test name reflects this:
 
 ```rust
 #[sqlx::test]
-async fn flag_off_evicts_even_non_terminal_workspaces(pool: PgPool) {
+async fn flag_off_strands_nonterminal_on_expiry(pool: PgPool) {
     std::env::set_var("DKOD_PIN_NONTERMINAL", "0");
     let mgr = WorkspaceManager::new(pool.clone());
     let session_id = insert_workspace_with_changeset(&pool, ChangesetState::Submitted).await;
     // Populate in-memory with old last_active
     mgr.insert_test_workspace(/* ws with last_active in past */);
     let evicted = mgr.gc_expired_sessions_async(Duration::from_secs(60), Duration::from_secs(3600)).await;
-    assert_eq!(evicted, vec![session_id]);
+    // Session appears in evicted vec (lock-released) but row is stranded, not deleted.
+    assert!(evicted.contains(&session_id));
+    let row: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
+        "SELECT stranded_at FROM session_workspaces WHERE session_id = $1"
+    )
+    .bind(session_id)
+    .fetch_optional(&pool)
+    .await
+    .unwrap()
+    .flatten();
+    assert!(row.is_some(), "row must be stranded, not hard-deleted");
     std::env::remove_var("DKOD_PIN_NONTERMINAL");
 }
 ```
@@ -2318,9 +2333,9 @@ async fn flag_off_evicts_even_non_terminal_workspaces(pool: PgPool) {
 - [ ] **Step 2: Run + commit**
 
 ```bash
-DATABASE_URL=… cargo test -p dk-engine --test session_gc_test flag_off_evicts
+DATABASE_URL=… cargo test -p dk-engine --test session_gc_test flag_off_strands
 git add crates/dk-engine/tests/integration/session_gc_test.rs
-git commit -m "test(engine): verify DKOD_PIN_NONTERMINAL=0 preserves legacy eviction"
+git commit -m "test(engine): verify DKOD_PIN_NONTERMINAL=0 strands non-terminal workspaces"
 ```
 
 ---

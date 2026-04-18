@@ -55,6 +55,19 @@ pub async fn run(args: AdminArgs, global_server: Option<String>) -> Result<()> {
                 .await
                 .context("failed to connect to dk-server")?;
 
+            // Validate operator early: must be non-empty printable ASCII so that
+            // it can be embedded as a gRPC metadata header value without error.
+            if operator.is_empty()
+                || !operator
+                    .chars()
+                    .all(|c| c.is_ascii_graphic() || c == ' ')
+            {
+                anyhow::bail!(
+                    "--operator must be non-empty ASCII (letters, digits, punctuation, \
+                     space); got {operator:?}"
+                );
+            }
+
             let mut request = tonic::Request::new(dk_protocol::AbandonRequest {
                 session_id: session_id.clone(),
             });

@@ -89,6 +89,24 @@ pub async fn handle_connect(
                             let ws = mgr
                                 .get_workspace(&new_sid)
                                 .ok_or_else(|| Status::internal("rehydrated workspace not found"))?;
+                            // Epic B: reject cross-codebase resume. Resolve req.codebase and
+                            // compare to the rehydrated workspace's repo_id so an agent cannot
+                            // resume a stranded workspace that belongs to a different repository.
+                            let (expected_repo_id, _git) = server
+                                .engine()
+                                .get_repo(&req.codebase)
+                                .await
+                                .map_err(|e| {
+                                    Status::invalid_argument(format!(
+                                        "codebase lookup failed: {e}"
+                                    ))
+                                })?;
+                            if ws.repo_id != expected_repo_id {
+                                return Err(Status::invalid_argument(
+                                    "Cannot resume stranded workspace from a different codebase"
+                                        .to_string(),
+                                ));
+                            }
                             let base_commit = ws.base_commit.clone();
                             let changeset_id = ws.changeset_id;
                             let workspace_id = ws.id;
