@@ -126,3 +126,63 @@ async fn test_gc_mixed_sessions() {
     assert_eq!(mgr.total_active(), 1, "active session should remain");
     assert!(mgr.get_workspace(&active_id).is_some());
 }
+
+// ── should_pin integration tests (require DATABASE_URL / sqlx::test) ──
+
+#[sqlx::test]
+async fn should_pin_returns_true_for_non_terminal_states(pool: PgPool) {
+    use dk_engine::changeset::ChangesetState;
+    let mgr = WorkspaceManager::new(pool.clone());
+    let session_id = insert_workspace_with_changeset(&pool, ChangesetState::Submitted).await;
+    assert!(mgr.should_pin(&session_id).await);
+}
+
+#[sqlx::test]
+async fn should_pin_returns_false_for_terminal_states(pool: PgPool) {
+    use dk_engine::changeset::ChangesetState;
+    let mgr = WorkspaceManager::new(pool.clone());
+    for state in [ChangesetState::Merged, ChangesetState::Rejected, ChangesetState::Closed] {
+        let session_id = insert_workspace_with_changeset(&pool, state).await;
+        assert!(!mgr.should_pin(&session_id).await, "state {state:?} should not pin");
+    }
+}
+
+#[sqlx::test]
+async fn should_pin_returns_false_when_session_has_no_changeset(pool: PgPool) {
+    let mgr = WorkspaceManager::new(pool);
+    let missing = Uuid::new_v4();
+    assert!(!mgr.should_pin(&missing).await);
+}
+
+/// Test helper. Inserts a session_workspaces row + matching changesets row, returns session_id.
+async fn insert_workspace_with_changeset(pool: &PgPool, state: dk_engine::changeset::ChangesetState) -> Uuid {
+    let session_id = Uuid::new_v4();
+    let changeset_id = Uuid::new_v4();
+    let repo_id = Uuid::new_v4();
+    // Insert a repo row first (repositories is referenced by changesets and session_workspaces).
+    sqlx::query(
+        "INSERT INTO repositories (id, name, path, created_at)
+         VALUES ($1, $2, $3, now())
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(repo_id)
+    .bind(format!("test-repo-{}", session_id))
+    .bind(format!("/tmp/repo-{}", session_id))
+    .execute(pool).await.unwrap();
+    // Insert the changeset (required by FK if session_workspaces.changeset_id references it).
+    sqlx::query(
+        "INSERT INTO changesets (id, repo_id, number, state)
+         VALUES ($1, $2, 1, $3)",
+    )
+    .bind(changeset_id).bind(repo_id).bind(state.as_str())
+    .execute(pool).await.unwrap();
+    // Insert the session workspace pointing at the changeset.
+    sqlx::query(
+        "INSERT INTO session_workspaces (session_id, repo_id, agent_id, changeset_id,
+                                         base_commit_hash, intent)
+         VALUES ($1, $2, 'agent-test', $3, 'initial', 'test')",
+    )
+    .bind(session_id).bind(repo_id).bind(changeset_id)
+    .execute(pool).await.unwrap();
+    session_id
+}

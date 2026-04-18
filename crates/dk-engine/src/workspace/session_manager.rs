@@ -329,6 +329,35 @@ impl WorkspaceManager {
         self.workspaces.len()
     }
 
+    /// Return true when this workspace's changeset is in a non-terminal state
+    /// and the workspace should NOT be evicted by GC. See Epic B spec §Pin rule.
+    ///
+    /// Uses a single indexed query on (session_id) → (changeset_id); returns
+    /// false on missing workspace/changeset so the caller falls through to
+    /// the existing eviction path.
+    pub async fn should_pin(&self, session_id: &SessionId) -> bool {
+        let row: Option<(String,)> = sqlx::query_as(
+            r#"
+            SELECT c.state
+            FROM session_workspaces w
+            JOIN changesets c ON c.id = w.changeset_id
+            WHERE w.session_id = $1
+            LIMIT 1
+            "#,
+        )
+        .bind(session_id)
+        .fetch_optional(&self.db)
+        .await
+        .ok()
+        .flatten();
+
+        match row {
+            Some((state,)) => crate::changeset::ChangesetState::parse(&state)
+                .is_some_and(|s| !s.is_terminal()),
+            None => false,
+        }
+    }
+
     /// Describe which other sessions have modified a given file.
     ///
     /// Returns a formatted string like `"fn create_task modified by agent-2"`
