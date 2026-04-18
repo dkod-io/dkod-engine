@@ -228,6 +228,41 @@ impl SessionGraph {
         names
     }
 
+    /// Remove all session-owned (added or modified) symbols that belong to
+    /// `file_path`. Used by `reindex_from_overlay` when an overlay entry is
+    /// a deletion — the file no longer exists, so any symbols the session
+    /// added or modified for it should be dropped from the delta.
+    ///
+    /// Symbols from the base that happen to live in this file are NOT marked
+    /// as removed here; that would require knowledge of the base table which
+    /// is not always present. After a resume-from-overlay the base is empty
+    /// so this covers the common case correctly.
+    pub fn remove_session_symbols_for_file(&self, file_path: &str) {
+        let target = std::path::Path::new(file_path);
+
+        let added_ids: Vec<SymbolId> = self
+            .added_symbols
+            .iter()
+            .filter(|e| e.value().file_path == target)
+            .map(|e| *e.key())
+            .collect();
+
+        let modified_ids: Vec<SymbolId> = self
+            .modified_symbols
+            .iter()
+            .filter(|e| e.value().file_path == target)
+            .map(|e| *e.key())
+            .collect();
+
+        for id in added_ids {
+            self.added_symbols.remove(&id);
+        }
+        for id in modified_ids {
+            // Capture name before removing from modified (for removed_symbol_names cache).
+            self.remove_symbol(id);
+        }
+    }
+
     /// Update the session graph from a parse result for a single file.
     ///
     /// Compares the new symbols against the base symbols for that file,

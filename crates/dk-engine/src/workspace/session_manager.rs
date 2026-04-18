@@ -1005,7 +1005,7 @@ impl WorkspaceManager {
         // above (session_id rotated to new_session, stranded_at cleared). We use
         // the `rehydrate` constructor that wires up in-memory structures pointing
         // at the existing workspace_id PK — no second INSERT.
-        let ws = crate::workspace::session_workspace::SessionWorkspace::rehydrate(
+        let mut ws = crate::workspace::session_workspace::SessionWorkspace::rehydrate(
             workspace_id,
             new_session,
             repo_id,
@@ -1014,7 +1014,7 @@ impl WorkspaceManager {
             intent,
             base_commit,
             mode,
-            agent_name,
+            agent_name.clone(),
             self.db.clone(),
         );
 
@@ -1027,15 +1027,65 @@ impl WorkspaceManager {
             .await
             .map_err(|e| dk_core::Error::Internal(e.to_string()))?;
 
-        // TODO(Task 11): ws.reindex_from_overlay().await?;
+        // Rebuild the semantic graph from overlay content.
+        ws.reindex_from_overlay()
+            .await
+            .map_err(|e| dk_core::Error::Internal(format!("resume: reindex_from_overlay: {e}")))?;
 
-        // Atomic lock re-acquire — stubbed pending Task 11 graph reindex.
-        // TODO(Task 11): walk ws.graph.changed_symbols_with_files() and call
-        // self.claim_tracker.acquire(...) for each, returning Contended on conflict.
-        tracing::warn!(
-            session_id = %new_session,
-            "resume: graph reindex + symbol lock re-acquire stubbed pending Task 11"
-        );
+        // Eagerly re-acquire symbol locks over every changed symbol.
+        // Collect (file_path, qualified_name) pairs from the overlay + graph.
+        let mut sym_file_pairs: Vec<(String, String)> = Vec::new();
+        for path in ws.overlay.list_paths() {
+            for qname in ws.graph.changed_symbols_for_file(&path) {
+                sym_file_pairs.push((path.clone(), qname));
+            }
+        }
+
+        let mut conflicts: Vec<ConflictingSymbol> = Vec::new();
+        // Track freshly-acquired locks so we can roll back on contention.
+        let mut acquired: Vec<(String, String)> = Vec::new(); // (file_path, qualified_name)
+
+        for (file_path, qname) in &sym_file_pairs {
+            let claim = crate::conflict::SymbolClaim {
+                session_id: new_session,
+                agent_name: agent_name.clone(),
+                qualified_name: qname.clone(),
+                kind: dk_core::SymbolKind::Function, // conservative default; kind is not persisted per-lock
+                first_touched_at: chrono::Utc::now(),
+            };
+            match self
+                .claim_tracker
+                .acquire_lock(repo_id, file_path, claim)
+                .await
+            {
+                Ok(crate::conflict::AcquireOutcome::Fresh) => {
+                    acquired.push((file_path.clone(), qname.clone()));
+                }
+                Ok(crate::conflict::AcquireOutcome::ReAcquired) => {
+                    // Already held by this session — nothing to roll back.
+                }
+                Err(locked) => {
+                    conflicts.push(ConflictingSymbol {
+                        qualified_name: qname.clone(),
+                        file_path: file_path.clone(),
+                        claimant_session: locked.locked_by_session,
+                        claimant_agent: locked.locked_by_agent.clone(),
+                    });
+                }
+            }
+        }
+
+        if !conflicts.is_empty() {
+            // Roll back: release every freshly-acquired lock from this attempt.
+            for (fp, qname) in &acquired {
+                self.claim_tracker
+                    .release_lock(repo_id, fp, new_session, qname)
+                    .await;
+            }
+            // Re-strand so the DB row isn't left half-transitioned.
+            self.strand(&new_session, StrandReason::Explicit).await?;
+            return Ok(ResumeResult::Contended(conflicts));
+        }
 
         // Insert into the in-memory active-workspace map.
         self.workspaces.insert(new_session, ws);

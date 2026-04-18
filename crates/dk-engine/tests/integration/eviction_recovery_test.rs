@@ -5,8 +5,10 @@
 //!   DATABASE_URL=postgres://dkod:dkod@localhost:5432/dkod_test cargo test -p dk-engine
 
 use dk_engine::changeset::ChangesetState;
+use dk_engine::conflict::{LocalClaimTracker, SymbolClaim};
 use dk_engine::workspace::session_manager::{AbandonReason, ResumeResult, StrandReason, WorkspaceManager};
 use sqlx::PgPool;
+use std::sync::Arc;
 use uuid::Uuid;
 
 // ── Test helper ───────────────────────────────────────────────────────
@@ -170,4 +172,87 @@ async fn resume_terminal_changeset_returns_abandoned(pool: PgPool) {
         matches!(result, ResumeResult::Abandoned),
         "expected ResumeResult::Abandoned for terminal changeset, got {result:?}"
     );
+}
+
+/// Scenario: workspace A is stranded while session B holds a lock on the same
+/// symbol. Resuming A should detect contention and return Contended, leaving
+/// A re-stranded rather than partially live.
+///
+/// This test requires the symbol to already be in A's graph (written to the
+/// overlay + parsed before strand) AND for session B to hold the lock in the
+/// shared ClaimTracker. Because the overlay is empty at DB-level in this test
+/// setup (no session_overlay_files rows inserted), the Contended path cannot
+/// be triggered via `reindex_from_overlay` alone. The test is therefore marked
+/// `#[ignore]` and left as a placeholder for when a helper exists that writes
+/// overlay rows to the DB.
+///
+/// To run when a DB-overlay helper is available:
+///   DATABASE_URL=... cargo test -p dk-engine resume_contended_stays_stranded -- --ignored
+#[sqlx::test]
+#[ignore]
+async fn resume_contended_stays_stranded(pool: PgPool) {
+    use dk_core::SymbolKind;
+
+    let tracker = Arc::new(LocalClaimTracker::new());
+    let mgr = WorkspaceManager::with_deps(
+        pool.clone(),
+        Arc::new(dk_engine::workspace::cache::NoOpCache),
+        tracker.clone(),
+        Arc::new(dk_engine::workspace::session_manager::NoOpEventPublisher),
+    );
+
+    // 1. Insert workspace A with a non-terminal changeset.
+    let dead_session = insert_workspace_with_changeset(&pool, ChangesetState::Submitted).await;
+    let repo_id: Uuid = sqlx::query_scalar(
+        "SELECT repo_id FROM session_workspaces WHERE session_id = $1",
+    )
+    .bind(dead_session)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    // 2. Strand A.
+    mgr.strand(&dead_session, StrandReason::IdleTtl).await.unwrap();
+
+    // 3. Session B acquires the lock for the same symbol.
+    let session_b = Uuid::new_v4();
+    tracker
+        .acquire_lock(
+            repo_id,
+            "src/lib.rs",
+            SymbolClaim {
+                session_id: session_b,
+                agent_name: "agent-b".to_string(),
+                qualified_name: "conflict_fn".to_string(),
+                kind: SymbolKind::Function,
+                first_touched_at: chrono::Utc::now(),
+            },
+        )
+        .await
+        .unwrap();
+
+    // TODO: insert overlay rows for `src/lib.rs` in the DB for workspace A
+    // so that reindex_from_overlay picks up `conflict_fn` and tries to
+    // re-acquire — that triggers the Contended path.
+
+    // 4. Resume A — with overlay rows present this should return Contended.
+    let new_session = Uuid::new_v4();
+    let result = mgr.resume(&dead_session, new_session, "agent-test").await.unwrap();
+    assert!(
+        matches!(result, ResumeResult::Contended(_)),
+        "expected ResumeResult::Contended, got {result:?}"
+    );
+
+    // 5. A should be re-stranded (stranded_at set again).
+    // The new_session row won't exist since we rolled back; the dead_session
+    // row was already stranded — strand() is idempotent.
+    let stranded_at: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
+        "SELECT stranded_at FROM session_workspaces WHERE session_id = $1",
+    )
+    .bind(new_session)
+    .fetch_optional(&pool)
+    .await
+    .unwrap()
+    .flatten();
+    assert!(stranded_at.is_some(), "A should remain stranded after contended resume");
 }
