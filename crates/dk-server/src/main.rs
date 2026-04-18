@@ -85,10 +85,10 @@ async fn main() -> Result<()> {
 
     // Spawn the periodic GC + stranded sweep (runs every GC_INTERVAL).
     engine.spawn_gc_loop(
-        std::time::Duration::from_secs(60),       // tick
-        std::time::Duration::from_secs(3_600),    // idle_ttl (1 h)
-        std::time::Duration::from_secs(86_400),   // max_ttl  (24 h)
-        std::time::Duration::from_secs(1_800),    // stranded_ttl (30 min)
+        std::time::Duration::from_secs(60),        // tick
+        std::time::Duration::from_secs(3_600),     // idle_ttl (60 min)
+        std::time::Duration::from_secs(86_400),    // max_ttl  (24 h)
+        std::time::Duration::from_secs(14_400),    // stranded_ttl (4 h, spec §Policy #6)
     );
 
     let protocol = ProtocolServer::new(engine, auth_config);
