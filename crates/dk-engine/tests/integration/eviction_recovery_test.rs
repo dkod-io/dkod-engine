@@ -5,7 +5,7 @@
 //!   DATABASE_URL=postgres://dkod:dkod@localhost:5432/dkod_test cargo test -p dk-engine
 
 use dk_engine::changeset::ChangesetState;
-use dk_engine::conflict::{LocalClaimTracker, SymbolClaim};
+use dk_engine::conflict::{ClaimTracker, LocalClaimTracker, SymbolClaim};
 use dk_engine::workspace::session_manager::{AbandonReason, ResumeResult, StrandReason, WorkspaceManager};
 use sqlx::PgPool;
 use std::sync::Arc;
