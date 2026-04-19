@@ -55,8 +55,10 @@ pub async fn run(args: AdminArgs, global_server: Option<String>) -> Result<()> {
                 .await
                 .context("failed to connect to dk-server")?;
 
-            // Validate operator early: must be non-empty printable ASCII so that
-            // it can be embedded as a gRPC metadata header value without error.
+            // Validate operator early: must be non-empty (after trimming) printable
+            // ASCII so that it can be embedded as a gRPC metadata header value
+            // without error. Whitespace-only input is rejected.
+            let operator = operator.trim();
             if operator.is_empty()
                 || !operator
                     .chars()
