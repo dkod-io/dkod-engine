@@ -68,6 +68,10 @@ pub async fn run(args: AdminArgs, global_server: Option<String>) -> Result<()> {
                 );
             }
 
+            // Validate session_id as UUID upfront before RPC.
+            let _ = uuid::Uuid::parse_str(&session_id)
+                .map_err(|e| anyhow::anyhow!("--session-id must be a valid UUID: {e}"))?;
+
             let mut request = tonic::Request::new(dk_protocol::AbandonRequest {
                 session_id: session_id.clone(),
             });
