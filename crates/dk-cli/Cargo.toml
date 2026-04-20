@@ -15,6 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
+chrono = { workspace = true }
 gix = { version = "0.79", features = ["max-performance", "blocking-network-client"] }
 clap = { version = "4", features = ["derive", "env"] }
 colored = "3"

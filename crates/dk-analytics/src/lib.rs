@@ -43,6 +43,7 @@ pub mod client;
 pub mod events;
 pub mod global;
 pub mod pytorch_bridge;
+pub mod queries;
 pub mod schema;
 pub mod sink;
 
