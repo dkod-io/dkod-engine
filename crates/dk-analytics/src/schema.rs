@@ -21,9 +21,31 @@ pub const SCHEMA_SQL: &str = include_str!("schema.sql");
 /// which is why it is applied separately from the base schema.
 pub const MATERIALIZED_VIEWS_SQL: &str = include_str!("materialized_views.sql");
 
-/// Parse a DDL bundle into a sequence of statements separated by `;`,
-/// skipping SQL line comments. Exposed for tests and for operators who want
-/// to preview what `migrate` will execute.
+/// Split a bundled SQL string into individual statements suitable for execution.
+///
+/// This parses `schema` into a Vec of SQL statements by removing empty lines and
+/// single-line SQL comments that start with `--`, and by trimming trailing
+/// semicolons from each statement.
+///
+/// # Returns
+///
+/// A `Vec<String>` where each entry is one SQL statement without a trailing `;`
+/// and with comment/empty lines removed.
+///
+/// # Examples
+///
+/// ```
+/// let sql = r#"
+/// -- comment
+/// CREATE TABLE x (id Int64);
+///
+/// CREATE TABLE y (id Int64);
+/// "#;
+/// let stmts = statements(sql);
+/// assert_eq!(stmts.len(), 2);
+/// assert!(stmts[0].starts_with("CREATE TABLE x"));
+/// assert!(!stmts[0].ends_with(';'));
+/// ```
 pub fn statements(schema: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut buf = String::new();
@@ -49,8 +71,18 @@ pub fn statements(schema: &str) -> Vec<String> {
     out
 }
 
-/// Apply a DDL bundle statement by statement, attaching the offending SQL
-/// to any error for easier operator debugging.
+/// Applies a DDL bundle statement-by-statement, attaching the offending SQL to any error for easier operator debugging.
+///
+/// # Examples
+///
+/// ```no_run
+/// # use dk_analytics::schema::apply_bundle;
+/// # use dk_analytics::AnalyticsClient;
+/// # async fn run(client: &AnalyticsClient) -> anyhow::Result<()> {
+/// apply_bundle(client, "CREATE TABLE x (id UInt64);", "schema").await?;
+/// # Ok::<(), anyhow::Error>(())
+/// # }
+/// ```
 async fn apply_bundle(client: &AnalyticsClient, bundle: &str, label: &str) -> Result<()> {
     for stmt in statements(bundle) {
         tracing::debug!(target: "dk_analytics", bundle = label, "applying DDL: {stmt}");
@@ -64,14 +96,37 @@ async fn apply_bundle(client: &AnalyticsClient, bundle: &str, label: &str) -> Re
     Ok(())
 }
 
-/// Run the base DDL against ClickHouse. Idempotent — every statement uses
-/// `CREATE TABLE IF NOT EXISTS`.
+/// Apply the embedded base schema DDL to the provided ClickHouse analytics client.
+///
+/// This runs the statements contained in the bundled `SCHEMA_SQL`. The bundled DDL is written
+/// to be idempotent (uses `CREATE TABLE IF NOT EXISTS`), so calling this multiple times is safe.
+///
+/// # Examples
+///
+/// ```no_run
+/// # async fn example() -> anyhow::Result<()> {
+/// let client = /* obtain an AnalyticsClient */ unimplemented!();
+/// migrate(&client).await?;
+/// # Ok(())
+/// # }
+/// ```
 pub async fn migrate(client: &AnalyticsClient) -> Result<()> {
     apply_bundle(client, SCHEMA_SQL, "schema").await
 }
 
-/// Run the optional materialized-view DDL. Idempotent. Fails on ClickHouse
-/// older than 24.3 because the `REFRESH EVERY` syntax is unsupported there.
+/// Applies the bundled materialized-view DDL to the provided ClickHouse client.
+///
+/// This migration is idempotent. It requires ClickHouse 24.3 or newer because the bundled
+/// materialized-view statements use the `REFRESH EVERY` syntax, which older versions do not support.
+///
+/// # Examples
+///
+/// ```no_run
+/// # async fn example(client: &AnalyticsClient) -> anyhow::Result<()> {
+/// migrate_materialized_views(client).await?;
+/// # Ok(())
+/// # }
+/// ```
 pub async fn migrate_materialized_views(client: &AnalyticsClient) -> Result<()> {
     apply_bundle(client, MATERIALIZED_VIEWS_SQL, "materialized_views").await
 }
