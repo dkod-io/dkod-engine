@@ -8,7 +8,12 @@ use dk_protocol::FileWriteRequest;
 use crate::grpc;
 use crate::output::Output;
 
-pub async fn run(out: Output, path: &str, content: Option<String>, from: Option<PathBuf>) -> Result<()> {
+pub async fn run(
+    out: Output,
+    path: &str,
+    content: Option<String>,
+    from: Option<PathBuf>,
+) -> Result<()> {
     let (mut client, state) = grpc::client_from_session().await?;
 
     let bytes = if let Some(text) = content {
@@ -18,7 +23,9 @@ pub async fn run(out: Output, path: &str, content: Option<String>, from: Option<
             .with_context(|| format!("failed to read {}", file_path.display()))?
     } else {
         let mut buf = Vec::new();
-        std::io::stdin().read_to_end(&mut buf).context("failed to read from stdin")?;
+        std::io::stdin()
+            .read_to_end(&mut buf)
+            .context("failed to read from stdin")?;
         buf
     };
 
@@ -43,7 +50,12 @@ pub async fn run(out: Output, path: &str, content: Option<String>, from: Option<
         println!("{} {}", "Written.".green().bold(), path);
         if !resp.detected_changes.is_empty() {
             for c in &resp.detected_changes {
-                println!("  {} {} ({})", "\u{2022}".cyan(), c.symbol_name, c.change_type);
+                println!(
+                    "  {} {} ({})",
+                    "\u{2022}".cyan(),
+                    c.symbol_name,
+                    c.change_type
+                );
             }
         }
     }

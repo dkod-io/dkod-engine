@@ -143,15 +143,15 @@ pub struct ChangesetFileMeta {
 /// A single AI-generated review result, as stored in `changeset_ai_reviews`.
 #[derive(Debug, Clone)]
 pub struct AiReview {
-    pub id:          Uuid,
-    pub tier:        String,
-    pub score:       Option<i32>,
-    pub summary:     Option<String>,
-    pub findings:    serde_json::Value,
-    pub provider:    String,
-    pub model:       String,
+    pub id: Uuid,
+    pub tier: String,
+    pub score: Option<i32>,
+    pub summary: Option<String>,
+    pub findings: serde_json::Value,
+    pub provider: String,
+    pub model: String,
     pub duration_ms: i64,
-    pub created_at:  chrono::DateTime<chrono::Utc>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
 pub struct ChangesetStore {
@@ -180,7 +180,13 @@ impl ChangesetStore {
         let intent_slug: String = intent
             .to_lowercase()
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '-' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' {
+                    c
+                } else {
+                    '-'
+                }
+            })
             .collect::<String>()
             .trim_matches('-')
             .to_string();
@@ -295,7 +301,8 @@ impl ChangesetStore {
         new_status: &str,
         expected_states: &[&str],
     ) -> dk_core::Result<()> {
-        self.update_status_if_with_reason(id, new_status, expected_states, "").await
+        self.update_status_if_with_reason(id, new_status, expected_states, "")
+            .await
     }
 
     /// Like `update_status_if` but also records a reason for the transition.
@@ -381,7 +388,10 @@ impl ChangesetStore {
 
     /// Lightweight query returning only file metadata (path, operation, size)
     /// without loading the full content column.
-    pub async fn get_files_metadata(&self, changeset_id: Uuid) -> dk_core::Result<Vec<ChangesetFileMeta>> {
+    pub async fn get_files_metadata(
+        &self,
+        changeset_id: Uuid,
+    ) -> dk_core::Result<Vec<ChangesetFileMeta>> {
         let rows: Vec<(String, String, i64)> = sqlx::query_as(
             "SELECT file_path, operation, COALESCE(LENGTH(content), 0)::bigint AS size_bytes FROM changeset_files WHERE changeset_id = $1",
         )
@@ -418,7 +428,10 @@ impl ChangesetStore {
         Ok(())
     }
 
-    pub async fn get_affected_symbols(&self, changeset_id: Uuid) -> dk_core::Result<Vec<(SymbolId, String)>> {
+    pub async fn get_affected_symbols(
+        &self,
+        changeset_id: Uuid,
+    ) -> dk_core::Result<Vec<(SymbolId, String)>> {
         let rows: Vec<(Uuid, String)> = sqlx::query_as(
             "SELECT symbol_id, symbol_qualified_name FROM changeset_symbols WHERE changeset_id = $1",
         )
@@ -474,25 +487,44 @@ impl ChangesetStore {
     }
 
     /// Retrieve all AI review results for a changeset, ordered oldest-first.
-    pub async fn get_ai_reviews(
-        &self,
-        changeset_id: Uuid,
-    ) -> dk_core::Result<Vec<AiReview>> {
-        let rows: Vec<(Uuid, String, Option<i32>, Option<String>, serde_json::Value, String, String, i64, chrono::DateTime<chrono::Utc>)> =
-            sqlx::query_as(
-                "SELECT id, tier, score, summary, findings, provider, model, duration_ms, created_at \
+    #[allow(clippy::type_complexity)]
+    pub async fn get_ai_reviews(&self, changeset_id: Uuid) -> dk_core::Result<Vec<AiReview>> {
+        let rows: Vec<(
+            Uuid,
+            String,
+            Option<i32>,
+            Option<String>,
+            serde_json::Value,
+            String,
+            String,
+            i64,
+            chrono::DateTime<chrono::Utc>,
+        )> = sqlx::query_as(
+            "SELECT id, tier, score, summary, findings, provider, model, duration_ms, created_at \
                  FROM changeset_ai_reviews \
                  WHERE changeset_id = $1 \
                  ORDER BY created_at ASC",
-            )
-            .bind(changeset_id)
-            .fetch_all(&self.db)
-            .await?;
+        )
+        .bind(changeset_id)
+        .fetch_all(&self.db)
+        .await?;
         Ok(rows
             .into_iter()
-            .map(|(id, tier, score, summary, findings, provider, model, duration_ms, created_at)| {
-                AiReview { id, tier, score, summary, findings, provider, model, duration_ms, created_at }
-            })
+            .map(
+                |(id, tier, score, summary, findings, provider, model, duration_ms, created_at)| {
+                    AiReview {
+                        id,
+                        tier,
+                        score,
+                        summary,
+                        findings,
+                        provider,
+                        model,
+                        duration_ms,
+                        created_at,
+                    }
+                },
+            )
             .collect())
     }
 
@@ -524,7 +556,8 @@ impl ChangesetStore {
         .fetch_all(&self.db)
         .await?;
 
-        let mut map: std::collections::HashMap<Uuid, Vec<String>> = std::collections::HashMap::new();
+        let mut map: std::collections::HashMap<Uuid, Vec<String>> =
+            std::collections::HashMap::new();
         for (cs_id, sym_name) in rows {
             map.entry(cs_id).or_default().push(sym_name);
         }
@@ -542,7 +575,13 @@ mod tests {
         let slug: String = intent
             .to_lowercase()
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '-' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' {
+                    c
+                } else {
+                    '-'
+                }
+            })
             .collect::<String>()
             .trim_matches('-')
             .to_string();
@@ -612,7 +651,10 @@ mod tests {
         assert_eq!(cs.source_branch, "agent/test-agent");
         assert_eq!(cs.target_branch, "main");
         assert_eq!(cs.agent_name.as_deref(), Some("test-agent"));
-        assert_eq!(cs.agent_id, cs.agent_name, "agent_name should equal agent_id per create()");
+        assert_eq!(
+            cs.agent_id, cs.agent_name,
+            "agent_name should equal agent_id per create()"
+        );
         assert!(cs.merged_at.is_none());
         assert!(cs.merged_version.is_none());
     }

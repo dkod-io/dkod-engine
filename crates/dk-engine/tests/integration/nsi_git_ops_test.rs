@@ -45,10 +45,7 @@ fn test_read_tree_entry_invalid_commit() {
     );
 
     // Valid hex format but non-existent commit.
-    let result = repo.read_tree_entry(
-        "0000000000000000000000000000000000000000",
-        "file.txt",
-    );
+    let result = repo.read_tree_entry("0000000000000000000000000000000000000000", "file.txt");
     assert!(
         result.is_err(),
         "read_tree_entry with non-existent commit should error"

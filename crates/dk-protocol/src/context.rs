@@ -1,10 +1,10 @@
 use tonic::{Response, Status};
 use tracing::info;
 
-use crate::server::ProtocolServer;
-use crate::{
+use crate::generated::dkod::v1::agent::{
     CallEdgeRef, ContextDepth, ContextRequest, ContextResponse, SymbolRef, SymbolResult,
 };
+use crate::server::ProtocolServer;
 
 /// Handle a CONTEXT RPC.
 ///
@@ -79,12 +79,9 @@ pub async fn handle_context(
             if include_source {
                 let source_bytes = if let Some(ref ws) = maybe_ws {
                     // Read through workspace overlay (sees session modifications)
-                    ws.read_file(
-                        &sym.file_path.to_string_lossy(),
-                        &git_repo,
-                    )
-                    .ok()
-                    .map(|r| r.content)
+                    ws.read_file(&sym.file_path.to_string_lossy(), &git_repo)
+                        .ok()
+                        .map(|r| r.content)
                 } else {
                     // Fallback: read directly from working directory
                     let file_path = git_repo.path().join(&sym.file_path);
@@ -95,9 +92,8 @@ pub async fn handle_context(
                     let start = sym.span.start_byte as usize;
                     let end = sym.span.end_byte as usize;
                     if end <= source.len() {
-                        result.source = Some(
-                            String::from_utf8_lossy(&source[start..end]).to_string(),
-                        );
+                        result.source =
+                            Some(String::from_utf8_lossy(&source[start..end]).to_string());
                     }
                 }
             }
@@ -205,7 +201,7 @@ pub async fn handle_context(
                     .await
                     .unwrap_or_default();
 
-                dep_refs.push(crate::DependencyRef {
+                dep_refs.push(crate::generated::dkod::v1::agent::DependencyRef {
                     package: dep.package.clone(),
                     version_req: dep.version_req.clone(),
                     used_by_symbol_ids: symbol_ids.iter().map(|id| id.to_string()).collect(),

@@ -1,8 +1,8 @@
 pub mod checks;
-pub mod context;
-pub mod safety;
 pub mod compat;
+pub mod context;
 pub mod quality;
+pub mod safety;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -46,7 +46,8 @@ fn suggest(finding_index: usize, finding: &Finding) -> Option<Suggestion> {
             None,
         ),
         "signature-stable" => (
-            "Keep the original signature and add a new function with the updated signature".to_string(),
+            "Keep the original signature and add a new function with the updated signature"
+                .to_string(),
             None,
         ),
         "trait-impl-complete" => (
@@ -99,8 +100,7 @@ pub async fn run_semantic_step(
     let start = Instant::now();
 
     // Build the check context from graph stores + parsed changeset.
-    let ctx = match context::build_check_context(engine, repo_id, changeset_files, work_dir).await
-    {
+    let ctx = match context::build_check_context(engine, repo_id, changeset_files, work_dir).await {
         Ok(ctx) => ctx,
         Err(e) => {
             let output = StepOutput {
@@ -133,9 +133,18 @@ pub async fn run_semantic_step(
         if findings.is_empty() {
             results.push(format!("[PASS] {}", check.name()));
         } else {
-            let errors = findings.iter().filter(|f| f.severity == Severity::Error).count();
-            let warnings = findings.iter().filter(|f| f.severity == Severity::Warning).count();
-            let infos = findings.iter().filter(|f| f.severity == Severity::Info).count();
+            let errors = findings
+                .iter()
+                .filter(|f| f.severity == Severity::Error)
+                .count();
+            let warnings = findings
+                .iter()
+                .filter(|f| f.severity == Severity::Warning)
+                .count();
+            let infos = findings
+                .iter()
+                .filter(|f| f.severity == Severity::Info)
+                .count();
             results.push(format!(
                 "[FIND] {} — {} error(s), {} warning(s), {} info(s)",
                 check.name(),
@@ -155,9 +164,7 @@ pub async fn run_semantic_step(
         .collect();
 
     // Determine overall status.
-    let has_errors = all_findings
-        .iter()
-        .any(|f| f.severity == Severity::Error);
+    let has_errors = all_findings.iter().any(|f| f.severity == Severity::Error);
 
     let status = if has_errors {
         StepStatus::Fail
@@ -220,7 +227,12 @@ mod tests {
     #[test]
     fn test_all_checks_registered() {
         let checks = all_checks();
-        assert_eq!(checks.len(), 9, "Expected 9 semantic checks, got {}", checks.len());
+        assert_eq!(
+            checks.len(),
+            9,
+            "Expected 9 semantic checks, got {}",
+            checks.len()
+        );
     }
 
     #[test]
@@ -230,11 +242,7 @@ mod tests {
         let total = names.len();
         names.sort();
         names.dedup();
-        assert_eq!(
-            names.len(),
-            total,
-            "Duplicate check names found"
-        );
+        assert_eq!(names.len(), total, "Duplicate check names found");
     }
 
     #[test]
@@ -255,11 +263,7 @@ mod tests {
         ];
 
         for name in &expected {
-            assert!(
-                names.contains(name),
-                "Missing expected check: {}",
-                name
-            );
+            assert!(names.contains(name), "Missing expected check: {}", name);
         }
     }
 
@@ -297,7 +301,7 @@ mod tests {
 
     #[test]
     fn test_safety_no_unsafe_detects_unsafe_block() {
-        use checks::{CheckContext, ChangedFile, SemanticCheck};
+        use checks::{ChangedFile, CheckContext, SemanticCheck};
         use safety::NoUnsafeAdded;
 
         let ctx = CheckContext {
@@ -309,7 +313,9 @@ mod tests {
             after_deps: Vec::new(),
             changed_files: vec![ChangedFile {
                 path: "src/lib.rs".to_string(),
-                content: Some("fn foo() {\n    unsafe {\n        ptr::read(p)\n    }\n}".to_string()),
+                content: Some(
+                    "fn foo() {\n    unsafe {\n        ptr::read(p)\n    }\n}".to_string(),
+                ),
             }],
         };
 
@@ -332,7 +338,10 @@ mod tests {
             kind: SymbolKind::Function,
             visibility: Visibility::Public,
             file_path: "src/lib.rs".into(),
-            span: Span { start_byte: 0, end_byte: 100 },
+            span: Span {
+                start_byte: 0,
+                end_byte: 100,
+            },
             signature: Some("fn foo()".to_string()),
             doc_comment: None,
             parent: None,
@@ -358,7 +367,7 @@ mod tests {
 
     #[test]
     fn test_safety_no_unwrap_detects_unwrap() {
-        use checks::{CheckContext, ChangedFile, SemanticCheck};
+        use checks::{ChangedFile, CheckContext, SemanticCheck};
         use safety::NoUnwrapAdded;
 
         let ctx = CheckContext {
@@ -382,12 +391,15 @@ mod tests {
 
     #[test]
     fn test_quality_complexity_limit() {
-        use checks::{CheckContext, ChangedFile, SemanticCheck};
+        use checks::{ChangedFile, CheckContext, SemanticCheck};
         use quality::ComplexityLimit;
 
         // Wrap the deeply nested branching in a function so per-function
         // complexity tracking detects it.
-        let inner = (0..15).map(|i| format!("if x > {} {{", i)).collect::<Vec<_>>().join("\n")
+        let inner = (0..15)
+            .map(|i| format!("if x > {} {{", i))
+            .collect::<Vec<_>>()
+            .join("\n")
             + &"\n}".repeat(15);
         let deeply_nested = format!("fn deep() {{\n{}\n}}", inner);
 

@@ -1,7 +1,11 @@
 #![allow(clippy::new_without_default, clippy::result_large_err)]
 
-mod generated;
+// Exposed so sibling crates (e.g. dk-agent-sdk) can reach into a
+// specific submodule and disambiguate proto re-exports. The flat
+// re-export below is still the primary public API.
+pub mod generated;
 
+#[allow(ambiguous_glob_reexports, unused_imports)]
 pub use generated::dkod::v1::*;
 
 pub mod approve;

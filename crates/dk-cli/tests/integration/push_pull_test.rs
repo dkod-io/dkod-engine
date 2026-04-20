@@ -55,7 +55,10 @@ fn setup_remote_and_clone() -> (TempDir, TempDir, PathBuf) {
 #[test]
 fn push_to_remote() {
     let (bare, _work, work_path) = setup_remote_and_clone();
-    dk().args(["git", "push"]).current_dir(&work_path).assert().success();
+    dk().args(["git", "push"])
+        .current_dir(&work_path)
+        .assert()
+        .success();
 
     // Verify by cloning from bare
     let verify = TempDir::new().unwrap();
@@ -71,7 +74,10 @@ fn push_to_remote() {
 #[test]
 fn pull_from_remote() {
     let (bare, _work, work_path) = setup_remote_and_clone();
-    dk().args(["git", "push"]).current_dir(&work_path).assert().success();
+    dk().args(["git", "push"])
+        .current_dir(&work_path)
+        .assert()
+        .success();
 
     // Second clone
     let clone2 = TempDir::new().unwrap();
@@ -99,14 +105,21 @@ fn pull_from_remote() {
         .success();
 
     // Pull in original
-    dk().args(["git", "pull"]).current_dir(&work_path).assert().success();
+    dk().args(["git", "pull"])
+        .current_dir(&work_path)
+        .assert()
+        .success();
     assert!(work_path.join("new.txt").exists());
 }
 
 #[test]
 fn push_no_remote_fails() {
     let dir = TempDir::new().unwrap();
-    dk().arg("git").arg("init").arg(dir.path()).assert().success();
+    dk().arg("git")
+        .arg("init")
+        .arg(dir.path())
+        .assert()
+        .success();
     configure_git_user(dir.path());
     fs::write(dir.path().join("f.txt"), "x").unwrap();
     dk().args(["git", "add", "f.txt"])
@@ -117,5 +130,8 @@ fn push_no_remote_fails() {
         .current_dir(dir.path())
         .assert()
         .success();
-    dk().args(["git", "push"]).current_dir(dir.path()).assert().failure();
+    dk().args(["git", "push"])
+        .current_dir(dir.path())
+        .assert()
+        .failure();
 }

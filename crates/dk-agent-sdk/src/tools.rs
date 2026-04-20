@@ -36,7 +36,8 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
                 "until merged. Response is JSON: {session_id, base_commit, ",
                 "codebase_summary: {languages, total_symbols, total_files}, ",
                 "active_sessions}."
-            ).into(),
+            )
+            .into(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -68,7 +69,8 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
                 "file_path, signature, source, callers, callees}], token_count, ",
                 "freshness}. Results reflect this session's workspace (including ",
                 "uncommitted local changes)."
-            ).into(),
+            )
+            .into(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -103,7 +105,8 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
                 "view: if the file was modified in this session, returns the ",
                 "modified version; otherwise returns the base version. Response is ",
                 "JSON: {content, hash, modified_in_session}."
-            ).into(),
+            )
+            .into(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -120,7 +123,8 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
                 "Write a file to this session's workspace overlay. The change is ",
                 "only visible to this session until submitted. Response is JSON: ",
                 "{new_hash, detected_changes: [{symbol_name, change_type}]}."
-            ).into(),
+            )
+            .into(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -143,7 +147,8 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
                 "error, suggestion}]} or {status: 'conflict', conflicts: [{file, ",
                 "symbol, our_change, their_change}]} or {status: 'pending_review', ",
                 "changeset_id}."
-            ).into(),
+            )
+            .into(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -168,7 +173,8 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
                 "Get the current state of this session's workspace. Response is ",
                 "JSON: {session_id, base_commit, files_modified, symbols_modified, ",
                 "overlay_size_bytes, active_other_sessions}."
-            ).into(),
+            )
+            .into(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -184,7 +190,8 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
                 "List files in this session's workspace, optionally filtered by ",
                 "path prefix. Modified files are tagged. Response is JSON: ",
                 "{files: [{path, modified_in_session}], total}."
-            ).into(),
+            )
+            .into(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -204,7 +211,8 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
                 "Run verification pipeline (lint, test, type-check) on the ",
                 "session's changeset. Returns step-by-step results. Response is ",
                 "JSON: {changeset_id, passed, steps: [{step_name, status, output, required}]}."
-            ).into(),
+            )
+            .into(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -221,7 +229,8 @@ pub fn tool_definitions() -> Vec<ToolDefinition> {
                 "cleared on success. Changeset must be in 'approved' state. ",
                 "Response is JSON: {commit_hash, merged_version, auto_rebased, ",
                 "auto_rebased_files, conflicts}."
-            ).into(),
+            )
+            .into(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -250,33 +259,53 @@ pub async fn dispatch_tool(session: &mut Session, name: &str, input: &Value) -> 
     };
 
     let get_str = |key: &str| -> String {
-        input.get(key).and_then(|v| v.as_str()).unwrap_or("").to_string()
+        input
+            .get(key)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
     };
 
     match name {
         "dkod_context" => {
             let query = get_str("query");
-            let depth = match input.get("depth").and_then(|v| v.as_str()).unwrap_or("full") {
+            let depth = match input
+                .get("depth")
+                .and_then(|v| v.as_str())
+                .unwrap_or("full")
+            {
                 "signatures" => Depth::Signatures,
                 "call_graph" => Depth::CallGraph,
                 _ => Depth::Full,
             };
-            let max_tokens = input.get("max_tokens").and_then(|v| v.as_u64()).unwrap_or(8000) as u32;
+            let max_tokens = input
+                .get("max_tokens")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(8000) as u32;
             let result: ContextResult = session.context(&query, depth, max_tokens).await?;
             Ok(serde_json::to_string(&json!({
                 "symbols": result.symbols.len(),
                 "estimated_tokens": result.estimated_tokens,
-            })).unwrap())
+            }))
+            .unwrap())
         }
 
         "dkod_submit" => {
             let intent = get_str("intent");
-            let changes_json = input.get("changes").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+            let changes_json = input
+                .get("changes")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
             let changes: Vec<Change> = changes_json
                 .iter()
                 .filter_map(|c| {
                     let path = c.get("path")?.as_str()?.to_string();
-                    let content = c.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let content = c
+                        .get("content")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     match c.get("type").and_then(|v| v.as_str()).unwrap_or("modify") {
                         "add" => Some(Change::add(path, content)),
                         "delete" => Some(Change::delete(path)),
@@ -288,7 +317,8 @@ pub async fn dispatch_tool(session: &mut Session, name: &str, input: &Value) -> 
             Ok(serde_json::to_string(&json!({
                 "status": result.status,
                 "changeset_id": result.changeset_id,
-            })).unwrap())
+            }))
+            .unwrap())
         }
 
         "dkod_read_file" => {
@@ -298,7 +328,8 @@ pub async fn dispatch_tool(session: &mut Session, name: &str, input: &Value) -> 
                 "content": result.content,
                 "hash": result.hash,
                 "modified_in_session": result.modified_in_session,
-            })).unwrap())
+            }))
+            .unwrap())
         }
 
         "dkod_write_file" => {
@@ -308,7 +339,8 @@ pub async fn dispatch_tool(session: &mut Session, name: &str, input: &Value) -> 
             Ok(serde_json::to_string(&json!({
                 "new_hash": result.new_hash,
                 "detected_changes": result.detected_changes.len(),
-            })).unwrap())
+            }))
+            .unwrap())
         }
 
         "dkod_session_status" => {
@@ -320,36 +352,50 @@ pub async fn dispatch_tool(session: &mut Session, name: &str, input: &Value) -> 
                 "symbols_modified": result.symbols_modified,
                 "overlay_size_bytes": result.overlay_size_bytes,
                 "active_other_sessions": result.active_other_sessions,
-            })).unwrap())
+            }))
+            .unwrap())
         }
 
         "dkod_list_files" => {
             let prefix = input.get("prefix").and_then(|v| v.as_str());
             let result = session.file_list(prefix).await?;
-            let files: Vec<_> = result.files.iter().map(|f| json!({
-                "path": f.path,
-                "modified_in_session": f.modified_in_session,
-            })).collect();
+            let files: Vec<_> = result
+                .files
+                .iter()
+                .map(|f| {
+                    json!({
+                        "path": f.path,
+                        "modified_in_session": f.modified_in_session,
+                    })
+                })
+                .collect();
             Ok(serde_json::to_string(&json!({
                 "files": files,
                 "total": files.len(),
-            })).unwrap())
+            }))
+            .unwrap())
         }
 
         "dkod_verify" => {
             let steps = session.verify().await?;
             let passed = steps.iter().all(|s| s.status == "passed" || !s.required);
-            let step_results: Vec<_> = steps.iter().map(|s| json!({
-                "step_name": s.step_name,
-                "status": s.status,
-                "output": s.output,
-                "required": s.required,
-            })).collect();
+            let step_results: Vec<_> = steps
+                .iter()
+                .map(|s| {
+                    json!({
+                        "step_name": s.step_name,
+                        "status": s.status,
+                        "output": s.output,
+                        "required": s.required,
+                    })
+                })
+                .collect();
             Ok(serde_json::to_string(&json!({
                 "changeset_id": session.changeset_id,
                 "passed": passed,
                 "steps": step_results,
-            })).unwrap())
+            }))
+            .unwrap())
         }
 
         "dkod_merge" => {
@@ -380,9 +426,12 @@ pub async fn dispatch_tool(session: &mut Session, name: &str, input: &Value) -> 
         "dkod_connect" => Ok(serde_json::to_string(&json!({
             "session_id": session.session_id,
             "status": "already_connected",
-        })).unwrap()),
+        }))
+        .unwrap()),
 
-        other => Err(crate::error::SdkError::Connection(format!("Unknown tool: {other}"))),
+        other => Err(crate::error::SdkError::Connection(format!(
+            "Unknown tool: {other}"
+        ))),
     }
 }
 
@@ -429,10 +478,16 @@ mod tests {
     fn test_required_fields_present() {
         for tool in tool_definitions() {
             let schema = &tool.input_schema;
-            assert!(schema.get("required").is_some(),
-                "tool {} must have required fields", tool.name);
-            assert!(schema.get("properties").is_some(),
-                "tool {} must have properties", tool.name);
+            assert!(
+                schema.get("required").is_some(),
+                "tool {} must have required fields",
+                tool.name
+            );
+            assert!(
+                schema.get("properties").is_some(),
+                "tool {} must have properties",
+                tool.name
+            );
         }
     }
 
@@ -440,8 +495,10 @@ mod tests {
     fn generate_manifest_file() {
         let manifest = generate_manifest();
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent().unwrap()  // crates/
-            .parent().unwrap()  // repo root
+            .parent()
+            .unwrap() // crates/
+            .parent()
+            .unwrap() // repo root
             .join("sdk/dkod-tools.json");
         // Create sdk dir if needed
         if let Some(parent) = path.parent() {

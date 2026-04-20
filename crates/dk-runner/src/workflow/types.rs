@@ -52,6 +52,12 @@ pub struct StepConfig {
     pub check: Vec<String>,
     #[serde(default)]
     pub prompt: Option<String>,
+    /// LLM judge criteria (only used when `step_type == "llm-judge"`).
+    #[serde(default)]
+    pub criteria: Vec<String>,
+    /// LLM judge maximum iteration count.
+    #[serde(default)]
+    pub max_iterations: Option<u32>,
 }
 
 fn default_required() -> bool {
@@ -106,6 +112,12 @@ pub struct YamlStepConfig {
     pub check: Vec<String>,
     #[serde(default)]
     pub prompt: Option<String>,
+    /// LLM judge criteria (only used when `step_type == "llm-judge"`).
+    #[serde(default)]
+    pub criteria: Vec<String>,
+    /// LLM judge maximum iteration count.
+    #[serde(default)]
+    pub max_iterations: Option<u32>,
 }
 
 // --- Resolved types (post-parsing) ---
@@ -139,8 +151,30 @@ pub struct Step {
 
 #[derive(Debug, Clone)]
 pub enum StepType {
-    Command { run: String },
-    Semantic { checks: Vec<String> },
-    AgentReview { prompt: String },
+    Command {
+        run: String,
+    },
+    Semantic {
+        checks: Vec<String>,
+    },
+    AgentReview {
+        prompt: String,
+    },
     HumanApprove,
+    /// LLM-as-judge approval loop. Each iteration re-runs the judge over
+    /// the diff + criteria + the previous iteration's reasoning until the
+    /// judge returns a terminal verdict or `max_iterations` is reached.
+    LlmJudge {
+        /// Human-readable criteria the judge must evaluate (e.g. "no
+        /// panics in hot paths", "test coverage not reduced"). Rendered
+        /// into the judge prompt as a checklist.
+        criteria: Vec<String>,
+        /// Maximum judge iterations before falling back to `reject`. Each
+        /// iteration makes one LLM call. Default: 3.
+        max_iterations: u32,
+    },
+    /// PyTorch test-infra verification step — queries the HUD for
+    /// relevant shards and known-flaky tests. Opt-in via `type:
+    /// pytorch-ci` in the workflow YAML or `DKOD_PYTORCH_CI=1`.
+    PytorchCi,
 }

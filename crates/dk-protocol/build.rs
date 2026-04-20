@@ -21,10 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_client(true)
         .build_transport(false)
         .out_dir(tmp)
-        .compile_protos(
-            &[proto_root.join("dkod/v1/agent.proto")],
-            &[proto_root],
-        )?;
+        .compile_protos(&[proto_root.join("dkod/v1/agent.proto")], &[proto_root])?;
     std::fs::copy(tmp.join("dkod.v1.rs"), v1_dir.join("agent.rs"))?;
 
     // Compile types.proto alone to get only the shared types.
@@ -33,10 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_client(false)
         .build_transport(false)
         .out_dir(tmp)
-        .compile_protos(
-            &[proto_root.join("dkod/v1/types.proto")],
-            &[proto_root],
-        )?;
+        .compile_protos(&[proto_root.join("dkod/v1/types.proto")], &[proto_root])?;
     std::fs::copy(tmp.join("dkod.v1.rs"), v1_dir.join("types.rs"))?;
 
     Ok(())

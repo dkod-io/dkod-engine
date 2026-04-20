@@ -36,9 +36,9 @@ pub async fn handle_approve(
         .await
         .map_err(|e| Status::internal(format!("Failed to fetch changeset: {e}")))?;
 
-    let current = changeset
-        .parsed_state()
-        .ok_or_else(|| Status::internal(format!("Unknown changeset state: '{}'", changeset.state)))?;
+    let current = changeset.parsed_state().ok_or_else(|| {
+        Status::internal(format!("Unknown changeset state: '{}'", changeset.state))
+    })?;
 
     if !matches!(
         current,
@@ -76,10 +76,10 @@ pub async fn handle_approve(
     );
 
     Ok(Response::new(ApproveResponse {
-        success:      true,
+        success: true,
         changeset_id: changeset_id.to_string(),
-        new_state:    ChangesetState::Approved.as_str().to_string(),
-        message:      reason.to_string(),
+        new_state: ChangesetState::Approved.as_str().to_string(),
+        message: reason.to_string(),
     }))
 }
 
@@ -107,10 +107,10 @@ mod tests {
     #[test]
     fn approve_response_shape() {
         let resp = ApproveResponse {
-            success:      true,
+            success: true,
             changeset_id: "cs-1".to_string(),
-            new_state:    "approved".to_string(),
-            message:      "approved via agent protocol".to_string(),
+            new_state: "approved".to_string(),
+            message: "approved via agent protocol".to_string(),
         };
         assert!(resp.success);
         assert_eq!(resp.new_state, "approved");
@@ -132,13 +132,23 @@ mod tests {
         ];
         for s in approvable {
             assert!(
-                matches!(s, ChangesetState::Submitted | ChangesetState::Verifying | ChangesetState::Rejected),
+                matches!(
+                    s,
+                    ChangesetState::Submitted
+                        | ChangesetState::Verifying
+                        | ChangesetState::Rejected
+                ),
                 "{s} should be approvable"
             );
         }
         for s in not_approvable {
             assert!(
-                !matches!(s, ChangesetState::Submitted | ChangesetState::Verifying | ChangesetState::Rejected),
+                !matches!(
+                    s,
+                    ChangesetState::Submitted
+                        | ChangesetState::Verifying
+                        | ChangesetState::Rejected
+                ),
                 "{s} should NOT be approvable"
             );
         }

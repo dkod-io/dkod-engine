@@ -550,7 +550,9 @@ async fn test_list_files_merges_overlay_with_base() {
     ws.overlay.delete_local("src/main.rs");
 
     // Full listing should no longer include the deleted file.
-    let after_delete = ws.list_files(&repo, false, None).expect("list after delete");
+    let after_delete = ws
+        .list_files(&repo, false, None)
+        .expect("list after delete");
     assert!(
         !after_delete.contains(&"src/main.rs".to_string()),
         "deleted file should be excluded"
@@ -810,11 +812,20 @@ async fn test_workspace_manager_gc_expired() {
     // The expired workspace should be removed.
     assert_eq!(expired_ids.len(), 1);
     assert_eq!(expired_ids[0], sid_expired);
-    assert!(workspaces.get(&sid_expired).is_none(), "expired workspace should be GC'd");
+    assert!(
+        workspaces.get(&sid_expired).is_none(),
+        "expired workspace should be GC'd"
+    );
 
     // The active persistent and ephemeral workspaces should remain.
-    assert!(workspaces.get(&sid_active).is_some(), "active persistent should remain");
-    assert!(workspaces.get(&sid_ephemeral).is_some(), "ephemeral should remain");
+    assert!(
+        workspaces.get(&sid_active).is_some(),
+        "active persistent should remain"
+    );
+    assert!(
+        workspaces.get(&sid_ephemeral).is_some(),
+        "ephemeral should remain"
+    );
     assert_eq!(workspaces.len(), 2);
 }
 
@@ -869,9 +880,7 @@ async fn test_workspace_manager_active_sessions_for_repo() {
     // Query with exclusion (exclude sid_a2).
     let sessions_a_excl: Vec<Uuid> = workspaces
         .iter()
-        .filter(|entry| {
-            entry.value().repo_id == repo_a && *entry.key() != sid_a2
-        })
+        .filter(|entry| entry.value().repo_id == repo_a && *entry.key() != sid_a2)
         .map(|entry| *entry.key())
         .collect();
 
@@ -895,8 +904,8 @@ async fn test_workspace_manager_active_sessions_for_repo() {
 
 #[test]
 fn test_analyze_file_conflict_semantic_auto_merge() {
-    use dk_engine::workspace::conflict::{analyze_file_conflict, MergeAnalysis};
     use dk_engine::parser::ParserRegistry;
+    use dk_engine::workspace::conflict::{analyze_file_conflict, MergeAnalysis};
 
     let parser = ParserRegistry::new();
 
@@ -907,7 +916,8 @@ fn test_analyze_file_conflict_semantic_auto_merge() {
     let head = b"pub fn existing() -> i32 { 42 }\npub fn head_fn() -> bool { true }\n";
 
     // Overlay adds yet another different function (non-overlapping with HEAD's addition).
-    let overlay = b"pub fn existing() -> i32 { 42 }\npub fn overlay_fn() -> String { String::new() }\n";
+    let overlay =
+        b"pub fn existing() -> i32 { 42 }\npub fn overlay_fn() -> String { String::new() }\n";
 
     let result = analyze_file_conflict("test.rs", base, head, overlay, &parser);
 
@@ -926,10 +936,7 @@ fn test_analyze_file_conflict_semantic_auto_merge() {
             panic!(
                 "expected auto-merge for non-overlapping additions, got {} conflict(s): {:?}",
                 conflicts.len(),
-                conflicts
-                    .iter()
-                    .map(|c| &c.symbol_name)
-                    .collect::<Vec<_>>()
+                conflicts.iter().map(|c| &c.symbol_name).collect::<Vec<_>>()
             );
         }
     }
@@ -941,8 +948,8 @@ fn test_analyze_file_conflict_semantic_auto_merge() {
 
 #[test]
 fn test_analyze_file_conflict_byte_level_fallback() {
-    use dk_engine::workspace::conflict::{analyze_file_conflict, MergeAnalysis};
     use dk_engine::parser::ParserRegistry;
+    use dk_engine::workspace::conflict::{analyze_file_conflict, MergeAnalysis};
 
     let parser = ParserRegistry::new();
 

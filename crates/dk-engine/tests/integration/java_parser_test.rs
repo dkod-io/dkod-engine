@@ -180,9 +180,7 @@ public class Main {
     }
 }
 "#;
-    let analysis = registry
-        .parse_file(Path::new("Main.java"), source)
-        .unwrap();
+    let analysis = registry.parse_file(Path::new("Main.java"), source).unwrap();
 
     let call_names: Vec<&str> = analysis
         .calls
@@ -232,9 +230,7 @@ import com.example.service.UserService;
 public class App {
 }
 "#;
-    let analysis = registry
-        .parse_file(Path::new("App.java"), source)
-        .unwrap();
+    let analysis = registry.parse_file(Path::new("App.java"), source).unwrap();
 
     assert!(
         analysis.imports.len() >= 4,

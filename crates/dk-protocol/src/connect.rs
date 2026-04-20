@@ -35,32 +35,30 @@ pub async fn handle_connect(
     if let Some(ref ws_config) = req.workspace_config {
         if let Some(ref resume_id_str) = ws_config.resume_session_id {
             match resume_id_str.parse::<uuid::Uuid>() {
-                Ok(resume_id) => {
-                    match server.session_mgr().take_snapshot(&resume_id) {
-                        Some(snapshot) => {
-                            if snapshot.codebase != req.codebase {
-                                return Err(Status::invalid_argument(format!(
-                                    "Cannot resume session from codebase '{}' into '{}'",
-                                    snapshot.codebase, req.codebase
-                                )));
-                            }
-                            info!(
-                                resume_from = %resume_id,
-                                agent_id = %snapshot.agent_id,
-                                base_version = %snapshot.codebase_version,
-                                "CONNECT: resuming from previous session snapshot"
-                            );
-                            resumed_snapshot = Some(snapshot);
+                Ok(resume_id) => match server.session_mgr().take_snapshot(&resume_id) {
+                    Some(snapshot) => {
+                        if snapshot.codebase != req.codebase {
+                            return Err(Status::invalid_argument(format!(
+                                "Cannot resume session from codebase '{}' into '{}'",
+                                snapshot.codebase, req.codebase
+                            )));
                         }
-                        None => {
-                            warn!(
-                                resume_session_id = %resume_id,
-                                "CONNECT: resume requested but no snapshot found \
-                                 (session may have expired beyond snapshot TTL)"
-                            );
-                        }
+                        info!(
+                            resume_from = %resume_id,
+                            agent_id = %snapshot.agent_id,
+                            base_version = %snapshot.codebase_version,
+                            "CONNECT: resuming from previous session snapshot"
+                        );
+                        resumed_snapshot = Some(snapshot);
                     }
-                }
+                    None => {
+                        warn!(
+                            resume_session_id = %resume_id,
+                            "CONNECT: resume requested but no snapshot found \
+                             (session may have expired beyond snapshot TTL)"
+                        );
+                    }
+                },
                 Err(_) => {
                     return Err(Status::invalid_argument(format!(
                         "resume_session_id '{}' is not a valid UUID",
@@ -79,7 +77,11 @@ pub async fn handle_connect(
         .workspace_config
         .as_ref()
         .and_then(|c| c.base_commit.clone())
-        .or_else(|| resumed_snapshot.as_ref().map(|s| s.codebase_version.clone()));
+        .or_else(|| {
+            resumed_snapshot
+                .as_ref()
+                .map(|s| s.codebase_version.clone())
+        });
 
     // 2-4. Resolve repo, get summary, read HEAD version, and validate
     //      base_commit if one was provided.  Everything involving
@@ -88,15 +90,12 @@ pub async fn handle_connect(
     let engine = server.engine();
 
     let (repo_id, version, summary) = {
-        let (repo_id, git_repo) = engine
-            .get_repo(&req.codebase)
-            .await
-            .map_err(|e| match e {
-                dk_core::Error::AmbiguousRepoName(_) => Status::invalid_argument(
-                    format!("Ambiguous repository name: use the full 'owner/repo' form ({e})"),
-                ),
-                _ => Status::not_found(format!("Repository not found: {e}")),
-            })?;
+        let (repo_id, git_repo) = engine.get_repo(&req.codebase).await.map_err(|e| match e {
+            dk_core::Error::AmbiguousRepoName(_) => Status::invalid_argument(format!(
+                "Ambiguous repository name: use the full 'owner/repo' form ({e})"
+            )),
+            _ => Status::not_found(format!("Repository not found: {e}")),
+        })?;
 
         // HEAD commit hash (or "initial" for empty repos).
         let version = git_repo
@@ -108,13 +107,11 @@ pub async fn handle_connect(
         // a second `get_repo` call.
         if let Some(ref base) = requested_base_commit {
             if base != &version && base != "initial" {
-                git_repo
-                    .list_tree_files(base)
-                    .map_err(|_| {
-                        Status::invalid_argument(format!(
-                            "base_commit '{base}' does not resolve to a valid commit"
-                        ))
-                    })?;
+                git_repo.list_tree_files(base).map_err(|_| {
+                    Status::invalid_argument(format!(
+                        "base_commit '{base}' does not resolve to a valid commit"
+                    ))
+                })?;
             }
         }
 
@@ -147,7 +144,14 @@ pub async fn handle_connect(
     // 5b. Create a changeset (staging area for file changes).
     let changeset = engine
         .changeset_store()
-        .create(repo_id, Some(session_id), &req.agent_id, &req.intent, Some(&version), &agent_name)
+        .create(
+            repo_id,
+            Some(session_id),
+            &req.agent_id,
+            &req.intent,
+            Some(&version),
+            &agent_name,
+        )
         .await
         .map_err(|e| Status::internal(format!("failed to create changeset: {e}")))?;
 

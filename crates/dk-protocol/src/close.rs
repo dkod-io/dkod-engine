@@ -33,8 +33,8 @@ pub async fn handle_close(
     );
 
     Ok(Response::new(CloseResponse {
-        success:    true,
-        message:    "Session closed successfully".to_string(),
+        success: true,
+        message: "Session closed successfully".to_string(),
         session_id: req.session_id,
     }))
 }
@@ -46,8 +46,8 @@ mod tests {
     #[test]
     fn close_response_fields() {
         let resp = CloseResponse {
-            success:    true,
-            message:    "done".to_string(),
+            success: true,
+            message: "done".to_string(),
             session_id: "abc".to_string(),
         };
         assert!(resp.success);

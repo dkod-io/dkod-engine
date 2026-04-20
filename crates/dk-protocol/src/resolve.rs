@@ -2,7 +2,7 @@ use tonic::{Response, Status};
 use tracing::info;
 
 use crate::server::ProtocolServer;
-use crate::{ResolveRequest, ResolveResponse, ResolutionMode};
+use crate::{ResolutionMode, ResolveRequest, ResolveResponse};
 
 /// Handle a RESOLVE RPC.
 ///
@@ -30,7 +30,9 @@ pub async fn handle_resolve(
 
     let mode = req.resolution();
     if mode == ResolutionMode::Unspecified {
-        return Err(Status::invalid_argument("resolution mode must be specified"));
+        return Err(Status::invalid_argument(
+            "resolution mode must be specified",
+        ));
     }
     if mode == ResolutionMode::Manual && req.manual_content.is_none() {
         return Err(Status::invalid_argument(
@@ -82,11 +84,11 @@ pub async fn handle_resolve(
     );
 
     Ok(Response::new(ResolveResponse {
-        success:             true,
-        changeset_id:        changeset_id.to_string(),
-        new_state:           "submitted".to_string(),
-        message:             format!("Conflicts resolved via {mode_str} mode"),
-        conflicts_resolved:  1,
+        success: true,
+        changeset_id: changeset_id.to_string(),
+        new_state: "submitted".to_string(),
+        message: format!("Conflicts resolved via {mode_str} mode"),
+        conflicts_resolved: 1,
         conflicts_remaining: 0,
     }))
 }
@@ -98,11 +100,11 @@ mod tests {
     #[test]
     fn resolve_response_shape() {
         let resp = ResolveResponse {
-            success:             true,
-            changeset_id:        "cs-1".to_string(),
-            new_state:           "submitted".to_string(),
-            message:             "resolved".to_string(),
-            conflicts_resolved:  2,
+            success: true,
+            changeset_id: "cs-1".to_string(),
+            new_state: "submitted".to_string(),
+            message: "resolved".to_string(),
+            conflicts_resolved: 2,
             conflicts_remaining: 0,
         };
         assert!(resp.success);

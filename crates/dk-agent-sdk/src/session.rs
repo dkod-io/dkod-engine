@@ -2,12 +2,12 @@ use dk_protocol::agent_service_client::AgentServiceClient;
 use dk_protocol::{
     merge_response, ApproveRequest, Change as ProtoChange, ChangeType, CloseRequest, ContextDepth,
     ContextRequest, FileListRequest, FileReadRequest, FileWriteRequest, MergeRequest,
-    PreSubmitCheckRequest, PushRequest, RecordReviewRequest, ResolveRequest, ReviewRequest,
-    SessionStatusRequest, SubmitRequest, VerifyRequest, WatchRequest,
-    PushMode as ProtoPushMode, ResolutionMode as ProtoResolutionMode,
+    PreSubmitCheckRequest, PushMode as ProtoPushMode, PushRequest, RecordReviewRequest,
+    ResolutionMode as ProtoResolutionMode, ResolveRequest, ReviewRequest, SessionStatusRequest,
+    SubmitRequest, VerifyRequest, WatchRequest,
 };
-use tonic::transport::Channel;
 use tokio_stream::StreamExt;
+use tonic::transport::Channel;
 
 use crate::error::Result;
 use crate::types::*;
@@ -250,10 +250,10 @@ impl Session {
             .into_inner();
 
         Ok(PreSubmitResult {
-            has_conflicts:       resp.has_conflicts,
+            has_conflicts: resp.has_conflicts,
             potential_conflicts: resp.potential_conflicts,
-            files_modified:      resp.files_modified,
-            symbols_changed:     resp.symbols_changed,
+            files_modified: resp.files_modified,
+            symbols_changed: resp.symbols_changed,
         })
     }
 
@@ -267,25 +267,25 @@ impl Session {
     ) -> Result<PushResult> {
         let proto_mode = match mode {
             PushMode::Branch => ProtoPushMode::Branch as i32,
-            PushMode::Pr     => ProtoPushMode::Pr as i32,
+            PushMode::Pr => ProtoPushMode::Pr as i32,
         };
 
         let resp = self
             .client
             .push(PushRequest {
-                session_id:  self.session_id.clone(),
-                mode:        proto_mode,
+                session_id: self.session_id.clone(),
+                mode: proto_mode,
                 branch_name: branch_name.to_string(),
-                pr_title:    pr_title.to_string(),
-                pr_body:     pr_body.to_string(),
+                pr_title: pr_title.to_string(),
+                pr_body: pr_body.to_string(),
             })
             .await?
             .into_inner();
 
         Ok(PushResult {
-            branch_name:   resp.branch_name,
-            pr_url:        resp.pr_url,
-            commit_hash:   resp.commit_hash,
+            branch_name: resp.branch_name,
+            pr_url: resp.pr_url,
+            commit_hash: resp.commit_hash,
             changeset_ids: resp.changeset_ids,
         })
     }
@@ -295,18 +295,18 @@ impl Session {
         let resp = self
             .client
             .approve(ApproveRequest {
-                session_id:       self.session_id.clone(),
-                override_reason:  override_reason.map(|s| s.to_string()),
-                review_snapshot:  None,
+                session_id: self.session_id.clone(),
+                override_reason: override_reason.map(|s| s.to_string()),
+                review_snapshot: None,
             })
             .await?
             .into_inner();
 
         Ok(ApproveResult {
-            success:      resp.success,
+            success: resp.success,
             changeset_id: resp.changeset_id,
-            new_state:    resp.new_state,
-            message:      resp.message,
+            new_state: resp.new_state,
+            message: resp.message,
         })
     }
 
@@ -321,29 +321,29 @@ impl Session {
         manual_content: Option<&str>,
     ) -> Result<ResolveResult> {
         let proto_mode = match mode {
-            ResolutionMode::Proceed    => ProtoResolutionMode::Proceed as i32,
-            ResolutionMode::KeepYours  => ProtoResolutionMode::KeepYours as i32,
+            ResolutionMode::Proceed => ProtoResolutionMode::Proceed as i32,
+            ResolutionMode::KeepYours => ProtoResolutionMode::KeepYours as i32,
             ResolutionMode::KeepTheirs => ProtoResolutionMode::KeepTheirs as i32,
-            ResolutionMode::Manual     => ProtoResolutionMode::Manual as i32,
+            ResolutionMode::Manual => ProtoResolutionMode::Manual as i32,
         };
 
         let resp = self
             .client
             .resolve(ResolveRequest {
-                session_id:     self.session_id.clone(),
-                resolution:     proto_mode,
-                conflict_id:    conflict_id.map(|s| s.to_string()),
+                session_id: self.session_id.clone(),
+                resolution: proto_mode,
+                conflict_id: conflict_id.map(|s| s.to_string()),
                 manual_content: manual_content.map(|s| s.to_string()),
             })
             .await?
             .into_inner();
 
         Ok(ResolveResult {
-            success:             resp.success,
-            changeset_id:        resp.changeset_id,
-            new_state:           resp.new_state,
-            message:             resp.message,
-            conflicts_resolved:  resp.conflicts_resolved,
+            success: resp.success,
+            changeset_id: resp.changeset_id,
+            new_state: resp.new_state,
+            message: resp.message,
+            conflicts_resolved: resp.conflicts_resolved,
             conflicts_remaining: resp.conflicts_remaining,
         })
     }
@@ -369,13 +369,15 @@ impl Session {
         let resp = self
             .client
             .review(ReviewRequest {
-                session_id:   self.session_id.clone(),
+                session_id: self.session_id.clone(),
                 changeset_id: self.changeset_id.clone(),
             })
             .await?
             .into_inner();
 
-        Ok(ReviewListResult { reviews: resp.reviews })
+        Ok(ReviewListResult {
+            reviews: resp.reviews,
+        })
     }
 
     /// Record an AI-generated code review result for this session's changeset.
@@ -393,14 +395,14 @@ impl Session {
         let resp = self
             .client
             .record_review(RecordReviewRequest {
-                session_id:   self.session_id.clone(),
+                session_id: self.session_id.clone(),
                 changeset_id: self.changeset_id.clone(),
-                tier:         tier.to_string(),
+                tier: tier.to_string(),
                 score,
-                summary:      summary.map(|s| s.to_string()),
+                summary: summary.map(|s| s.to_string()),
                 findings,
-                provider:     provider.to_string(),
-                model:        model.to_string(),
+                provider: provider.to_string(),
+                model: model.to_string(),
                 duration_ms,
             })
             .await?
@@ -408,15 +410,12 @@ impl Session {
 
         Ok(RecordReviewResult {
             review_id: resp.review_id,
-            accepted:  resp.accepted,
+            accepted: resp.accepted,
         })
     }
 
     /// Subscribe to repository events (other agents' changes, merges, etc.).
-    pub async fn watch(
-        &mut self,
-        filter: Filter,
-    ) -> Result<tonic::Streaming<WatchEvent>> {
+    pub async fn watch(&mut self, filter: Filter) -> Result<tonic::Streaming<WatchEvent>> {
         let filter_str = match filter {
             Filter::All => "all",
             Filter::Symbols => "symbols",

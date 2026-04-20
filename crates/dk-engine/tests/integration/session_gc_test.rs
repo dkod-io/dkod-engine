@@ -45,7 +45,11 @@ async fn test_gc_expires_idle_sessions() {
 
     assert_eq!(expired.len(), 1);
     assert_eq!(expired[0], session_id);
-    assert_eq!(mgr.total_active(), 0, "workspace should be removed from map");
+    assert_eq!(
+        mgr.total_active(),
+        0,
+        "workspace should be removed from map"
+    );
 }
 
 #[tokio::test(start_paused = true)]
@@ -59,10 +63,8 @@ async fn test_gc_preserves_active_sessions() {
     // Advance only 5 minutes — well within idle_ttl.
     tokio::time::advance(Duration::from_secs(5 * 60)).await;
 
-    let expired = mgr.gc_expired_sessions(
-        Duration::from_secs(30 * 60),
-        Duration::from_secs(4 * 3600),
-    );
+    let expired =
+        mgr.gc_expired_sessions(Duration::from_secs(30 * 60), Duration::from_secs(4 * 3600));
 
     assert!(expired.is_empty(), "active session should not be expired");
     assert_eq!(mgr.total_active(), 1, "workspace should remain in map");
@@ -88,7 +90,11 @@ async fn test_gc_hard_max_ttl() {
         Duration::from_secs(4 * 3600), // max_ttl = 4 hours
     );
 
-    assert_eq!(expired.len(), 1, "session should expire due to max_ttl despite recent activity");
+    assert_eq!(
+        expired.len(),
+        1,
+        "session should expire due to max_ttl despite recent activity"
+    );
     assert_eq!(expired[0], session_id);
     assert_eq!(mgr.total_active(), 0);
 }
@@ -116,10 +122,8 @@ async fn test_gc_mixed_sessions() {
         ws.touch();
     }
 
-    let expired = mgr.gc_expired_sessions(
-        Duration::from_secs(30 * 60),
-        Duration::from_secs(4 * 3600),
-    );
+    let expired =
+        mgr.gc_expired_sessions(Duration::from_secs(30 * 60), Duration::from_secs(4 * 3600));
 
     assert_eq!(expired.len(), 1, "only idle session should expire");
     assert_eq!(expired[0], idle_id);

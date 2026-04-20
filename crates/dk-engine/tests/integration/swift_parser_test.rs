@@ -241,9 +241,7 @@ import UIKit
 
 class App { }
 "#;
-    let analysis = registry
-        .parse_file(Path::new("App.swift"), source)
-        .unwrap();
+    let analysis = registry.parse_file(Path::new("App.swift"), source).unwrap();
 
     assert!(
         analysis.imports.len() >= 2,

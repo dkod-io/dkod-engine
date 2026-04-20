@@ -15,9 +15,7 @@ use tokio::time::Instant;
 use uuid::Uuid;
 
 use crate::workspace::cache::{NoOpCache, WorkspaceCache};
-use crate::workspace::session_workspace::{
-    SessionId, SessionWorkspace, WorkspaceMode,
-};
+use crate::workspace::session_workspace::{SessionId, SessionWorkspace, WorkspaceMode};
 
 // ── SessionInfo ─────────────────────────────────────────────────────
 
@@ -271,7 +269,9 @@ impl WorkspaceManager {
     /// Destroy workspaces for sessions that no longer exist.
     /// Call this when a session disconnects or during periodic cleanup.
     pub fn cleanup_disconnected(&self, active_session_ids: &[uuid::Uuid]) {
-        let to_remove: Vec<uuid::Uuid> = self.workspaces.iter()
+        let to_remove: Vec<uuid::Uuid> = self
+            .workspaces
+            .iter()
             .filter(|entry| !active_session_ids.contains(entry.key()))
             .map(|entry| *entry.key())
             .collect();
@@ -421,10 +421,7 @@ mod tests {
         assert_eq!(json["intent"], "fix bug");
         assert_eq!(json["state"], "active");
         assert_eq!(json["elapsed_secs"], 42);
-        assert_eq!(
-            json["session_id"],
-            "00000000-0000-0000-0000-000000000000"
-        );
+        assert_eq!(json["session_id"], "00000000-0000-0000-0000-000000000000");
     }
 
     #[test]
@@ -456,7 +453,11 @@ mod tests {
         for key in &expected_keys {
             assert!(obj.contains_key(*key), "missing key: {}", key);
         }
-        assert_eq!(obj.len(), expected_keys.len(), "unexpected extra keys in SessionInfo JSON");
+        assert_eq!(
+            obj.len(),
+            expected_keys.len(),
+            "unexpected extra keys in SessionInfo JSON"
+        );
     }
 
     #[test]
@@ -544,7 +545,8 @@ mod tests {
             WorkspaceMode::Ephemeral,
         );
         ws2.agent_name = "agent-2".to_string();
-        ws2.overlay.write_local("src/lib.rs", b"content".to_vec(), false);
+        ws2.overlay
+            .write_local("src/lib.rs", b"content".to_vec(), false);
 
         mgr.insert_test_workspace(ws2);
 

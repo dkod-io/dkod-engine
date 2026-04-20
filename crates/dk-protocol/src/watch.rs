@@ -59,9 +59,7 @@ pub async fn handle_watch(
                     continue;
                 }
 
-                if matches_filter(&event.event_type, filter)
-                    && tx.send(Ok(event)).await.is_err()
-                {
+                if matches_filter(&event.event_type, filter) && tx.send(Ok(event)).await.is_err() {
                     break;
                 }
             }
@@ -86,8 +84,7 @@ fn matches_filter(event_type: &str, filter: &str) -> bool {
     }
 
     if let Some(prefix) = filter.strip_suffix(".*") {
-        event_type.starts_with(prefix)
-            && event_type.as_bytes().get(prefix.len()) == Some(&b'.')
+        event_type.starts_with(prefix) && event_type.as_bytes().get(prefix.len()) == Some(&b'.')
     } else if let Some(suffix) = filter.strip_prefix("*.") {
         event_type.ends_with(suffix)
             && event_type.len() > suffix.len()

@@ -21,9 +21,7 @@ function _private_helper(data)
     process(data)
 end
 "#;
-    let analysis = registry
-        .parse_file(Path::new("math.jl"), source)
-        .unwrap();
+    let analysis = registry.parse_file(Path::new("math.jl"), source).unwrap();
 
     let names: Vec<&str> = analysis.symbols.iter().map(|s| s.name.as_str()).collect();
     assert!(
@@ -88,9 +86,7 @@ end
 
 abstract type Shape end
 "#;
-    let analysis = registry
-        .parse_file(Path::new("types.jl"), source)
-        .unwrap();
+    let analysis = registry.parse_file(Path::new("types.jl"), source).unwrap();
 
     let names: Vec<&str> = analysis.symbols.iter().map(|s| s.name.as_str()).collect();
     assert!(
@@ -109,18 +105,10 @@ abstract type Shape end
         names
     );
 
-    let point = analysis
-        .symbols
-        .iter()
-        .find(|s| s.name == "Point")
-        .unwrap();
+    let point = analysis.symbols.iter().find(|s| s.name == "Point").unwrap();
     assert_eq!(point.kind, SymbolKind::Struct);
 
-    let shape = analysis
-        .symbols
-        .iter()
-        .find(|s| s.name == "Shape")
-        .unwrap();
+    let shape = analysis.symbols.iter().find(|s| s.name == "Shape").unwrap();
     assert_eq!(shape.kind, SymbolKind::TypeAlias);
 }
 
@@ -170,9 +158,7 @@ function main()
     Base.sort!(items)
 end
 "#;
-    let analysis = registry
-        .parse_file(Path::new("main.jl"), source)
-        .unwrap();
+    let analysis = registry.parse_file(Path::new("main.jl"), source).unwrap();
 
     let call_names: Vec<&str> = analysis
         .calls

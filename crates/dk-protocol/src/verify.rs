@@ -6,9 +6,9 @@ use dk_runner::executor::process::ProcessExecutor;
 use dk_runner::Runner;
 
 use crate::server::ProtocolServer;
-use crate::{VerifyRequest, VerifyStepResult};
 use crate::Finding as ProtoFinding;
 use crate::Suggestion as ProtoSuggestion;
+use crate::{VerifyRequest, VerifyStepResult};
 
 pub async fn handle_verify(
     server: &ProtocolServer,
@@ -68,10 +68,7 @@ pub async fn handle_verify(
     });
 
     // Create runner with process executor
-    let runner = Runner::new(
-        server.engine.clone(),
-        Box::new(ProcessExecutor::new()),
-    );
+    let runner = Runner::new(server.engine.clone(), Box::new(ProcessExecutor::new()));
 
     // Bridge dk-runner StepResults to gRPC VerifyStepResults
     let (runner_tx, mut runner_rx) = tokio::sync::mpsc::channel(32);
@@ -80,9 +77,8 @@ pub async fn handle_verify(
     let grpc_tx = tx.clone();
 
     // Spawn runner in background
-    let runner_handle = tokio::spawn(async move {
-        runner.verify(changeset_id, &codebase, runner_tx).await
-    });
+    let runner_handle =
+        tokio::spawn(async move { runner.verify(changeset_id, &codebase, runner_tx).await });
 
     // Forward results from runner to gRPC stream
     let mut step_counter = 0i32;
@@ -92,25 +88,29 @@ pub async fn handle_verify(
         let step_status_str = result.status.as_str().to_string();
         let step_name_str = result.step_name.clone();
 
-        let findings: Vec<ProtoFinding> = result.findings.iter().map(|f| {
-            ProtoFinding {
+        let findings: Vec<ProtoFinding> = result
+            .findings
+            .iter()
+            .map(|f| ProtoFinding {
                 severity: f.severity.as_str().to_string(),
                 check_name: f.check_name.clone(),
                 message: f.message.clone(),
                 file_path: f.file_path.clone(),
                 line: f.line,
                 symbol: f.symbol.clone(),
-            }
-        }).collect();
+            })
+            .collect();
 
-        let suggestions: Vec<ProtoSuggestion> = result.suggestions.iter().map(|s| {
-            ProtoSuggestion {
+        let suggestions: Vec<ProtoSuggestion> = result
+            .suggestions
+            .iter()
+            .map(|s| ProtoSuggestion {
                 finding_index: s.finding_index as u32,
                 description: s.description.clone(),
                 file_path: s.file_path.clone(),
                 replacement: s.replacement.clone(),
-            }
-        }).collect();
+            })
+            .collect();
 
         let _ = grpc_tx
             .send(Ok(VerifyStepResult {
@@ -141,7 +141,13 @@ pub async fn handle_verify(
 
     // Get final result and update changeset status
     let final_status = match runner_handle.await {
-        Ok(Ok(passed)) => if passed { "approved" } else { "rejected" },
+        Ok(Ok(passed)) => {
+            if passed {
+                "approved"
+            } else {
+                "rejected"
+            }
+        }
         Ok(Err(e)) => {
             tracing::error!("runner error: {e}");
             "rejected"

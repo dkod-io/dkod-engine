@@ -15,7 +15,9 @@ int computeHash(const std::string& input) {
     return 0;
 }
 "#;
-    let analysis = registry.parse_file(Path::new("handler.cpp"), source).unwrap();
+    let analysis = registry
+        .parse_file(Path::new("handler.cpp"), source)
+        .unwrap();
 
     let names: Vec<&str> = analysis.symbols.iter().map(|s| s.name.as_str()).collect();
 
@@ -116,11 +118,7 @@ namespace myapp {
         "Missing Color enum, got: {:?}",
         names
     );
-    let color = analysis
-        .symbols
-        .iter()
-        .find(|s| s.name == "Color")
-        .unwrap();
+    let color = analysis.symbols.iter().find(|s| s.name == "Color").unwrap();
     assert_eq!(color.kind, SymbolKind::Enum);
 
     // Namespace
@@ -129,11 +127,7 @@ namespace myapp {
         "Missing myapp namespace, got: {:?}",
         names
     );
-    let ns = analysis
-        .symbols
-        .iter()
-        .find(|s| s.name == "myapp")
-        .unwrap();
+    let ns = analysis.symbols.iter().find(|s| s.name == "myapp").unwrap();
     assert_eq!(ns.kind, SymbolKind::Module);
 }
 

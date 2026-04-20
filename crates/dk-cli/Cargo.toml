@@ -29,6 +29,7 @@ urlencoding = "2"
 walkdir = "2"
 rpassword = "7"
 dk-agent-sdk.workspace = true
+dk-analytics.workspace = true
 dk-protocol.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread"] }
 tokio-stream = "0.1"

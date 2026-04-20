@@ -28,8 +28,12 @@ impl SessionState {
     }
 
     pub fn load_from(path: &PathBuf) -> Result<Self> {
-        let data = fs::read_to_string(path)
-            .with_context(|| format!("no active session — run `dk init <repo>` first (looked at {})", path.display()))?;
+        let data = fs::read_to_string(path).with_context(|| {
+            format!(
+                "no active session — run `dk init <repo>` first (looked at {})",
+                path.display()
+            )
+        })?;
         serde_json::from_str(&data).context("corrupt session file — run `dk init <repo>` to reset")
     }
 

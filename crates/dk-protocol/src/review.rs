@@ -29,11 +29,11 @@ pub async fn handle_review(
     let reviews: Vec<ReviewResultProto> = rows
         .into_iter()
         .map(|r| ReviewResultProto {
-            id:         r.id.to_string(),
-            tier:       r.tier,
-            score:      r.score,
-            summary:    r.summary,
-            findings:   parse_findings(&r.findings),
+            id: r.id.to_string(),
+            tier: r.tier,
+            score: r.score,
+            summary: r.summary,
+            findings: parse_findings(&r.findings),
             created_at: r.created_at.to_rfc3339(),
         })
         .collect();
@@ -49,16 +49,16 @@ fn parse_findings(value: &serde_json::Value) -> Vec<ReviewFindingProto> {
     };
     arr.iter()
         .map(|v| ReviewFindingProto {
-            id:          v["id"].as_str().unwrap_or("").to_string(),
-            file_path:   v["file_path"].as_str().unwrap_or("").to_string(),
-            line_start:  v["line_start"].as_i64().map(|n| n as i32),
-            line_end:    v["line_end"].as_i64().map(|n| n as i32),
-            severity:    v["severity"].as_str().unwrap_or("").to_string(),
-            category:    v["category"].as_str().unwrap_or("").to_string(),
-            message:     v["message"].as_str().unwrap_or("").to_string(),
-            suggestion:  v["suggestion"].as_str().map(String::from),
-            confidence:  v["confidence"].as_f64().unwrap_or(0.0) as f32,
-            dismissed:   v["dismissed"].as_bool().unwrap_or(false),
+            id: v["id"].as_str().unwrap_or("").to_string(),
+            file_path: v["file_path"].as_str().unwrap_or("").to_string(),
+            line_start: v["line_start"].as_i64().map(|n| n as i32),
+            line_end: v["line_end"].as_i64().map(|n| n as i32),
+            severity: v["severity"].as_str().unwrap_or("").to_string(),
+            category: v["category"].as_str().unwrap_or("").to_string(),
+            message: v["message"].as_str().unwrap_or("").to_string(),
+            suggestion: v["suggestion"].as_str().map(String::from),
+            confidence: v["confidence"].as_f64().unwrap_or(0.0) as f32,
+            dismissed: v["dismissed"].as_bool().unwrap_or(false),
         })
         .collect()
 }

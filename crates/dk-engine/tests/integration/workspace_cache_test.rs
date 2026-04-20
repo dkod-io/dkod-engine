@@ -42,13 +42,21 @@ fn sample_snapshot(session_id: Uuid) -> WorkspaceSnapshot {
 #[tokio::test]
 async fn noop_get_workspace_is_always_none() {
     let cache = NoOpCache;
-    assert!(cache.get_workspace(&Uuid::new_v4()).await.unwrap().is_none());
+    assert!(cache
+        .get_workspace(&Uuid::new_v4())
+        .await
+        .unwrap()
+        .is_none());
 }
 
 #[tokio::test]
 async fn noop_get_file_is_always_none() {
     let cache = NoOpCache;
-    assert!(cache.get_file(&Uuid::new_v4(), "src/main.rs").await.unwrap().is_none());
+    assert!(cache
+        .get_file(&Uuid::new_v4(), "src/main.rs")
+        .await
+        .unwrap()
+        .is_none());
 }
 
 #[tokio::test]
@@ -105,13 +113,19 @@ async fn noop_cache_graph_write_then_read_is_still_none() {
 #[tokio::test]
 async fn noop_evict_is_noop() {
     let cache = NoOpCache;
-    cache.evict(&Uuid::new_v4()).await.expect("evict must not error");
+    cache
+        .evict(&Uuid::new_v4())
+        .await
+        .expect("evict must not error");
 }
 
 #[tokio::test]
 async fn noop_touch_is_noop() {
     let cache = NoOpCache;
-    cache.touch(&Uuid::new_v4()).await.expect("touch must not error");
+    cache
+        .touch(&Uuid::new_v4())
+        .await
+        .expect("touch must not error");
 }
 
 // ── CachedOverlayEntry all variants ──────────────────────────────────
@@ -218,14 +232,19 @@ async fn workspace_manager_with_cache_accessor_works() {
 
     let id = Uuid::new_v4();
     // Invoke via the accessor — must not error.
-    mgr.cache().get_workspace(&id).await.expect("accessor should work");
-    mgr.cache().list_files(&id).await.expect("accessor should work");
+    mgr.cache()
+        .get_workspace(&id)
+        .await
+        .expect("accessor should work");
+    mgr.cache()
+        .list_files(&id)
+        .await
+        .expect("accessor should work");
 }
 
 #[tokio::test]
 async fn workspace_manager_with_cache_accepts_arc_noop() {
-    let mgr =
-        WorkspaceManager::with_cache(lazy_pool(), Arc::new(NoOpCache));
+    let mgr = WorkspaceManager::with_cache(lazy_pool(), Arc::new(NoOpCache));
 
     let id = Uuid::new_v4();
     let snap = sample_snapshot(id);

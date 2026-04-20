@@ -95,8 +95,7 @@ impl EventBus {
     /// Remove channels that have no active receivers, excluding the global channel.
     /// Call periodically (e.g. every few minutes) to prevent unbounded growth.
     pub fn cleanup_idle(&self) {
-        self.channels.retain(|key, sender| {
-            key == ALL_CHANNEL || sender.receiver_count() > 0
-        });
+        self.channels
+            .retain(|key, sender| key == ALL_CHANNEL || sender.receiver_count() > 0);
     }
 }

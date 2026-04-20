@@ -83,7 +83,7 @@ pub async fn handle_record_review(
 
     Ok(Response::new(RecordReviewResponse {
         review_id: review_id.to_string(),
-        accepted:  true,
+        accepted: true,
     }))
 }
 
@@ -93,17 +93,17 @@ mod tests {
 
     #[test]
     fn findings_serialise_to_json_array() {
-        let findings = vec![ReviewFindingProto {
-            id:          "f1".to_string(),
-            file_path:   "src/lib.rs".to_string(),
-            line_start:  Some(5),
-            line_end:    Some(10),
-            severity:    "error".to_string(),
-            category:    "correctness".to_string(),
-            message:     "potential panic".to_string(),
-            suggestion:  Some("add bounds check".to_string()),
-            confidence:  0.95,
-            dismissed:   false,
+        let findings = [ReviewFindingProto {
+            id: "f1".to_string(),
+            file_path: "src/lib.rs".to_string(),
+            line_start: Some(5),
+            line_end: Some(10),
+            severity: "error".to_string(),
+            category: "correctness".to_string(),
+            message: "potential panic".to_string(),
+            suggestion: Some("add bounds check".to_string()),
+            confidence: 0.95,
+            dismissed: false,
         }];
 
         let json = serde_json::Value::Array(

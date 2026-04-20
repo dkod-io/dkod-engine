@@ -1,5 +1,11 @@
 // Re-export proto types that SDK consumers will use directly.
-pub use dk_protocol::{
+//
+// We import from the `agent` submodule rather than the crate root because
+// `SymbolRef`, `CallEdgeRef`, `DependencyRef` are duplicated between the
+// `agent` and `types` proto modules (rustc would otherwise emit
+// `ambiguous_glob_reexports`). Reaching into `agent::` picks a single
+// canonical version for SDK consumers.
+pub use dk_protocol::generated::dkod::v1::agent::{
     CallEdgeRef, CodebaseSummary, ConflictDetail, ConflictWarning, DependencyRef, FileEntry,
     MergeConflict, MergeSuccess, RecentOverwriteWarning, ReviewFindingProto, ReviewResultProto,
     SemanticConflict, SubmitError, SymbolChange, SymbolOverwrite, SymbolRef, SymbolResult,

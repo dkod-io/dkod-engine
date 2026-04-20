@@ -96,10 +96,7 @@ impl SemanticCheck for SignatureStable {
                         check_name: self.name().to_string(),
                         message: format!(
                             "public {} '{}' signature changed: {:?} → {:?}",
-                            after_sym.kind,
-                            after_sym.qualified_name,
-                            before_sig,
-                            after_sig
+                            after_sym.kind, after_sym.qualified_name, before_sig, after_sig
                         ),
                         file_path: Some(after_sym.file_path.to_string_lossy().to_string()),
                         line: None,
@@ -166,10 +163,7 @@ impl SemanticCheck for TraitImplComplete {
             let after_methods = after_impl_methods.get(parent_id);
             let after_set = after_methods.cloned().unwrap_or_default();
 
-            let lost: Vec<&str> = before_methods
-                .difference(&after_set)
-                .copied()
-                .collect();
+            let lost: Vec<&str> = before_methods.difference(&after_set).copied().collect();
 
             if !lost.is_empty() {
                 // Try to find the parent symbol name for a better message.
@@ -211,8 +205,8 @@ pub fn compat_checks() -> Vec<Box<dyn SemanticCheck>> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::checks::CheckContext;
+    use super::*;
     use dk_core::types::{Span, Symbol, SymbolKind, Visibility};
     use uuid::Uuid;
 
@@ -236,7 +230,10 @@ mod tests {
             kind: SymbolKind::Function,
             visibility: vis,
             file_path: "src/lib.rs".into(),
-            span: Span { start_byte: 0, end_byte: 100 },
+            span: Span {
+                start_byte: 0,
+                end_byte: 100,
+            },
             signature: sig.map(String::from),
             doc_comment: None,
             parent,
@@ -248,7 +245,8 @@ mod tests {
     #[test]
     fn test_no_public_removal_detects() {
         let mut ctx = empty_context();
-        ctx.before_symbols.push(make_sym("crate::foo", Visibility::Public, None, None));
+        ctx.before_symbols
+            .push(make_sym("crate::foo", Visibility::Public, None, None));
         // after_symbols is empty — foo was removed.
 
         let check = NoPublicRemoval::new();
@@ -260,7 +258,8 @@ mod tests {
     #[test]
     fn test_no_public_removal_ignores_private() {
         let mut ctx = empty_context();
-        ctx.before_symbols.push(make_sym("crate::internal", Visibility::Private, None, None));
+        ctx.before_symbols
+            .push(make_sym("crate::internal", Visibility::Private, None, None));
 
         let check = NoPublicRemoval::new();
         assert!(check.run(&ctx).is_empty());
@@ -292,8 +291,18 @@ mod tests {
     fn test_signature_stable_no_change() {
         let mut ctx = empty_context();
         let sig = "fn process(x: u32) -> u32";
-        ctx.before_symbols.push(make_sym("crate::process", Visibility::Public, Some(sig), None));
-        ctx.after_symbols.push(make_sym("crate::process", Visibility::Public, Some(sig), None));
+        ctx.before_symbols.push(make_sym(
+            "crate::process",
+            Visibility::Public,
+            Some(sig),
+            None,
+        ));
+        ctx.after_symbols.push(make_sym(
+            "crate::process",
+            Visibility::Public,
+            Some(sig),
+            None,
+        ));
 
         let check = SignatureStable::new();
         assert!(check.run(&ctx).is_empty());
@@ -312,11 +321,26 @@ mod tests {
         ctx.after_symbols.push(parent_sym);
 
         // Before: two methods.
-        ctx.before_symbols.push(make_sym("crate::MyStruct::method_a", Visibility::Public, None, Some(parent_id)));
-        ctx.before_symbols.push(make_sym("crate::MyStruct::method_b", Visibility::Public, None, Some(parent_id)));
+        ctx.before_symbols.push(make_sym(
+            "crate::MyStruct::method_a",
+            Visibility::Public,
+            None,
+            Some(parent_id),
+        ));
+        ctx.before_symbols.push(make_sym(
+            "crate::MyStruct::method_b",
+            Visibility::Public,
+            None,
+            Some(parent_id),
+        ));
 
         // After: only one method.
-        ctx.after_symbols.push(make_sym("crate::MyStruct::method_a", Visibility::Public, None, Some(parent_id)));
+        ctx.after_symbols.push(make_sym(
+            "crate::MyStruct::method_a",
+            Visibility::Public,
+            None,
+            Some(parent_id),
+        ));
 
         let check = TraitImplComplete::new();
         let findings = check.run(&ctx);

@@ -9,6 +9,7 @@ members = [
     "crates/dk-agent-sdk",
     "crates/dk-runner",
     "crates/dk-mcp",
+    "crates/dk-analytics",
 ]
 
 [workspace.package]
@@ -45,3 +46,4 @@ dk-runner = { path = "crates/dk-runner", version = "0.1.0" }
 dk-agent-sdk = { path = "crates/dk-agent-sdk", version = "0.1.0" }
 dk-server = { path = "crates/dk-server", version = "0.1.0" }
 dk-mcp = { path = "crates/dk-mcp", version = "0.1.0" }
+dk-analytics = { path = "crates/dk-analytics", version = "0.1.0" }
