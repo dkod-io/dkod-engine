@@ -67,13 +67,23 @@ pub enum AnalyticsAction {
     },
 }
 
-/// Parse a `--since` flag into a concrete `DateTime<Utc>`.
+/// Parse a `--since` flag into a concrete UTC `DateTime<Utc>`.
 ///
-/// This replaces the previous `render_since` which emitted a raw SQL
-/// fragment. Resolving client-side lets every query in `queries/*.sql`
-/// use ClickHouse native parameter binding (`{since:DateTime64(3)}`),
-/// which is the pattern pytorch/test-infra uses and is the ClickHouse
-/// team's recommended way to avoid SQL injection.
+/// Accepts the following input shapes:
+/// - Relative specs like `7d`, `30m`, `2h` (interpreted as now minus that interval).
+/// - `now()` or `now() ± INTERVAL N UNIT` (e.g. `now() - INTERVAL 7 DAY`).
+/// - RFC3339 datetimes (e.g. `2024-01-15T12:30:00Z`).
+/// - Date literals `YYYY-MM-DD` (interpreted as midnight UTC) or `YYYY-MM-DDTHH:MM:SS`.
+///
+/// On success returns the resolved `DateTime<Utc>`. On failure returns an error
+/// describing the accepted formats.
+///
+/// # Examples
+///
+/// ```
+/// let dt = parse_since("2024-01-15").unwrap();
+/// assert_eq!(dt.to_rfc3339(), "2024-01-15T00:00:00+00:00");
+/// ```
 fn parse_since(input: &str) -> Result<DateTime<Utc>> {
     let s = input.trim();
 
@@ -124,6 +134,34 @@ fn parse_since(input: &str) -> Result<DateTime<Utc>> {
     )
 }
 
+/// Parses a compact relative time specification like `7d` or `30m` and returns the UTC
+/// timestamp representing that many units before the current time.
+///
+/// The input must be a numeric count immediately followed by a unit, for example:
+/// - `s`, `second`, `seconds`
+/// - `m`, `minute`, `minutes`
+/// - `h`, `hour`, `hours`
+/// - `d`, `day`, `days`
+/// - `w`, `week`, `weeks`
+/// - `month`, `months` (treated as 30 days)
+/// - `year`, `years` (treated as 365 days)
+///
+/// # Parameters
+///
+/// - `s`: a relative specification in the form `<N><unit>` with no intervening whitespace.
+///
+/// # Returns
+///
+/// `Some(DateTime<Utc>)` equal to `Utc::now()` minus the parsed interval, or `None` if the
+/// input is not a valid `<N><unit>` specification or the unit is unrecognized.
+///
+/// # Examples
+///
+/// ```
+/// use chrono::Utc;
+/// let dt = parse_relative("7d").expect("valid relative spec");
+/// assert!(dt < Utc::now());
+/// ```
 fn parse_relative(s: &str) -> Option<DateTime<Utc>> {
     let s = s.trim();
     let (num, unit) = s.split_at(s.find(|c: char| !c.is_ascii_digit())?);
@@ -135,6 +173,27 @@ fn parse_relative(s: &str) -> Option<DateTime<Utc>> {
     Some(Utc::now() - delta)
 }
 
+/// Convert a numeric interval and unit name into a `chrono::Duration`.
+///
+/// # Returns
+///
+/// `Some(Duration)` representing `n` of the given `unit` (seconds, minutes, hours,
+/// days, weeks, months as 30 days, years as 365 days), or `None` if the unit is unrecognized.
+///
+/// # Examples
+///
+/// ```
+/// use chrono::Duration;
+///
+/// // 7 days
+/// assert_eq!(super::interval_to_duration(7, "d"), Some(Duration::days(7)));
+///
+/// // 90 minutes
+/// assert_eq!(super::interval_to_duration(90, "minutes"), Some(Duration::minutes(90)));
+///
+/// // unknown unit
+/// assert_eq!(super::interval_to_duration(1, "fortnights"), None);
+/// ```
 fn interval_to_duration(n: i64, unit: &str) -> Option<Duration> {
     match unit.trim().to_ascii_lowercase().as_str() {
         "s" | "second" | "seconds" => Some(Duration::seconds(n)),
@@ -148,6 +207,29 @@ fn interval_to_duration(n: i64, unit: &str) -> Option<Duration> {
     }
 }
 
+/// Dispatches the given analytics subcommand and performs the corresponding ClickHouse administration
+/// or query action (migrate schema, run a test query, or print a summary).
+///
+/// The function loads ClickHouse configuration from the environment, builds a client, and executes the
+/// selected `AnalyticsAction`, returning any contextual errors encountered while interacting with
+/// ClickHouse or parsing inputs.
+///
+/// # Returns
+///
+/// `Ok(())` if the selected action completes successfully, `Err` with context on failure.
+///
+/// # Examples
+///
+/// ```ignore
+/// use dk_cli::commands::analytics::{run, AnalyticsAction};
+///
+/// // Run a migration (synchronously via a runtime for demonstration):
+/// let action = AnalyticsAction::Migrate { with_materialized_views: false };
+/// let rt = tokio::runtime::Runtime::new().unwrap();
+/// rt.block_on(async {
+///     run(action).await.unwrap();
+/// });
+/// ```
 pub async fn run(action: AnalyticsAction) -> Result<()> {
     let cfg = dk_analytics::AnalyticsConfig::from_env()
         .context("CLICKHOUSE_URL is not set — analytics is disabled")?;
@@ -197,13 +279,25 @@ pub async fn run(action: AnalyticsAction) -> Result<()> {
     Ok(())
 }
 
-/// Print a compact summary table for one repo.
+/// Print a compact summary for a repository over a given time window.
 ///
-/// Three separate queries rather than one big CTE — keeps each one
-/// trivially readable and lets us bail early with a good error message
-/// if any single one fails. Each query lives in
-/// `crates/dk-analytics/src/queries/*.sql` and uses ClickHouse native
-/// parameter binding for `since`.
+/// The function parses the provided `since` spec into a UTC timestamp, then prints
+/// three metrics computed for that window: merged changesets count, average
+/// verification step duration (milliseconds), and a list of review verdicts.
+/// The `repo` parameter is accepted but currently not used as a filter (reserved
+/// for future per-repo lookups).
+///
+/// # Examples
+///
+/// ```no_run
+/// # use anyhow::Result;
+/// # async fn example() -> Result<()> {
+/// let cfg = dk_analytics::AnalyticsConfig::from_env()?;
+/// let client = dk_analytics::AnalyticsClient::new(&cfg)?;
+/// summary(&client, "my/repo", "7d").await?;
+/// # Ok(())
+/// # }
+/// ```
 async fn summary(client: &dk_analytics::AnalyticsClient, repo: &str, since: &str) -> Result<()> {
     let since_dt = parse_since(since)?;
     println!(
