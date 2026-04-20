@@ -11,6 +11,7 @@ async-trait = { workspace = true }
 chrono = { workspace = true }
 clickhouse = { version = "0.15", default-features = false, features = [
     "rustls-tls-webpki-roots",
+    "rustls-tls-ring",
     "lz4",
     "chrono",
     "uuid",
