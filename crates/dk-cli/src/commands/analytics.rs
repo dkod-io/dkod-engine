@@ -55,9 +55,12 @@ pub enum AnalyticsAction {
         /// Lower bound for `created_at` / `transition_at`. Accepts:
         ///
         ///   * a date/datetime literal (e.g. `2024-01-01T12:00:00`)
-        ///   * a relative spec `<N><unit>` where unit is `m|h|d|w`
+        ///   * a relative spec `<N><unit>` where unit is `s|m|h|d|w`
         ///   * the string `now()`
         ///   * a `now() ± INTERVAL N <unit>` expression
+        ///     (`unit` must be a fixed-length unit: `s|m|h|d|w`;
+        ///     `MONTH`/`YEAR` are rejected because they are
+        ///     calendar-dependent)
         ///
         /// All shapes are parsed client-side into a concrete UTC timestamp
         /// and bound as a `DateTime64(3)` ClickHouse parameter — user input
@@ -143,8 +146,9 @@ fn parse_since(input: &str) -> Result<DateTime<Utc>> {
 /// - `h`, `hour`, `hours`
 /// - `d`, `day`, `days`
 /// - `w`, `week`, `weeks`
-/// - `month`, `months` (treated as 30 days)
-/// - `year`, `years` (treated as 365 days)
+///
+/// Calendar-dependent units (`month`, `year`) are intentionally not supported;
+/// see [`interval_to_duration`] for the rationale.
 ///
 /// # Parameters
 ///
@@ -175,24 +179,31 @@ fn parse_relative(s: &str) -> Option<DateTime<Utc>> {
 
 /// Convert a numeric interval and unit name into a `chrono::Duration`.
 ///
+/// Only fixed-length units are accepted. Calendar-dependent units (`month`,
+/// `year`) are deliberately rejected: collapsing them into a fixed number of
+/// days would silently disagree with ClickHouse's calendar-aware
+/// `INTERVAL N MONTH|YEAR` semantics.
+///
 /// # Returns
 ///
-/// `Some(Duration)` representing `n` of the given `unit` (seconds, minutes, hours,
-/// days, weeks, months as 30 days, years as 365 days), or `None` if the unit is unrecognized.
+/// `Some(Duration)` representing `n` of the given `unit` (seconds, minutes,
+/// hours, days, weeks), or `None` if the unit is unrecognized or
+/// calendar-dependent.
 ///
 /// # Examples
 ///
-/// ```
-/// use chrono::Duration;
-///
+/// ```ignore
 /// // 7 days
-/// assert_eq!(super::interval_to_duration(7, "d"), Some(Duration::days(7)));
+/// assert_eq!(interval_to_duration(7, "d"), Some(chrono::Duration::days(7)));
 ///
 /// // 90 minutes
-/// assert_eq!(super::interval_to_duration(90, "minutes"), Some(Duration::minutes(90)));
+/// assert_eq!(interval_to_duration(90, "minutes"), Some(chrono::Duration::minutes(90)));
+///
+/// // calendar-dependent units are rejected
+/// assert_eq!(interval_to_duration(1, "month"), None);
 ///
 /// // unknown unit
-/// assert_eq!(super::interval_to_duration(1, "fortnights"), None);
+/// assert_eq!(interval_to_duration(1, "fortnights"), None);
 /// ```
 fn interval_to_duration(n: i64, unit: &str) -> Option<Duration> {
     match unit.trim().to_ascii_lowercase().as_str() {
@@ -201,8 +212,6 @@ fn interval_to_duration(n: i64, unit: &str) -> Option<Duration> {
         "h" | "hour" | "hours" => Some(Duration::hours(n)),
         "d" | "day" | "days" => Some(Duration::days(n)),
         "w" | "week" | "weeks" => Some(Duration::weeks(n)),
-        "month" | "months" => Some(Duration::days(30 * n)),
-        "year" | "years" => Some(Duration::days(365 * n)),
         _ => None,
     }
 }
@@ -379,5 +388,24 @@ mod tests {
         assert!(parse_since("'; DROP TABLE x; --").is_err());
         assert!(parse_since("now() - INTERVAL 7 DAY; DROP TABLE x").is_err());
         assert!(parse_since("UNION SELECT").is_err());
+    }
+
+    #[test]
+    fn parse_since_handles_seconds_unit() {
+        let before = Utc::now();
+        let dt = parse_since("90s").unwrap();
+        let after = Utc::now();
+        assert!(dt <= before - Duration::seconds(90) + Duration::seconds(2));
+        assert!(dt >= after - Duration::seconds(90) - Duration::seconds(2));
+    }
+
+    #[test]
+    fn parse_since_rejects_calendar_units() {
+        // `month` and `year` are calendar-dependent; accepting them as
+        // fixed 30/365-day durations would disagree with ClickHouse's
+        // `INTERVAL N MONTH|YEAR` semantics.
+        assert!(parse_since("1month").is_err());
+        assert!(parse_since("now() - INTERVAL 1 MONTH").is_err());
+        assert!(parse_since("now() - INTERVAL 1 YEAR").is_err());
     }
 }
