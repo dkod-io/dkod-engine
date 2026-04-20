@@ -40,8 +40,9 @@ CREATE TABLE IF NOT EXISTS verification_step_daily (
     day Date COMMENT 'Calendar day (UTC)',
     run_count UInt64 COMMENT 'Number of runs that day',
     fail_count UInt64 COMMENT 'Number of runs whose status was not pass/skip',
-    avg_duration_ms Float64 COMMENT 'Arithmetic mean duration across all runs'
-) ENGINE = ReplacingMergeTree
+    avg_duration_ms Float64 COMMENT 'Arithmetic mean duration across all runs',
+    window_end DateTime64(3) COMMENT 'When this aggregation was last recomputed; used as the ReplacingMergeTree version'
+) ENGINE = ReplacingMergeTree(window_end)
 ORDER BY (step_name, day);
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS dk_mv_verification_step_daily
@@ -50,10 +51,11 @@ TO verification_step_daily
 AS
 SELECT
     step_name,
-    toDate(created_at) AS day,
+    toDate(created_at, 'UTC') AS day,
     count() AS run_count,
     countIf(status NOT IN ('pass', 'skip')) AS fail_count,
-    avg(duration_ms) AS avg_duration_ms
+    avg(duration_ms) AS avg_duration_ms,
+    now64(3) AS window_end
 FROM verification_runs
 WHERE created_at >= (now64(3) - INTERVAL 30 DAY)
 GROUP BY step_name, day;
