@@ -113,24 +113,47 @@ jobs:
         id: version
         run: |
           git fetch --tags
-          TAG_LATEST=$(git tag --list 'v*' --sort=-version:refname | head -1)
-          if [ -z "$TAG_LATEST" ]; then
-            TAG_LATEST="v0.0.0"
+
+          # Cargo.toml is the source of truth. Developers bump MAJOR or MINOR
+          # intentionally (e.g. PR #76 moved 0.2.0 -> 0.3.0); CI only patch-bumps
+          # within whatever major.minor line Cargo.toml is on.
+          #
+          # Previous logic computed NEXT = patch-bump(latest git tag), which
+          # silently downgraded Cargo.toml to the tag line. cargo-edit v0.13.9
+          # allowed the downgrade; v0.13.10 refuses it ("Cannot downgrade from
+          # 0.3.0 to 0.2.88"). Root-cause fix: derive NEXT from Cargo.toml so a
+          # manual major/minor bump is honored and the publish step never has
+          # to downgrade.
+          CARGO_VER=$(awk '/^\[workspace\.package\]/{f=1;next} /^\[/{f=0} f && /^version *=/ {gsub(/"/,"",$3); print $3; exit}' Cargo.toml)
+          if [ -z "$CARGO_VER" ]; then
+            # Fallback for alternate formatting: first top-level version line.
+            CARGO_VER=$(grep -E '^version[[:space:]]*=' Cargo.toml | head -1 | sed -E 's/version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/')
           fi
-          echo "Latest tag: $TAG_LATEST"
+          if [ -z "$CARGO_VER" ]; then
+            echo "::error::Could not read workspace version from Cargo.toml"
+            exit 1
+          fi
+          echo "Cargo.toml workspace version: $CARGO_VER"
 
-          VERSION="${TAG_LATEST#v}"
-          MAJOR=$(echo "$VERSION" | cut -d. -f1)
-          MINOR=$(echo "$VERSION" | cut -d. -f2)
-          PATCH=$(echo "$VERSION" | cut -d. -f3)
-          NEXT_PATCH=$((PATCH + 1))
-          NEXT_VERSION="v${MAJOR}.${MINOR}.${NEXT_PATCH}"
+          MAJOR=$(echo "$CARGO_VER" | cut -d. -f1)
+          MINOR=$(echo "$CARGO_VER" | cut -d. -f2)
+          PATCH=$(echo "$CARGO_VER" | cut -d. -f3)
 
-          while git rev-parse "$NEXT_VERSION" >/dev/null 2>&1; do
-            echo "Tag $NEXT_VERSION already exists, bumping again..."
-            NEXT_PATCH=$((NEXT_PATCH + 1))
+          CARGO_TAG="v${CARGO_VER}"
+          if git rev-parse "$CARGO_TAG" >/dev/null 2>&1; then
+            # Cargo.toml version already released -- patch-bump for this run.
+            NEXT_PATCH=$((PATCH + 1))
             NEXT_VERSION="v${MAJOR}.${MINOR}.${NEXT_PATCH}"
-          done
+            while git rev-parse "$NEXT_VERSION" >/dev/null 2>&1; do
+              echo "Tag $NEXT_VERSION already exists, bumping again..."
+              NEXT_PATCH=$((NEXT_PATCH + 1))
+              NEXT_VERSION="v${MAJOR}.${MINOR}.${NEXT_PATCH}"
+            done
+          else
+            # First release of this Cargo.toml version -- tag as-is so a
+            # deliberate 0.2.0 -> 0.3.0 bump in Cargo.toml produces v0.3.0.
+            NEXT_VERSION="$CARGO_TAG"
+          fi
 
           echo "version=$NEXT_VERSION" >> "$GITHUB_OUTPUT"
           echo "Next version: $NEXT_VERSION"
