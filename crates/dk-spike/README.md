@@ -19,11 +19,9 @@ bricked production crates.
 | `enum_dispatch` | `0.3` | ✅ | `dk-runner` — zero-cost `dyn Trait` replacement for workflow step enums. |
 | `typetag` | `0.2` | ✅ | `dk-protocol` / `dk-engine` — serde-friendly trait objects for persisted step payloads + analytics events. |
 | `tracing-core` | `0.1` | ✅ | `dk-observability` — direct dep once we write a custom Langfuse subscriber. |
-| `gh-workflow` | `0.8` | ✅ | `dk-runner` — agent-authored GitHub Actions YAML builder (matches the `gh aw` flow the user flagged in knowledge). |
-| `cargo-issue-lib` | `0.1` | ✅ | Tooling — flag open GitHub issues at compile time via proc-macro. |
 | `langfuse-sdk` | `0.1.1` | ✅ | `dk-observability` — typed Langfuse traces/generations/scores client. Complements the OTLP exporter already used for cloud.langfuse.com. |
-| `rmcp-macros` | `1.5` | ✅ | `dk-mcp` — proc-macros from the official rmcp SDK. Only promotes if we refactor our hand-rolled MCP server; otherwise we consume via `rmcp` directly. |
-| `connectrpc` | `0.3.2` (feat: `client`) | ✅ | `dk-server` / clients — Connect-RPC (HTTP+protobuf, browser-friendly) alongside the existing tonic gRPC surface. |
+| `rmcp-macros` | `1.5` | ✅ (duplicate of rmcp 0.16 already in dk-mcp — kept on request, will reconcile when dk-mcp is promoted to rmcp 1.x) | `dk-mcp` — proc-macros from the official rmcp SDK. |
+| `connectrpc` | `0.3.2` (feat: `client`) | ✅ | `dk-server` / clients — **target runtime stack for tonic replacement (path B).** Connect-RPC (HTTP+protobuf, browser-native) supersedes tonic + tonic-web once dk-protocol is regenerated. |
 | `buffa` | `0.3.0` (feat: `json`) | ✅ | `dk-protocol` — protobuf ↔ JSON for Connect clients without a separate code path. |
 | `buffa-types` | `0.3.0` (feat: `json`) | ✅ | `dk-protocol` — type helpers for Buffa. |
 | `swiftide` | `0.32.1` | ✅ | `dk-agent-sdk` — streaming RAG / ingestion pipelines. Uses rig under the hood; heavy but keeps retrieval code declarative. |
@@ -38,6 +36,7 @@ bricked production crates.
 | `grit` | `cargo install --git https://github.com/rtk-ai/grit grit` | Code-search / structural rewrites CLI (the package has multiple bins, must specify `grit`). |
 | `baml-cli` | `cargo install baml-cli` | Compiles `baml_src/*.baml` into `baml_client/` (Rust module). |
 | `icm` | `cargo install --git https://github.com/rtk-ai/icm --bin icm` | "Infinite Context Memory" — single-binary memory/knowledge graph server. Exposes itself as an MCP server; dkod registers it as a managed server, does **not** vendor the code. |
+| `gh aw` | `gh extension install githubnext/gh-aw` | GitHub Agent Workflows — compiles natural-language `.md` workflow specs into SHA-pinned `.lock.yml` with AWF firewall + MCP gateway + Serena LSP. Preferred over the `gh-workflow` Rust crate for agent-authored CI. |
 
 ## BAML workflow (source of truth for agents + graphs)
 
@@ -70,13 +69,36 @@ cargo check        # confirms the generated module type-checks
 
 ## Follow-up PR plan
 
+**Path B — tonic → connectrpc replacement (multi-PR series):**
+
+1. `dk-protocol-connect` — emit Connect-RPC stubs via `buffa` alongside the existing `tonic-build` output (dual-transport phase).
+2. `dk-server` — port handlers from `tonic::Status` to connectrpc equivalents; run both transports in parallel.
+3. Port `dk-cli`, `dk-agent-sdk`, `dk-mcp` clients to the connectrpc client.
+4. Remove `tonic`, `tonic-web`, `tonic-build` once all call sites are on Connect.
+
+**Non-blocking follow-ups:**
+
 1. Promote passing crates out of `dk-spike` into real crates:
-   - `dk-github` (octocrab, gh-workflow)
+   - `dk-github` (octocrab; `gh aw` invoked as a peer binary rather than linked)
    - `dk-observability` (langfuse-sdk, tracing-core, opentelemetry-otlp)
    - `dk-agents` (baml, genai, dspy-rs, swiftide)
+   - `dk-embedded-ch` (chdb-rust, for local ClickHouse in verification pipelines)
 2. Wire `baml-cli generate` into a `cargo xtask` or `justfile` target so CI
    regenerates the client from `baml_src/`.
 3. Register `icm` in `dk-mcp`'s managed-server registry.
 4. Seed the clickhouse-monitoring "managed MCP servers" page from the
    platform.csv the user attached (Linear, Notion, Stripe, Figma, etc.).
 5. Delete `dk-spike` once all its deps have found a real home.
+
+## Compatibility audit summary
+
+Ran `cargo tree -d` on the full workspace with all 15 candidate crates present. Findings:
+
+- **No conflicts with production pins.** tonic 0.12, prost 0.13, sqlx 0.8, tokio 1.x, rustls 0.23 all resolve cleanly.
+- **Duplicate versions in the tree** (all either pre-existing or build-time only, none break runtime):
+  - `imara-diff 0.1 + 0.2` — pre-existing from gix.
+  - `reqwest 0.11 + 0.12 + 0.13`, `hyper 0.14 + 1.8`, `rustls 0.21 + 0.23` — 0.x chain was pulled by `cargo-issue-lib` (now removed) and `chdb-rust` build-dep only; not linked into runtime binaries.
+  - `jsonwebtoken 9 + 10` — octocrab pulls 10, production `dk-protocol` pins 9. Harmless coexistence; reconcile when `dk-github` is extracted.
+  - `rmcp-macros 0.16 + 1.5` — existing rmcp 0.16 in dk-mcp vs new 1.5 added here; kept intentionally per owner decision.
+- **`cargo-issue-lib` dropped** — was the main source of ancient deps (reqwest 0.11, rustls 0.21).
+- **`gh-workflow` Rust crate dropped** — superseded by `gh aw` peer binary (see table above).

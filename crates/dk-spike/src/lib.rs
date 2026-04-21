@@ -52,11 +52,11 @@ fn _probe_tracing_core() {
     let _ = tracing_core::Level::INFO;
 }
 
-fn _probe_gh_workflow() {
-    let _w = gh_workflow::Workflow::new("ci");
-}
-
-fn _probe_cargo_issue_lib() {
-    // cargo-issue-lib exposes a proc macro to flag open GitHub issues at
-    // compile time. We just ensure the crate is linkable here.
+fn _probe_chdb_rust() {
+    // chDB is an embedded ClickHouse. Links against `libchdb.so` (installed
+    // to /usr/local/lib via `curl -sL https://lib.chdb.io | bash`). The
+    // `chdb-rust` crate is git-only (chdb-io/chdb-rust); the published
+    // `chdb` crate on crates.io is broken. We just reference a type so
+    // linkage is verified without running a query.
+    let _ = std::marker::PhantomData::<chdb_rust::format::OutputFormat>;
 }
