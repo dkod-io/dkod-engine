@@ -7,12 +7,21 @@
 
 // ---- Shared types ----------------------------------------------------------
 
+// Agent roles use symbol tuning (@alias "kN") so the planner ranks steps by
+// the attached @description text, not by any prior association it has with
+// the word "Reviewer" / "Judge" / etc.
+// See: https://docs.boundaryml.com/examples/prompt-engineering/symbol-tuning
 enum AgentRole {
-    Planner     @description("Decomposes the intent into a workflow DAG.")
-    Coder       @description("Writes / edits code inside a session overlay.")
-    Reviewer    @description("Reads a changeset diff and produces review notes.")
-    Judge       @description("Scores a changeset + review pair; LLM-as-judge gate.")
-    Verifier    @description("Runs tests / lint / typecheck and reports results.")
+    Planner  @alias("k1")
+             @description("Decomposes the intent into a workflow DAG of small, independently-verifiable steps.")
+    Coder    @alias("k2")
+             @description("Writes or edits code inside an isolated session overlay; never merges to the base branch directly.")
+    Reviewer @alias("k3")
+             @description("Reads a changeset diff and produces concrete review notes with blockers, no merge authority.")
+    Judge    @alias("k4")
+             @description("Scores the changeset + reviewer pair strictly; the only role that can emit a terminal verdict.")
+    Verifier @alias("k5")
+             @description("Runs lint, typecheck, and tests on the overlay and reports pass/fail with signal names.")
 }
 
 class WorkflowStep {
@@ -36,8 +45,20 @@ class WorkflowPlan {
     entry string                      @description("Step id to execute first.")
 }
 
+// Symbol-tuned decision: previously a `bool approved` field which biases the
+// LLM toward the literal word "approved". The three-way outcome carries no
+// semantic label the model can anchor to — the @description does all the work.
+enum VerdictCode {
+    Approve        @alias("k1")
+                   @description("No unresolved blockers; the changeset may proceed to merge.")
+    RequestChanges @alias("k2")
+                   @description("Blockers exist but are addressable by the coder in another iteration.")
+    Reject         @alias("k3")
+                   @description("Fundamental issue (scope, correctness, safety) — do not iterate on this changeset.")
+}
+
 class ReviewVerdict {
-    approved  bool
+    verdict   VerdictCode
     score     int                     @description("0..100, higher is better.")
     rationale string
     blockers  string[]                @description("Concrete issues that must be fixed before approval.")
