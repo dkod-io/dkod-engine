@@ -109,6 +109,14 @@ pub struct Changeset {
     /// Stacked-changeset parent. PR1 ships the column additively — nothing
     /// populates it and no consumer reads it. PR2 will set it at submit
     /// time and enforce merge-order on the chain.
+    ///
+    /// `#[sqlx(default)]` so `FromRow` tolerates a row that doesn't include
+    /// this column — lets the engine run against a DB where migration 015
+    /// hasn't been applied (hosted platforms manage schema independently).
+    /// Safe because no consumer reads the value yet. When PR2 starts
+    /// populating and reading it, add the column back to the SELECT in
+    /// `ChangesetStore::get` and drop this default.
+    #[sqlx(default)]
     pub parent_changeset_id: Option<Uuid>,
 }
 
@@ -254,13 +262,14 @@ impl ChangesetStore {
     }
 
     pub async fn get(&self, id: Uuid) -> dk_core::Result<Changeset> {
+        // `parent_changeset_id` is intentionally omitted here; see the field's
+        // doc comment. FromRow defaults the struct field to None.
         sqlx::query_as::<_, Changeset>(
             r#"SELECT id, repo_id, number, title, intent_summary,
                       source_branch, target_branch, state, reason,
                       session_id, agent_id, agent_name, author_id,
                       base_version, merged_version,
-                      created_at, updated_at, merged_at,
-                      parent_changeset_id
+                      created_at, updated_at, merged_at
                FROM changesets WHERE id = $1"#,
         )
         .bind(id)
