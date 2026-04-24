@@ -1,0 +1,22 @@
+[package]
+name = "dk-supabase"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Thin Supabase REST/GraphQL/Auth wrapper for dkod. Complements sqlx for RLS-gated access patterns."
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+supabase_rs = { version = "0.7", default-features = false, features = ["rustls", "storage"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+[dev-dependencies]
+tokio = { workspace = true }

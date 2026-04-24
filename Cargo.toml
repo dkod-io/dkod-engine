@@ -10,6 +10,7 @@ members = [
     "crates/dk-runner",
     "crates/dk-mcp",
     "crates/dk-analytics",
+    "crates/dk-supabase",
 ]
 
 [workspace.package]
