@@ -183,6 +183,16 @@ struct StatusParams {
 }
 
 #[derive(Deserialize, JsonSchema)]
+struct ListIntegrationsParams {
+    /// Filter by kind: "mcp" (MCP servers) or "peer" (external binaries).
+    /// When omitted, both kinds are returned.
+    kind: Option<String>,
+    /// Optional category filter (e.g. "db", "docs", "analytics").
+    /// Matches any of the entry's `categories`.
+    category: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
 struct PushParams {
     /// Session ID from dk_connect (required when multiple sessions are active)
     session_id: Option<String>,
@@ -1022,6 +1032,78 @@ impl DkodMcp {
             );
         }
 
+        Ok(CallToolResult::success(vec![Content::text(text)]))
+    }
+
+    /// List managed integrations (MCP servers + peer binaries) available to dkod agents.
+    #[tool(
+        description = "List dkod-managed integrations: 11 MCP servers (supabase, redis, vercel, cloudflare-*, context7, deepwiki, amplitude, linear, pinecone) and 7 peer binaries (rtk, grit, gh-aw, icm, mdbook, mcp-clickhouse, houseofagents). Optional kind filter (\"mcp\" | \"peer\") and category filter. Each MCP entry also reports whether it's configured (all auth_env_vars set) in the current environment."
+    )]
+    async fn dk_list_integrations(
+        &self,
+        Parameters(params): Parameters<ListIntegrationsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::registry::Registry;
+
+        let reg = Registry::load_embedded();
+
+        let matches_category = |cats: &[String]| -> bool {
+            match &params.category {
+                None => true,
+                Some(c) => cats.iter().any(|x| x == c),
+            }
+        };
+
+        let include_mcp = matches!(params.kind.as_deref(), None | Some("mcp"));
+        let include_peer = matches!(params.kind.as_deref(), None | Some("peer"));
+
+        let mcps: Vec<_> = if include_mcp {
+            reg.mcp_servers()
+                .filter(|m| matches_category(&m.categories))
+                .map(|m| {
+                    serde_json::json!({
+                        "kind": "mcp",
+                        "name": m.name,
+                        "transport": m.transport,
+                        "categories": m.categories,
+                        "auth_env_vars": m.auth_env_vars,
+                        "homepage": m.homepage,
+                        "description": m.description,
+                        "configured": Registry::is_mcp_configured(m),
+                    })
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        let peers: Vec<_> = if include_peer {
+            reg.peers()
+                .filter(|p| matches_category(&p.categories))
+                .map(|p| {
+                    serde_json::json!({
+                        "kind": "peer",
+                        "name": p.name,
+                        "install": p.install,
+                        "categories": p.categories,
+                        "homepage": p.homepage,
+                        "description": p.description,
+                    })
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        let payload = serde_json::json!({
+            "mcp_count": mcps.len(),
+            "peer_count": peers.len(),
+            "mcp": mcps,
+            "peer": peers,
+        });
+
+        let text = serde_json::to_string_pretty(&payload)
+            .unwrap_or_else(|e| format!("serialization error: {e}"));
         Ok(CallToolResult::success(vec![Content::text(text)]))
     }
 

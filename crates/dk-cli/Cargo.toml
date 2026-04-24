@@ -5,6 +5,7 @@ edition.workspace = true
 description = "dkod CLI — agent-native code platform"
 license.workspace = true
 repository.workspace = true
+publish = false
 homepage = "https://dkod.io"
 keywords = ["ai", "agents", "code", "cli"]
 categories = ["command-line-utilities", "development-tools"]
