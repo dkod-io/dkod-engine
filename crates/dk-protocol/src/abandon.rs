@@ -64,9 +64,7 @@ pub async fn handle_abandon(
         )));
     }
 
-    let changeset_str = changeset_id_opt
-        .map(|u| u.to_string())
-        .unwrap_or_default();
+    let changeset_str = changeset_id_opt.map(|u| u.to_string()).unwrap_or_default();
 
     // Idempotent: if already abandoned, just return success.
     if abandoned_at.is_some() {
@@ -88,7 +86,9 @@ pub async fn handle_abandon(
             operator: operator_name.clone(),
         }
     } else {
-        AbandonReason::Explicit { caller: caller_agent.clone() }
+        AbandonReason::Explicit {
+            caller: caller_agent.clone(),
+        }
     };
 
     let reason_str = reason.as_str().to_string();

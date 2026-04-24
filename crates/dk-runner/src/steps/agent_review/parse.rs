@@ -1,7 +1,7 @@
+use super::provider::{ReviewResponse, ReviewVerdict};
+use crate::findings::{Finding, Severity, Suggestion};
 use anyhow::{Context, Result};
 use serde::Deserialize;
-use crate::findings::{Finding, Severity, Suggestion};
-use super::provider::{ReviewResponse, ReviewVerdict};
 
 #[derive(Deserialize)]
 struct LlmResponse {
@@ -23,8 +23,8 @@ struct LlmIssue {
 
 pub fn parse_review_response(raw: &str) -> Result<ReviewResponse> {
     let json_str = extract_json(raw);
-    let parsed: LlmResponse = serde_json::from_str(json_str)
-        .context("Failed to parse LLM review response as JSON")?;
+    let parsed: LlmResponse =
+        serde_json::from_str(json_str).context("Failed to parse LLM review response as JSON")?;
 
     let mut findings = Vec::new();
     let mut suggestions = Vec::new();

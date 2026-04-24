@@ -5,7 +5,7 @@ use uuid::Uuid;
 fn test_agent_name_auto_assigned_when_empty() {
     // When agent_name is empty, the connect handler auto-assigns "agent-N".
     // We test the logic branch directly:
-    let provided = "";
+    let provided: &str = "";
     let agent_name = if provided.is_empty() {
         "agent-1".to_string()
     } else {
@@ -17,7 +17,7 @@ fn test_agent_name_auto_assigned_when_empty() {
 #[test]
 fn test_agent_name_preserved_when_provided() {
     // When an agent provides a name, it should be used as-is.
-    let provided = "feature-bot";
+    let provided: &str = "feature-bot";
     let agent_name = if provided.is_empty() {
         "agent-1".to_string()
     } else {
@@ -82,11 +82,21 @@ fn test_source_branch_uses_intent_and_agent_name() {
         let s: String = intent
             .to_lowercase()
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '-' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' {
+                    c
+                } else {
+                    '-'
+                }
+            })
             .collect::<String>()
             .trim_matches('-')
             .to_string();
-        if s.len() > 50 { s[..50].trim_end_matches('-').to_string() } else { s }
+        if s.len() > 50 {
+            s[..50].trim_end_matches('-').to_string()
+        } else {
+            s
+        }
     }
 
     assert_eq!(

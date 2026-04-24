@@ -3,7 +3,9 @@
 use crate::parser::engine::QueryDrivenParser;
 use crate::parser::lang_config::{CommentStyle, LanguageConfig};
 use crate::parser::LanguageParser;
-use dk_core::{FileAnalysis, Import, RawCallEdge, Result, Symbol, SymbolKind, TypeInfo, Visibility};
+use dk_core::{
+    FileAnalysis, Import, RawCallEdge, Result, Symbol, SymbolKind, TypeInfo, Visibility,
+};
 use std::collections::HashMap;
 use std::path::Path;
 use tree_sitter::Language;
@@ -76,11 +78,10 @@ impl LanguageConfig for TypeScriptConfig {
 
             // Derive a name from the call: func_text + optional first string arg
             if let Some(func_node) = node.child_by_field_name("function") {
-                let func_text = std::str::from_utf8(
-                    &source[func_node.start_byte()..func_node.end_byte()],
-                )
-                .unwrap_or("")
-                .to_string();
+                let func_text =
+                    std::str::from_utf8(&source[func_node.start_byte()..func_node.end_byte()])
+                        .unwrap_or("")
+                        .to_string();
 
                 // Look for the first string argument to append as a path
                 let name = if let Some(args) = node.child_by_field_name("arguments") {
@@ -138,10 +139,7 @@ impl TypeScriptConfig {
     ///
     /// Preserves the full comment text (including prefix) so that AST
     /// merge can reconstruct valid TypeScript.
-    fn collect_preceding_comments(
-        node: &tree_sitter::Node,
-        source: &[u8],
-    ) -> Option<String> {
+    fn collect_preceding_comments(node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
         let mut lines = Vec::new();
         let mut sibling = node.prev_sibling();
 

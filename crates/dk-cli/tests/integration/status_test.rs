@@ -10,7 +10,11 @@ fn dk() -> Command {
 
 fn init_repo() -> TempDir {
     let dir = TempDir::new().unwrap();
-    dk().arg("git").arg("init").arg(dir.path()).assert().success();
+    dk().arg("git")
+        .arg("init")
+        .arg(dir.path())
+        .assert()
+        .success();
     configure_git_user(dir.path());
     dir
 }
@@ -66,17 +70,27 @@ fn status_shows_staged_and_unstaged() {
 
     // Create a file, stage it, and commit so we have a baseline.
     fs::write(dir.path().join("file.txt"), "v1").unwrap();
-    dk().args(["git", "add", "file.txt"]).current_dir(dir.path()).assert().success();
-    dk().args(["git", "commit", "-m", "initial"]).current_dir(dir.path()).assert().success();
+    dk().args(["git", "add", "file.txt"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
+    dk().args(["git", "commit", "-m", "initial"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
 
     // Modify the file and stage it (staged change).
     fs::write(dir.path().join("file.txt"), "v2").unwrap();
-    dk().args(["git", "add", "file.txt"]).current_dir(dir.path()).assert().success();
+    dk().args(["git", "add", "file.txt"])
+        .current_dir(dir.path())
+        .assert()
+        .success();
 
     // Modify the file again in the worktree (unstaged change on top of staged).
     fs::write(dir.path().join("file.txt"), "v3").unwrap();
 
-    let assert = dk().args(["git", "status"])
+    let assert = dk()
+        .args(["git", "status"])
         .current_dir(dir.path())
         .assert()
         .success();
@@ -95,7 +109,8 @@ fn status_shows_branch_name() {
 
     // gix::init creates a repo; the default branch is typically "main".
     // We just check that "On branch" appears in the output.
-    let assert = dk().args(["git", "status"])
+    let assert = dk()
+        .args(["git", "status"])
         .current_dir(dir.path())
         .assert()
         .success();

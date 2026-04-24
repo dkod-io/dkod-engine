@@ -26,7 +26,11 @@ fn full_workflow_init_add_commit_log_diff() {
     let dir = TempDir::new().unwrap();
 
     // 1. Init
-    dk().arg("git").arg("init").arg(dir.path()).assert().success();
+    dk().arg("git")
+        .arg("init")
+        .arg(dir.path())
+        .assert()
+        .success();
     configure_git_user(dir.path());
 
     // 2. Status on empty repo
@@ -45,9 +49,7 @@ fn full_workflow_init_add_commit_log_diff() {
         .current_dir(dir.path())
         .assert()
         .success()
-        .stdout(
-            predicate::str::contains("README.md").and(predicate::str::contains("main.rs")),
-        );
+        .stdout(predicate::str::contains("README.md").and(predicate::str::contains("main.rs")));
 
     // 5. Add all
     dk().args(["git", "add", "-A"])
@@ -122,7 +124,11 @@ fn full_workflow_init_add_commit_log_diff() {
 #[test]
 fn branch_checkout_merge_workflow() {
     let dir = TempDir::new().unwrap();
-    dk().arg("git").arg("init").arg(dir.path()).assert().success();
+    dk().arg("git")
+        .arg("init")
+        .arg(dir.path())
+        .assert()
+        .success();
     configure_git_user(dir.path());
 
     // Initial commit on main

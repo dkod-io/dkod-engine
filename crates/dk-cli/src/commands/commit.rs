@@ -58,10 +58,7 @@ pub fn run(message: Option<String>) -> Result<()> {
 }
 
 /// Check whether there are staged changes ready to commit.
-fn has_staged_changes(
-    workdir: &std::path::Path,
-    git_dir: &std::path::Path,
-) -> Result<bool> {
+fn has_staged_changes(workdir: &std::path::Path, git_dir: &std::path::Path) -> Result<bool> {
     let git_exe = gix::path::env::exe_invocation();
 
     // First check: does HEAD exist? If not, this is a fresh repo and we just

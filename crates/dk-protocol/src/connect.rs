@@ -86,20 +86,15 @@ pub async fn handle_connect(
                     let mgr = server.engine().workspace_manager();
                     match mgr.resume(&dead, new_sid, &agent_id).await {
                         Ok(ResumeResult::Ok(_)) => {
-                            let ws = mgr
-                                .get_workspace(&new_sid)
-                                .ok_or_else(|| Status::internal("rehydrated workspace not found"))?;
+                            let ws = mgr.get_workspace(&new_sid).ok_or_else(|| {
+                                Status::internal("rehydrated workspace not found")
+                            })?;
                             // Epic B: reject cross-codebase resume. Resolve req.codebase and
                             // compare to the rehydrated workspace's repo_id so an agent cannot
                             // resume a stranded workspace that belongs to a different repository.
-                            let (expected_repo_id, _git) = server
-                                .engine()
-                                .get_repo(&req.codebase)
-                                .await
-                                .map_err(|e| {
-                                    Status::invalid_argument(format!(
-                                        "codebase lookup failed: {e}"
-                                    ))
+                            let (expected_repo_id, _git) =
+                                server.engine().get_repo(&req.codebase).await.map_err(|e| {
+                                    Status::invalid_argument(format!("codebase lookup failed: {e}"))
                                 })?;
                             if ws.repo_id != expected_repo_id {
                                 return Err(Status::invalid_argument(
@@ -146,8 +141,7 @@ pub async fn handle_connect(
                                 if let Ok(mv) =
                                     tonic::metadata::MetadataValue::try_from(json.as_str())
                                 {
-                                    st.metadata_mut()
-                                        .insert("dk-conflicting-symbols", mv);
+                                    st.metadata_mut().insert("dk-conflicting-symbols", mv);
                                 }
                             }
                             return Err(st);
@@ -169,8 +163,7 @@ pub async fn handle_connect(
                             return Err(st);
                         }
                         Ok(ResumeResult::Abandoned) => {
-                            let mut st =
-                                Status::failed_precondition("session abandoned");
+                            let mut st = Status::failed_precondition("session abandoned");
                             st.metadata_mut().insert(
                                 "dk-error",
                                 tonic::metadata::MetadataValue::try_from("SESSION_ABANDONED")
@@ -200,7 +193,11 @@ pub async fn handle_connect(
         .workspace_config
         .as_ref()
         .and_then(|c| c.base_commit.clone())
-        .or_else(|| resumed_snapshot.as_ref().map(|s| s.codebase_version.clone()));
+        .or_else(|| {
+            resumed_snapshot
+                .as_ref()
+                .map(|s| s.codebase_version.clone())
+        });
 
     // 2-4. Resolve repo, get summary, read HEAD version, and validate
     //      base_commit if one was provided.  Everything involving
@@ -209,15 +206,12 @@ pub async fn handle_connect(
     let engine = server.engine();
 
     let (repo_id, version, summary) = {
-        let (repo_id, git_repo) = engine
-            .get_repo(&req.codebase)
-            .await
-            .map_err(|e| match e {
-                dk_core::Error::AmbiguousRepoName(_) => Status::invalid_argument(
-                    format!("Ambiguous repository name: use the full 'owner/repo' form ({e})"),
-                ),
-                _ => Status::not_found(format!("Repository not found: {e}")),
-            })?;
+        let (repo_id, git_repo) = engine.get_repo(&req.codebase).await.map_err(|e| match e {
+            dk_core::Error::AmbiguousRepoName(_) => Status::invalid_argument(format!(
+                "Ambiguous repository name: use the full 'owner/repo' form ({e})"
+            )),
+            _ => Status::not_found(format!("Repository not found: {e}")),
+        })?;
 
         // HEAD commit hash (or "initial" for empty repos).
         let version = git_repo
@@ -229,13 +223,11 @@ pub async fn handle_connect(
         // a second `get_repo` call.
         if let Some(ref base) = requested_base_commit {
             if base != &version && base != "initial" {
-                git_repo
-                    .list_tree_files(base)
-                    .map_err(|_| {
-                        Status::invalid_argument(format!(
-                            "base_commit '{base}' does not resolve to a valid commit"
-                        ))
-                    })?;
+                git_repo.list_tree_files(base).map_err(|_| {
+                    Status::invalid_argument(format!(
+                        "base_commit '{base}' does not resolve to a valid commit"
+                    ))
+                })?;
             }
         }
 
@@ -268,7 +260,14 @@ pub async fn handle_connect(
     // 5b. Create a changeset (staging area for file changes).
     let changeset = engine
         .changeset_store()
-        .create(repo_id, Some(session_id), &req.agent_id, &req.intent, Some(&version), &agent_name)
+        .create(
+            repo_id,
+            Some(session_id),
+            &req.agent_id,
+            &req.intent,
+            Some(&version),
+            &agent_name,
+        )
         .await
         .map_err(|e| Status::internal(format!("failed to create changeset: {e}")))?;
 

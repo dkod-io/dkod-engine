@@ -105,7 +105,7 @@ fn test_call_graph_resolution_logic() {
         make_symbol(sym_b, "validate", "app::validate", "src/app.rs"),
     ];
 
-    let raw_edges = vec![
+    let raw_edges = [
         RawCallEdge {
             caller_name: "process".into(),
             callee_name: "validate".into(),
@@ -126,6 +126,7 @@ fn test_call_graph_resolution_logic() {
             kind: CallKind::DirectCall,
         },
     ];
+    let raw_edges = raw_edges.to_vec();
 
     // Inline the resolution algorithm.
     let mut name_to_id = std::collections::HashMap::new();

@@ -34,22 +34,24 @@ fn init_defaults_to_current_directory() {
 fn init_creates_subdirectory_if_needed() {
     let dir = TempDir::new().unwrap();
     let sub = dir.path().join("my-repo");
-    dk().arg("git")
-        .arg("init")
-        .arg(&sub)
-        .assert()
-        .success();
+    dk().arg("git").arg("init").arg(&sub).assert().success();
     assert!(sub.join(".git").exists());
 }
 
 #[test]
 fn init_in_existing_repo_succeeds() {
     let dir = TempDir::new().unwrap();
-    dk().arg("git").arg("init").arg(dir.path()).assert().success();
+    dk().arg("git")
+        .arg("init")
+        .arg(dir.path())
+        .assert()
+        .success();
     dk().arg("git")
         .arg("init")
         .arg(dir.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains("Reinitialized").or(predicate::str::contains("Initialized")));
+        .stdout(
+            predicate::str::contains("Reinitialized").or(predicate::str::contains("Initialized")),
+        );
 }

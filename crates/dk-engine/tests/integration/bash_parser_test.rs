@@ -23,9 +23,7 @@ function setup_env() {
     export PATH="/usr/local/bin:$PATH"
 }
 "#;
-    let analysis = registry
-        .parse_file(Path::new("deploy.sh"), source)
-        .unwrap();
+    let analysis = registry.parse_file(Path::new("deploy.sh"), source).unwrap();
 
     let names: Vec<&str> = analysis.symbols.iter().map(|s| s.name.as_str()).collect();
     assert!(
@@ -58,11 +56,7 @@ function setup_env() {
         "deploy should have a doc comment"
     );
     assert!(
-        deploy
-            .doc_comment
-            .as_ref()
-            .unwrap()
-            .contains("Deploy"),
+        deploy.doc_comment.as_ref().unwrap().contains("Deploy"),
         "Doc comment should contain 'Deploy'"
     );
 }
@@ -79,9 +73,7 @@ main() {
     deploy
 }
 "#;
-    let analysis = registry
-        .parse_file(Path::new("run.sh"), source)
-        .unwrap();
+    let analysis = registry.parse_file(Path::new("run.sh"), source).unwrap();
 
     let call_names: Vec<&str> = analysis
         .calls
@@ -130,9 +122,7 @@ without_keyword() {
     echo "no function keyword"
 }
 "#;
-    let analysis = registry
-        .parse_file(Path::new("funcs.sh"), source)
-        .unwrap();
+    let analysis = registry.parse_file(Path::new("funcs.sh"), source).unwrap();
 
     let names: Vec<&str> = analysis.symbols.iter().map(|s| s.name.as_str()).collect();
     assert!(
@@ -158,9 +148,7 @@ main() {
     echo "hello"
 }
 "#;
-    let analysis = registry
-        .parse_file(Path::new("init.sh"), source)
-        .unwrap();
+    let analysis = registry.parse_file(Path::new("init.sh"), source).unwrap();
 
     // We don't extract source/. imports since they're regular commands
     assert!(

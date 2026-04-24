@@ -51,9 +51,8 @@ impl LanguageConfig for PythonConfig {
                     end_byte: parent.end_byte() as u32,
                 };
                 // Use the decorator's first line as the signature.
-                let text =
-                    std::str::from_utf8(&source[parent.start_byte()..parent.end_byte()])
-                        .unwrap_or("");
+                let text = std::str::from_utf8(&source[parent.start_byte()..parent.end_byte()])
+                    .unwrap_or("");
                 if let Some(first_line) = text.lines().next() {
                     let trimmed = first_line.trim();
                     if !trimmed.is_empty() {
@@ -94,8 +93,8 @@ impl PythonConfig {
         if first_stmt.kind() == "expression_statement" {
             let expr = first_stmt.child(0)?;
             if expr.kind() == "string" {
-                let raw = std::str::from_utf8(&source[expr.start_byte()..expr.end_byte()])
-                    .unwrap_or("");
+                let raw =
+                    std::str::from_utf8(&source[expr.start_byte()..expr.end_byte()]).unwrap_or("");
                 let content = raw
                     .strip_prefix("\"\"\"")
                     .and_then(|s| s.strip_suffix("\"\"\""))

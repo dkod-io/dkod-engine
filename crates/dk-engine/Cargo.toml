@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+publish = false
 description = "dkod code analysis engine — semantic parsing, indexing, and search"
 homepage = "https://dkod.io"
 keywords = ["ai", "agents", "code", "semantic"]

@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use regex::Regex;
 
-use dk_core::types::{SymbolId, Visibility, SymbolKind};
+use dk_core::types::{SymbolId, SymbolKind, Visibility};
 
 use crate::findings::{Finding, Severity};
 
@@ -28,10 +28,7 @@ impl ComplexityLimit {
             threshold,
             // Match branching keywords at word boundaries. We count occurrences
             // per file as a rough proxy for McCabe-like complexity.
-            branch_re: Regex::new(
-                r"\b(if|else|match|for|while|loop)\b"
-            )
-            .expect("invalid regex"),
+            branch_re: Regex::new(r"\b(if|else|match|for|while|loop)\b").expect("invalid regex"),
         }
     }
 }
@@ -54,8 +51,8 @@ impl SemanticCheck for ComplexityLimit {
             // Track per-function complexity by detecting `fn` declarations
             // and measuring branching depth within each function's scope.
             let mut current_fn: Option<(String, usize)> = None; // (name, start_line)
-            let mut fn_depth: usize = 0;       // brace depth within current function
-            let mut branch_depth: usize = 0;   // branching nesting within current function
+            let mut fn_depth: usize = 0; // brace depth within current function
+            let mut branch_depth: usize = 0; // branching nesting within current function
             let mut max_branch_depth: usize = 0;
             let mut max_branch_line: usize = 0;
             let mut in_function = false;
@@ -66,7 +63,10 @@ impl SemanticCheck for ComplexityLimit {
                 // Detect function start
                 if let Some(caps) = fn_re.captures(trimmed) {
                     if !in_function {
-                        let fn_name = caps.get(3).map(|m| m.as_str().to_string()).unwrap_or_default();
+                        let fn_name = caps
+                            .get(3)
+                            .map(|m| m.as_str().to_string())
+                            .unwrap_or_default();
                         current_fn = Some((fn_name, line_idx + 1));
                         fn_depth = 0;
                         branch_depth = 0;
@@ -300,8 +300,8 @@ pub fn quality_checks() -> Vec<Box<dyn SemanticCheck>> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::checks::{ChangedFile, CheckContext};
+    use super::*;
     use dk_core::types::{CallEdge, CallKind, Span, Symbol};
     use uuid::Uuid;
 
@@ -325,7 +325,10 @@ mod tests {
             kind: SymbolKind::Function,
             visibility: vis,
             file_path: "src/lib.rs".into(),
-            span: Span { start_byte: 0, end_byte: 100 },
+            span: Span {
+                start_byte: 0,
+                end_byte: 100,
+            },
             signature: None,
             doc_comment: None,
             parent: None,
@@ -369,7 +372,10 @@ fn complex() {
         let findings = check.run(&ctx);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, Severity::Warning);
-        assert!(findings[0].symbol.is_some(), "should report the function name");
+        assert!(
+            findings[0].symbol.is_some(),
+            "should report the function name"
+        );
     }
 
     #[test]
@@ -435,7 +441,8 @@ fn complex() {
     #[test]
     fn test_dead_code_ignores_public() {
         let mut ctx = empty_context();
-        ctx.after_symbols.push(make_fn("crate::api_handler", Visibility::Public));
+        ctx.after_symbols
+            .push(make_fn("crate::api_handler", Visibility::Public));
 
         let check = DeadCodeDetection::new();
         assert!(check.run(&ctx).is_empty());

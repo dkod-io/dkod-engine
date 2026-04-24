@@ -19,8 +19,8 @@ use tonic::Request;
 async fn test_agent_flow_connect_context_submit() {
     // ── Setup ──
 
-    let db_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://localhost/dkod_test".into());
+    let db_url =
+        std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://localhost/dkod_test".into());
     let pool = PgPool::connect(&db_url).await.unwrap();
     sqlx::migrate!("../dk-engine/migrations")
         .run(&pool)
@@ -66,7 +66,9 @@ pub fn validate_token(token: &str) -> Result<String, String> {
     // Create the protocol server.
     let server = ProtocolServer::new(
         Arc::new(engine),
-        AuthConfig::SharedSecret { token: "test-token".to_string() },
+        AuthConfig::SharedSecret {
+            token: "test-token".to_string(),
+        },
     );
 
     // ── 1. CONNECT ──
@@ -138,8 +140,9 @@ pub fn validate_token(token: &str) -> Result<String, String> {
                 symbol_name: "greet".into(),
                 file_path: "src/greet.rs".into(),
                 old_symbol_id: None,
-                new_source: "pub fn greet(name: &str) -> String {\n    format!(\"Hello, {}!\", name)\n}\n"
-                    .into(),
+                new_source:
+                    "pub fn greet(name: &str) -> String {\n    format!(\"Hello, {}!\", name)\n}\n"
+                        .into(),
                 rationale: "Add a greeting utility".into(),
             }],
         }))
@@ -195,15 +198,17 @@ pub fn validate_token(token: &str) -> Result<String, String> {
 #[tokio::test]
 #[ignore] // Requires PostgreSQL
 async fn test_connect_invalid_auth() {
-    let db_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://localhost/dkod_test".into());
+    let db_url =
+        std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://localhost/dkod_test".into());
     let pool = PgPool::connect(&db_url).await.unwrap();
 
     let tmp = tempfile::TempDir::new().unwrap();
     let engine = Engine::new(tmp.path().to_path_buf(), pool).unwrap();
     let server = ProtocolServer::new(
         Arc::new(engine),
-        AuthConfig::SharedSecret { token: "correct-token".to_string() },
+        AuthConfig::SharedSecret {
+            token: "correct-token".to_string(),
+        },
     );
 
     let result = server
@@ -230,15 +235,17 @@ async fn test_connect_invalid_auth() {
 #[tokio::test]
 #[ignore] // Requires PostgreSQL
 async fn test_context_invalid_session() {
-    let db_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://localhost/dkod_test".into());
+    let db_url =
+        std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://localhost/dkod_test".into());
     let pool = PgPool::connect(&db_url).await.unwrap();
 
     let tmp = tempfile::TempDir::new().unwrap();
     let engine = Engine::new(tmp.path().to_path_buf(), pool).unwrap();
     let server = ProtocolServer::new(
         Arc::new(engine),
-        AuthConfig::SharedSecret { token: "test-token".to_string() },
+        AuthConfig::SharedSecret {
+            token: "test-token".to_string(),
+        },
     );
 
     let result = server
@@ -265,8 +272,8 @@ async fn test_context_invalid_session() {
 #[tokio::test]
 #[ignore] // Requires PostgreSQL
 async fn test_submit_modify_nonexistent_file() {
-    let db_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://localhost/dkod_test".into());
+    let db_url =
+        std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://localhost/dkod_test".into());
     let pool = PgPool::connect(&db_url).await.unwrap();
     sqlx::migrate!("../dk-engine/migrations")
         .run(&pool)
@@ -281,7 +288,9 @@ async fn test_submit_modify_nonexistent_file() {
 
     let server = ProtocolServer::new(
         Arc::new(engine),
-        AuthConfig::SharedSecret { token: "test-token".to_string() },
+        AuthConfig::SharedSecret {
+            token: "test-token".to_string(),
+        },
     );
 
     // CONNECT to get a session

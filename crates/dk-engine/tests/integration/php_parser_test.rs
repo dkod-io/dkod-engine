@@ -184,9 +184,7 @@ function main() {
     validate($req);
 }
 "#;
-    let analysis = registry
-        .parse_file(Path::new("main.php"), source)
-        .unwrap();
+    let analysis = registry.parse_file(Path::new("main.php"), source).unwrap();
 
     let call_names: Vec<&str> = analysis
         .calls
@@ -286,9 +284,7 @@ use Another\Qualified\Path;
 
 class App {}
 "#;
-    let analysis = registry
-        .parse_file(Path::new("app.php"), source)
-        .unwrap();
+    let analysis = registry.parse_file(Path::new("app.php"), source).unwrap();
 
     // Root-namespace import: use SomeClass;
     assert!(

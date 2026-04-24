@@ -163,12 +163,22 @@ async fn test_on_update_cascade_propagates_to_call_edges() {
 
     // 3. Verify the call_edge's caller_id was cascaded to the new UUID.
     let callees = edge_store.find_callees(caller_v2.id).await.unwrap();
-    assert_eq!(callees.len(), 1, "call_edge should have cascaded to new caller UUID");
-    assert_eq!(callees[0].callee, callee.id, "callee_id should be unchanged");
+    assert_eq!(
+        callees.len(),
+        1,
+        "call_edge should have cascaded to new caller UUID"
+    );
+    assert_eq!(
+        callees[0].callee, callee.id,
+        "callee_id should be unchanged"
+    );
 
     // Old UUID should have no outgoing edges.
     let old_callees = edge_store.find_callees(old_caller_id).await.unwrap();
-    assert!(old_callees.is_empty(), "old UUID should have no edges after cascade");
+    assert!(
+        old_callees.is_empty(),
+        "old UUID should have no edges after cascade"
+    );
 
     cleanup_repo(&pool, repo_id).await;
 }
@@ -213,11 +223,17 @@ async fn test_find_by_kind() {
     store.upsert_symbol(repo_id, &struct_sym).await.unwrap();
     store.upsert_symbol(repo_id, &enum_sym).await.unwrap();
 
-    let functions = store.find_by_kind(repo_id, &SymbolKind::Function).await.unwrap();
+    let functions = store
+        .find_by_kind(repo_id, &SymbolKind::Function)
+        .await
+        .unwrap();
     assert_eq!(functions.len(), 1);
     assert_eq!(functions[0].name, "my_func");
 
-    let structs = store.find_by_kind(repo_id, &SymbolKind::Struct).await.unwrap();
+    let structs = store
+        .find_by_kind(repo_id, &SymbolKind::Struct)
+        .await
+        .unwrap();
     assert_eq!(structs.len(), 1);
     assert_eq!(structs[0].name, "MyStruct");
 

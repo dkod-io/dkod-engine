@@ -1,10 +1,10 @@
 pub mod cache;
-pub mod overlay;
-#[cfg(feature = "valkey")]
-pub mod valkey_cache;
-pub mod session_workspace;
-pub mod session_graph;
-pub mod session_manager;
-pub mod merge;
 pub mod conflict;
 pub mod event_bus;
+pub mod merge;
+pub mod overlay;
+pub mod session_graph;
+pub mod session_manager;
+pub mod session_workspace;
+#[cfg(feature = "valkey")]
+pub mod valkey_cache;

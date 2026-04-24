@@ -7,3 +7,13 @@ data/
 __pycache__/
 *.pyc
 *.egg-info/
+
+# BAML-generated Rust client. Regenerate via `baml-cli generate` from repo root.
+# Source of truth lives under `baml_src/`.
+/baml_client/
+
+# chDB install artefacts dropped by `curl -sL https://lib.chdb.io | bash`.
+# The shared lib + headers go under /usr/local/{lib,include}; the install
+# script also drops a copy of chdb.hpp into the cwd — not needed in repo.
+/chdb.hpp
+/chdb.h

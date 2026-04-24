@@ -23,7 +23,11 @@ fn configure_git_user(dir: &std::path::Path) {
 
 fn init_committed_repo() -> TempDir {
     let dir = TempDir::new().unwrap();
-    dk().arg("git").arg("init").arg(dir.path()).assert().success();
+    dk().arg("git")
+        .arg("init")
+        .arg(dir.path())
+        .assert()
+        .success();
     configure_git_user(dir.path());
     fs::write(dir.path().join("file.txt"), "line one\nline two\n").unwrap();
     dk().args(["git", "add", "file.txt"])
@@ -49,10 +53,7 @@ fn diff_shows_unstaged_changes() {
         .current_dir(dir.path())
         .assert()
         .success()
-        .stdout(
-            predicate::str::contains("file.txt")
-                .and(predicate::str::contains("line three")),
-        );
+        .stdout(predicate::str::contains("file.txt").and(predicate::str::contains("line three")));
 }
 
 #[test]

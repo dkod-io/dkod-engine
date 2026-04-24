@@ -96,11 +96,8 @@ pub trait WorkspaceCache: Send + Sync + 'static {
     /// Retrieve a cached overlay file entry.
     ///
     /// Returns `Ok(None)` on a cache miss.
-    async fn get_file(
-        &self,
-        workspace_id: &Uuid,
-        path: &str,
-    ) -> Result<Option<CachedOverlayEntry>>;
+    async fn get_file(&self, workspace_id: &Uuid, path: &str)
+        -> Result<Option<CachedOverlayEntry>>;
 
     /// List all file paths cached in the overlay for a workspace.
     ///
@@ -238,7 +235,10 @@ mod tests {
         let cache = NoOpCache;
         let id = Uuid::new_v4();
         let result = cache.get_workspace(&id).await.expect("should not error");
-        assert!(result.is_none(), "NoOpCache must return None on get_workspace");
+        assert!(
+            result.is_none(),
+            "NoOpCache must return None on get_workspace"
+        );
     }
 
     #[tokio::test]
@@ -257,7 +257,10 @@ mod tests {
             mode: "ephemeral".to_string(),
         };
         // Write should succeed silently.
-        cache.cache_workspace(&id, &snap).await.expect("should not error");
+        cache
+            .cache_workspace(&id, &snap)
+            .await
+            .expect("should not error");
         // Read-back must still return None (nothing was stored).
         let result = cache.get_workspace(&id).await.expect("should not error");
         assert!(result.is_none());
@@ -267,7 +270,10 @@ mod tests {
     async fn noop_get_file_returns_none() {
         let cache = NoOpCache;
         let id = Uuid::new_v4();
-        let result = cache.get_file(&id, "src/lib.rs").await.expect("should not error");
+        let result = cache
+            .get_file(&id, "src/lib.rs")
+            .await
+            .expect("should not error");
         assert!(result.is_none());
     }
 
@@ -279,9 +285,15 @@ mod tests {
             content: b"hello".to_vec(),
             hash: "abc".to_string(),
         };
-        cache.cache_file(&id, "src/lib.rs", &entry).await.expect("should not error");
+        cache
+            .cache_file(&id, "src/lib.rs", &entry)
+            .await
+            .expect("should not error");
         // Read-back must return None.
-        let result = cache.get_file(&id, "src/lib.rs").await.expect("should not error");
+        let result = cache
+            .get_file(&id, "src/lib.rs")
+            .await
+            .expect("should not error");
         assert!(result.is_none());
     }
 
@@ -290,7 +302,10 @@ mod tests {
         let cache = NoOpCache;
         let id = Uuid::new_v4();
         let files = cache.list_files(&id).await.expect("should not error");
-        assert!(files.is_empty(), "NoOpCache must return empty vec from list_files");
+        assert!(
+            files.is_empty(),
+            "NoOpCache must return empty vec from list_files"
+        );
     }
 
     #[tokio::test]
@@ -306,7 +321,10 @@ mod tests {
         let cache = NoOpCache;
         let id = Uuid::new_v4();
         let data = b"graph-bytes";
-        cache.cache_graph(&id, data).await.expect("should not error");
+        cache
+            .cache_graph(&id, data)
+            .await
+            .expect("should not error");
         let result = cache.get_graph(&id).await.expect("should not error");
         assert!(result.is_none());
     }

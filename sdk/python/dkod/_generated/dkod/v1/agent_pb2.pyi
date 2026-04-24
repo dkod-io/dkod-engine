@@ -33,6 +33,20 @@ class SubmitStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     ACCEPTED: _ClassVar[SubmitStatus]
     REJECTED: _ClassVar[SubmitStatus]
     CONFLICT: _ClassVar[SubmitStatus]
+
+class PushMode(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    PUSH_MODE_UNSPECIFIED: _ClassVar[PushMode]
+    PUSH_MODE_BRANCH: _ClassVar[PushMode]
+    PUSH_MODE_PR: _ClassVar[PushMode]
+
+class ResolutionMode(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    RESOLUTION_MODE_UNSPECIFIED: _ClassVar[ResolutionMode]
+    RESOLUTION_MODE_PROCEED: _ClassVar[ResolutionMode]
+    RESOLUTION_MODE_KEEP_YOURS: _ClassVar[ResolutionMode]
+    RESOLUTION_MODE_KEEP_THEIRS: _ClassVar[ResolutionMode]
+    RESOLUTION_MODE_MANUAL: _ClassVar[ResolutionMode]
 EPHEMERAL: WorkspaceMode
 PERSISTENT: WorkspaceMode
 SIGNATURES: ContextDepth
@@ -47,15 +61,14 @@ ADD_DEPENDENCY: ChangeType
 ACCEPTED: SubmitStatus
 REJECTED: SubmitStatus
 CONFLICT: SubmitStatus
-
-class PushMode(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
-    __slots__ = ()
-    PUSH_MODE_UNSPECIFIED: _ClassVar[PushMode]
-    PUSH_MODE_BRANCH: _ClassVar[PushMode]
-    PUSH_MODE_PR: _ClassVar[PushMode]
 PUSH_MODE_UNSPECIFIED: PushMode
 PUSH_MODE_BRANCH: PushMode
 PUSH_MODE_PR: PushMode
+RESOLUTION_MODE_UNSPECIFIED: ResolutionMode
+RESOLUTION_MODE_PROCEED: ResolutionMode
+RESOLUTION_MODE_KEEP_YOURS: ResolutionMode
+RESOLUTION_MODE_KEEP_THEIRS: ResolutionMode
+RESOLUTION_MODE_MANUAL: ResolutionMode
 
 class ConnectRequest(_message.Message):
     __slots__ = ("agent_id", "auth_token", "codebase", "intent", "workspace_config", "agent_name")
@@ -199,19 +212,33 @@ class Change(_message.Message):
     rationale: str
     def __init__(self, type: _Optional[_Union[ChangeType, str]] = ..., symbol_name: _Optional[str] = ..., file_path: _Optional[str] = ..., old_symbol_id: _Optional[str] = ..., new_source: _Optional[str] = ..., rationale: _Optional[str] = ...) -> None: ...
 
+class ReviewSummary(_message.Message):
+    __slots__ = ("tier", "score", "findings_count", "top_severity")
+    TIER_FIELD_NUMBER: _ClassVar[int]
+    SCORE_FIELD_NUMBER: _ClassVar[int]
+    FINDINGS_COUNT_FIELD_NUMBER: _ClassVar[int]
+    TOP_SEVERITY_FIELD_NUMBER: _ClassVar[int]
+    tier: str
+    score: int
+    findings_count: int
+    top_severity: str
+    def __init__(self, tier: _Optional[str] = ..., score: _Optional[int] = ..., findings_count: _Optional[int] = ..., top_severity: _Optional[str] = ...) -> None: ...
+
 class SubmitResponse(_message.Message):
-    __slots__ = ("status", "changeset_id", "new_version", "errors", "conflict_block")
+    __slots__ = ("status", "changeset_id", "new_version", "errors", "conflict_block", "review_summary")
     STATUS_FIELD_NUMBER: _ClassVar[int]
     CHANGESET_ID_FIELD_NUMBER: _ClassVar[int]
     NEW_VERSION_FIELD_NUMBER: _ClassVar[int]
     ERRORS_FIELD_NUMBER: _ClassVar[int]
     CONFLICT_BLOCK_FIELD_NUMBER: _ClassVar[int]
+    REVIEW_SUMMARY_FIELD_NUMBER: _ClassVar[int]
     status: SubmitStatus
     changeset_id: str
     new_version: str
     errors: _containers.RepeatedCompositeFieldContainer[SubmitError]
     conflict_block: SubmitConflictBlock
-    def __init__(self, status: _Optional[_Union[SubmitStatus, str]] = ..., changeset_id: _Optional[str] = ..., new_version: _Optional[str] = ..., errors: _Optional[_Iterable[_Union[SubmitError, _Mapping]]] = ..., conflict_block: _Optional[_Union[SubmitConflictBlock, _Mapping]] = ...) -> None: ...
+    review_summary: ReviewSummary
+    def __init__(self, status: _Optional[_Union[SubmitStatus, str]] = ..., changeset_id: _Optional[str] = ..., new_version: _Optional[str] = ..., errors: _Optional[_Iterable[_Union[SubmitError, _Mapping]]] = ..., conflict_block: _Optional[_Union[SubmitConflictBlock, _Mapping]] = ..., review_summary: _Optional[_Union[ReviewSummary, _Mapping]] = ...) -> None: ...
 
 class SubmitSymbolVersion(_message.Message):
     __slots__ = ("description", "signature", "body", "change_type")
@@ -316,22 +343,30 @@ class Suggestion(_message.Message):
     def __init__(self, finding_index: _Optional[int] = ..., description: _Optional[str] = ..., file_path: _Optional[str] = ..., replacement: _Optional[str] = ...) -> None: ...
 
 class MergeRequest(_message.Message):
-    __slots__ = ("session_id", "changeset_id", "commit_message")
+    __slots__ = ("session_id", "changeset_id", "commit_message", "force", "author_name", "author_email")
     SESSION_ID_FIELD_NUMBER: _ClassVar[int]
     CHANGESET_ID_FIELD_NUMBER: _ClassVar[int]
     COMMIT_MESSAGE_FIELD_NUMBER: _ClassVar[int]
+    FORCE_FIELD_NUMBER: _ClassVar[int]
+    AUTHOR_NAME_FIELD_NUMBER: _ClassVar[int]
+    AUTHOR_EMAIL_FIELD_NUMBER: _ClassVar[int]
     session_id: str
     changeset_id: str
     commit_message: str
-    def __init__(self, session_id: _Optional[str] = ..., changeset_id: _Optional[str] = ..., commit_message: _Optional[str] = ...) -> None: ...
+    force: bool
+    author_name: str
+    author_email: str
+    def __init__(self, session_id: _Optional[str] = ..., changeset_id: _Optional[str] = ..., commit_message: _Optional[str] = ..., force: bool = ..., author_name: _Optional[str] = ..., author_email: _Optional[str] = ...) -> None: ...
 
 class MergeResponse(_message.Message):
-    __slots__ = ("success", "conflict")
+    __slots__ = ("success", "conflict", "overwrite_warning")
     SUCCESS_FIELD_NUMBER: _ClassVar[int]
     CONFLICT_FIELD_NUMBER: _ClassVar[int]
+    OVERWRITE_WARNING_FIELD_NUMBER: _ClassVar[int]
     success: MergeSuccess
     conflict: MergeConflict
-    def __init__(self, success: _Optional[_Union[MergeSuccess, _Mapping]] = ..., conflict: _Optional[_Union[MergeConflict, _Mapping]] = ...) -> None: ...
+    overwrite_warning: RecentOverwriteWarning
+    def __init__(self, success: _Optional[_Union[MergeSuccess, _Mapping]] = ..., conflict: _Optional[_Union[MergeConflict, _Mapping]] = ..., overwrite_warning: _Optional[_Union[RecentOverwriteWarning, _Mapping]] = ...) -> None: ...
 
 class MergeSuccess(_message.Message):
     __slots__ = ("commit_hash", "merged_version", "auto_rebased", "auto_rebased_files")
@@ -372,6 +407,30 @@ class ConflictDetail(_message.Message):
     conflict_type: str
     description: str
     def __init__(self, file_path: _Optional[str] = ..., symbols: _Optional[_Iterable[str]] = ..., your_agent: _Optional[str] = ..., their_agent: _Optional[str] = ..., conflict_type: _Optional[str] = ..., description: _Optional[str] = ...) -> None: ...
+
+class RecentOverwriteWarning(_message.Message):
+    __slots__ = ("changeset_id", "overwrites", "available_actions")
+    CHANGESET_ID_FIELD_NUMBER: _ClassVar[int]
+    OVERWRITES_FIELD_NUMBER: _ClassVar[int]
+    AVAILABLE_ACTIONS_FIELD_NUMBER: _ClassVar[int]
+    changeset_id: str
+    overwrites: _containers.RepeatedCompositeFieldContainer[SymbolOverwrite]
+    available_actions: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, changeset_id: _Optional[str] = ..., overwrites: _Optional[_Iterable[_Union[SymbolOverwrite, _Mapping]]] = ..., available_actions: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class SymbolOverwrite(_message.Message):
+    __slots__ = ("file_path", "symbol_name", "other_agent", "other_changeset_id", "merged_at")
+    FILE_PATH_FIELD_NUMBER: _ClassVar[int]
+    SYMBOL_NAME_FIELD_NUMBER: _ClassVar[int]
+    OTHER_AGENT_FIELD_NUMBER: _ClassVar[int]
+    OTHER_CHANGESET_ID_FIELD_NUMBER: _ClassVar[int]
+    MERGED_AT_FIELD_NUMBER: _ClassVar[int]
+    file_path: str
+    symbol_name: str
+    other_agent: str
+    other_changeset_id: str
+    merged_at: str
+    def __init__(self, file_path: _Optional[str] = ..., symbol_name: _Optional[str] = ..., other_agent: _Optional[str] = ..., other_changeset_id: _Optional[str] = ..., merged_at: _Optional[str] = ...) -> None: ...
 
 class WatchRequest(_message.Message):
     __slots__ = ("session_id", "repo_id", "filter")
@@ -426,6 +485,90 @@ class WatchEvent(_message.Message):
     repo_id: str
     event_id: str
     def __init__(self, event_type: _Optional[str] = ..., changeset_id: _Optional[str] = ..., agent_id: _Optional[str] = ..., affected_symbols: _Optional[_Iterable[str]] = ..., details: _Optional[str] = ..., session_id: _Optional[str] = ..., affected_files: _Optional[_Iterable[_Union[FileChange, _Mapping]]] = ..., symbol_changes: _Optional[_Iterable[_Union[SymbolChangeDetail, _Mapping]]] = ..., repo_id: _Optional[str] = ..., event_id: _Optional[str] = ...) -> None: ...
+
+class ReviewRequest(_message.Message):
+    __slots__ = ("session_id", "changeset_id")
+    SESSION_ID_FIELD_NUMBER: _ClassVar[int]
+    CHANGESET_ID_FIELD_NUMBER: _ClassVar[int]
+    session_id: str
+    changeset_id: str
+    def __init__(self, session_id: _Optional[str] = ..., changeset_id: _Optional[str] = ...) -> None: ...
+
+class ReviewFindingProto(_message.Message):
+    __slots__ = ("id", "file_path", "line_start", "line_end", "severity", "category", "message", "suggestion", "confidence", "dismissed")
+    ID_FIELD_NUMBER: _ClassVar[int]
+    FILE_PATH_FIELD_NUMBER: _ClassVar[int]
+    LINE_START_FIELD_NUMBER: _ClassVar[int]
+    LINE_END_FIELD_NUMBER: _ClassVar[int]
+    SEVERITY_FIELD_NUMBER: _ClassVar[int]
+    CATEGORY_FIELD_NUMBER: _ClassVar[int]
+    MESSAGE_FIELD_NUMBER: _ClassVar[int]
+    SUGGESTION_FIELD_NUMBER: _ClassVar[int]
+    CONFIDENCE_FIELD_NUMBER: _ClassVar[int]
+    DISMISSED_FIELD_NUMBER: _ClassVar[int]
+    id: str
+    file_path: str
+    line_start: int
+    line_end: int
+    severity: str
+    category: str
+    message: str
+    suggestion: str
+    confidence: float
+    dismissed: bool
+    def __init__(self, id: _Optional[str] = ..., file_path: _Optional[str] = ..., line_start: _Optional[int] = ..., line_end: _Optional[int] = ..., severity: _Optional[str] = ..., category: _Optional[str] = ..., message: _Optional[str] = ..., suggestion: _Optional[str] = ..., confidence: _Optional[float] = ..., dismissed: bool = ...) -> None: ...
+
+class ReviewResultProto(_message.Message):
+    __slots__ = ("id", "tier", "score", "summary", "findings", "created_at")
+    ID_FIELD_NUMBER: _ClassVar[int]
+    TIER_FIELD_NUMBER: _ClassVar[int]
+    SCORE_FIELD_NUMBER: _ClassVar[int]
+    SUMMARY_FIELD_NUMBER: _ClassVar[int]
+    FINDINGS_FIELD_NUMBER: _ClassVar[int]
+    CREATED_AT_FIELD_NUMBER: _ClassVar[int]
+    id: str
+    tier: str
+    score: int
+    summary: str
+    findings: _containers.RepeatedCompositeFieldContainer[ReviewFindingProto]
+    created_at: str
+    def __init__(self, id: _Optional[str] = ..., tier: _Optional[str] = ..., score: _Optional[int] = ..., summary: _Optional[str] = ..., findings: _Optional[_Iterable[_Union[ReviewFindingProto, _Mapping]]] = ..., created_at: _Optional[str] = ...) -> None: ...
+
+class ReviewResponse(_message.Message):
+    __slots__ = ("reviews",)
+    REVIEWS_FIELD_NUMBER: _ClassVar[int]
+    reviews: _containers.RepeatedCompositeFieldContainer[ReviewResultProto]
+    def __init__(self, reviews: _Optional[_Iterable[_Union[ReviewResultProto, _Mapping]]] = ...) -> None: ...
+
+class RecordReviewRequest(_message.Message):
+    __slots__ = ("session_id", "changeset_id", "tier", "score", "summary", "findings", "provider", "model", "duration_ms")
+    SESSION_ID_FIELD_NUMBER: _ClassVar[int]
+    CHANGESET_ID_FIELD_NUMBER: _ClassVar[int]
+    TIER_FIELD_NUMBER: _ClassVar[int]
+    SCORE_FIELD_NUMBER: _ClassVar[int]
+    SUMMARY_FIELD_NUMBER: _ClassVar[int]
+    FINDINGS_FIELD_NUMBER: _ClassVar[int]
+    PROVIDER_FIELD_NUMBER: _ClassVar[int]
+    MODEL_FIELD_NUMBER: _ClassVar[int]
+    DURATION_MS_FIELD_NUMBER: _ClassVar[int]
+    session_id: str
+    changeset_id: str
+    tier: str
+    score: int
+    summary: str
+    findings: _containers.RepeatedCompositeFieldContainer[ReviewFindingProto]
+    provider: str
+    model: str
+    duration_ms: int
+    def __init__(self, session_id: _Optional[str] = ..., changeset_id: _Optional[str] = ..., tier: _Optional[str] = ..., score: _Optional[int] = ..., summary: _Optional[str] = ..., findings: _Optional[_Iterable[_Union[ReviewFindingProto, _Mapping]]] = ..., provider: _Optional[str] = ..., model: _Optional[str] = ..., duration_ms: _Optional[int] = ...) -> None: ...
+
+class RecordReviewResponse(_message.Message):
+    __slots__ = ("review_id", "accepted")
+    REVIEW_ID_FIELD_NUMBER: _ClassVar[int]
+    ACCEPTED_FIELD_NUMBER: _ClassVar[int]
+    review_id: str
+    accepted: bool
+    def __init__(self, review_id: _Optional[str] = ..., accepted: bool = ...) -> None: ...
 
 class FileReadRequest(_message.Message):
     __slots__ = ("session_id", "path")
@@ -573,7 +716,7 @@ class PushRequest(_message.Message):
     PR_TITLE_FIELD_NUMBER: _ClassVar[int]
     PR_BODY_FIELD_NUMBER: _ClassVar[int]
     session_id: str
-    mode: int
+    mode: PushMode
     branch_name: str
     pr_title: str
     pr_body: str
@@ -590,3 +733,83 @@ class PushResponse(_message.Message):
     commit_hash: str
     changeset_ids: _containers.RepeatedScalarFieldContainer[str]
     def __init__(self, branch_name: _Optional[str] = ..., pr_url: _Optional[str] = ..., commit_hash: _Optional[str] = ..., changeset_ids: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class ReviewSnapshot(_message.Message):
+    __slots__ = ("score", "threshold", "findings_count", "provider", "model")
+    SCORE_FIELD_NUMBER: _ClassVar[int]
+    THRESHOLD_FIELD_NUMBER: _ClassVar[int]
+    FINDINGS_COUNT_FIELD_NUMBER: _ClassVar[int]
+    PROVIDER_FIELD_NUMBER: _ClassVar[int]
+    MODEL_FIELD_NUMBER: _ClassVar[int]
+    score: int
+    threshold: int
+    findings_count: int
+    provider: str
+    model: str
+    def __init__(self, score: _Optional[int] = ..., threshold: _Optional[int] = ..., findings_count: _Optional[int] = ..., provider: _Optional[str] = ..., model: _Optional[str] = ...) -> None: ...
+
+class ApproveRequest(_message.Message):
+    __slots__ = ("session_id", "override_reason", "review_snapshot")
+    SESSION_ID_FIELD_NUMBER: _ClassVar[int]
+    OVERRIDE_REASON_FIELD_NUMBER: _ClassVar[int]
+    REVIEW_SNAPSHOT_FIELD_NUMBER: _ClassVar[int]
+    session_id: str
+    override_reason: str
+    review_snapshot: ReviewSnapshot
+    def __init__(self, session_id: _Optional[str] = ..., override_reason: _Optional[str] = ..., review_snapshot: _Optional[_Union[ReviewSnapshot, _Mapping]] = ...) -> None: ...
+
+class ApproveResponse(_message.Message):
+    __slots__ = ("success", "changeset_id", "new_state", "message")
+    SUCCESS_FIELD_NUMBER: _ClassVar[int]
+    CHANGESET_ID_FIELD_NUMBER: _ClassVar[int]
+    NEW_STATE_FIELD_NUMBER: _ClassVar[int]
+    MESSAGE_FIELD_NUMBER: _ClassVar[int]
+    success: bool
+    changeset_id: str
+    new_state: str
+    message: str
+    def __init__(self, success: bool = ..., changeset_id: _Optional[str] = ..., new_state: _Optional[str] = ..., message: _Optional[str] = ...) -> None: ...
+
+class ResolveRequest(_message.Message):
+    __slots__ = ("session_id", "resolution", "conflict_id", "manual_content")
+    SESSION_ID_FIELD_NUMBER: _ClassVar[int]
+    RESOLUTION_FIELD_NUMBER: _ClassVar[int]
+    CONFLICT_ID_FIELD_NUMBER: _ClassVar[int]
+    MANUAL_CONTENT_FIELD_NUMBER: _ClassVar[int]
+    session_id: str
+    resolution: ResolutionMode
+    conflict_id: str
+    manual_content: str
+    def __init__(self, session_id: _Optional[str] = ..., resolution: _Optional[_Union[ResolutionMode, str]] = ..., conflict_id: _Optional[str] = ..., manual_content: _Optional[str] = ...) -> None: ...
+
+class ResolveResponse(_message.Message):
+    __slots__ = ("success", "changeset_id", "new_state", "message", "conflicts_resolved", "conflicts_remaining")
+    SUCCESS_FIELD_NUMBER: _ClassVar[int]
+    CHANGESET_ID_FIELD_NUMBER: _ClassVar[int]
+    NEW_STATE_FIELD_NUMBER: _ClassVar[int]
+    MESSAGE_FIELD_NUMBER: _ClassVar[int]
+    CONFLICTS_RESOLVED_FIELD_NUMBER: _ClassVar[int]
+    CONFLICTS_REMAINING_FIELD_NUMBER: _ClassVar[int]
+    success: bool
+    changeset_id: str
+    new_state: str
+    message: str
+    conflicts_resolved: int
+    conflicts_remaining: int
+    def __init__(self, success: bool = ..., changeset_id: _Optional[str] = ..., new_state: _Optional[str] = ..., message: _Optional[str] = ..., conflicts_resolved: _Optional[int] = ..., conflicts_remaining: _Optional[int] = ...) -> None: ...
+
+class CloseRequest(_message.Message):
+    __slots__ = ("session_id",)
+    SESSION_ID_FIELD_NUMBER: _ClassVar[int]
+    session_id: str
+    def __init__(self, session_id: _Optional[str] = ...) -> None: ...
+
+class CloseResponse(_message.Message):
+    __slots__ = ("success", "message", "session_id")
+    SUCCESS_FIELD_NUMBER: _ClassVar[int]
+    MESSAGE_FIELD_NUMBER: _ClassVar[int]
+    SESSION_ID_FIELD_NUMBER: _ClassVar[int]
+    success: bool
+    message: str
+    session_id: str
+    def __init__(self, success: bool = ..., message: _Optional[str] = ..., session_id: _Optional[str] = ...) -> None: ...
