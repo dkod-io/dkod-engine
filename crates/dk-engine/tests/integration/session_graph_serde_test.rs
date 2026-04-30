@@ -59,7 +59,9 @@ fn roundtrip_added_symbols() {
     let bytes = g.to_msgpack().expect("to_msgpack failed");
     let g2 = SessionGraph::from_msgpack(&bytes).expect("from_msgpack failed");
 
-    let got_a = g2.get_symbol(id_a).expect("alpha not found after roundtrip");
+    let got_a = g2
+        .get_symbol(id_a)
+        .expect("alpha not found after roundtrip");
     assert_eq!(got_a.name, "alpha");
 
     let got_b = g2.get_symbol(id_b).expect("beta not found after roundtrip");
@@ -129,7 +131,9 @@ fn roundtrip_added_edges() {
     let bytes = g.to_msgpack().expect("to_msgpack failed");
     let g2 = SessionGraph::from_msgpack(&bytes).expect("from_msgpack failed");
 
-    let got = g2.get_edge(edge_id).expect("edge not found after roundtrip");
+    let got = g2
+        .get_edge(edge_id)
+        .expect("edge not found after roundtrip");
     assert_eq!(got.caller, expected_caller);
     assert_eq!(got.callee, expected_callee);
     assert_eq!(got.kind, CallKind::DirectCall);
@@ -273,8 +277,14 @@ fn symbol_fields_preserved() {
     assert_eq!(got.file_path, PathBuf::from("src/complex.rs"));
     assert_eq!(got.span.start_byte, 42);
     assert_eq!(got.span.end_byte, 99);
-    assert_eq!(got.signature.as_deref(), Some("fn complex_fn(x: u32) -> bool"));
-    assert_eq!(got.doc_comment.as_deref(), Some("/// Does something complex"));
+    assert_eq!(
+        got.signature.as_deref(),
+        Some("fn complex_fn(x: u32) -> bool")
+    );
+    assert_eq!(
+        got.doc_comment.as_deref(),
+        Some("/// Does something complex")
+    );
     assert_eq!(got.last_modified_by.as_deref(), Some("agent-007"));
     assert_eq!(got.last_modified_intent.as_deref(), Some("refactor"));
     assert_eq!(got.parent, sym.parent);

@@ -7,9 +7,7 @@
 
 use super::lang_config::{CommentStyle, LanguageConfig};
 use super::LanguageParser;
-use dk_core::{
-    CallKind, Error, FileAnalysis, Import, RawCallEdge, Result, Span, Symbol, TypeInfo,
-};
+use dk_core::{CallKind, Error, FileAnalysis, Import, RawCallEdge, Result, Span, Symbol, TypeInfo};
 use std::path::Path;
 use std::sync::Mutex;
 use streaming_iterator::StreamingIterator;
@@ -35,9 +33,8 @@ impl QueryDrivenParser {
     pub fn new(config: Box<dyn LanguageConfig>) -> Result<Self> {
         let lang = config.language();
 
-        let symbols_query = Query::new(&lang, config.symbols_query()).map_err(|e| {
-            Error::ParseError(format!("Failed to compile symbols query: {e}"))
-        })?;
+        let symbols_query = Query::new(&lang, config.symbols_query())
+            .map_err(|e| Error::ParseError(format!("Failed to compile symbols query: {e}")))?;
 
         let calls_query = {
             let q = config.calls_query();
@@ -209,12 +206,7 @@ impl QueryDrivenParser {
 
 impl QueryDrivenParser {
     /// Extract symbols from an already-parsed tree.
-    fn symbols_from_tree(
-        &self,
-        tree: &Tree,
-        source: &[u8],
-        file_path: &Path,
-    ) -> Vec<Symbol> {
+    fn symbols_from_tree(&self, tree: &Tree, source: &[u8], file_path: &Path) -> Vec<Symbol> {
         let root = tree.root_node();
         let capture_names = self.symbols_query.capture_names();
 
@@ -222,7 +214,10 @@ impl QueryDrivenParser {
         let mut symbols = Vec::new();
         let mut matches = cursor.matches(&self.symbols_query, root, source);
 
-        while let Some(m) = { matches.advance(); matches.get() } {
+        while let Some(m) = {
+            matches.advance();
+            matches.get()
+        } {
             let mut name_text: Option<String> = None;
             let mut definition_node: Option<Node> = None;
             let mut kind_suffix: Option<String> = None;
@@ -305,7 +300,10 @@ impl QueryDrivenParser {
         let mut calls = Vec::new();
         let mut matches = cursor.matches(calls_query, root, source);
 
-        while let Some(m) = { matches.advance(); matches.get() } {
+        while let Some(m) = {
+            matches.advance();
+            matches.get()
+        } {
             let mut callee_text: Option<String> = None;
             let mut method_callee_text: Option<String> = None;
             let mut call_node: Option<Node> = None;
@@ -320,8 +318,7 @@ impl QueryDrivenParser {
 
                 match capture_name {
                     "callee" => {
-                        callee_text =
-                            Some(Self::node_text(&capture.node, source).to_string());
+                        callee_text = Some(Self::node_text(&capture.node, source).to_string());
                     }
                     "method_callee" => {
                         method_callee_text =
@@ -333,15 +330,14 @@ impl QueryDrivenParser {
             }
 
             // Determine call kind and callee name.
-            let (callee_name, call_kind) = if let Some(method) =
-                method_callee_text.filter(|s| !s.is_empty())
-            {
-                (method, CallKind::MethodCall)
-            } else if let Some(direct) = callee_text.filter(|s| !s.is_empty()) {
-                (direct, CallKind::DirectCall)
-            } else {
-                continue;
-            };
+            let (callee_name, call_kind) =
+                if let Some(method) = method_callee_text.filter(|s| !s.is_empty()) {
+                    (method, CallKind::MethodCall)
+                } else if let Some(direct) = callee_text.filter(|s| !s.is_empty()) {
+                    (direct, CallKind::DirectCall)
+                } else {
+                    continue;
+                };
 
             // Use the @call node for span, falling back to the first captured node.
             let span_node = call_node
@@ -378,7 +374,10 @@ impl QueryDrivenParser {
         let mut imports = Vec::new();
         let mut matches = cursor.matches(imports_query, root, source);
 
-        while let Some(m) = { matches.advance(); matches.get() } {
+        while let Some(m) = {
+            matches.advance();
+            matches.get()
+        } {
             let mut module_text: Option<String> = None;
             let mut import_name_text: Option<String> = None;
             let mut alias_text: Option<String> = None;
@@ -391,13 +390,11 @@ impl QueryDrivenParser {
                     "module" => {
                         let text = Self::node_text(&capture.node, source);
                         // Strip surrounding quotes if present.
-                        module_text = Some(
-                            text.trim_matches(|c| c == '"' || c == '\'').to_string(),
-                        );
+                        module_text =
+                            Some(text.trim_matches(|c| c == '"' || c == '\'').to_string());
                     }
                     "import_name" => {
-                        import_name_text =
-                            Some(Self::node_text(&capture.node, source).to_string());
+                        import_name_text = Some(Self::node_text(&capture.node, source).to_string());
                     }
                     "alias" => {
                         alias_text = Some(Self::node_text(&capture.node, source).to_string());

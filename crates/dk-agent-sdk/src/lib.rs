@@ -32,4 +32,5 @@ pub mod types;
 pub use client::AgentClient;
 pub use error::{Result, SdkError};
 pub use session::Session;
+pub use tools::{dispatch_tool, tool_definitions, ToolDefinition};
 pub use types::*;

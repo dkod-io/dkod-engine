@@ -23,7 +23,11 @@ fn configure_git_user(dir: &std::path::Path) {
 
 fn create_source_repo() -> TempDir {
     let dir = TempDir::new().unwrap();
-    dk().arg("git").arg("init").arg(dir.path()).assert().success();
+    dk().arg("git")
+        .arg("init")
+        .arg(dir.path())
+        .assert()
+        .success();
     configure_git_user(dir.path());
     fs::write(dir.path().join("hello.txt"), "hello world").unwrap();
     dk().args(["git", "add", "hello.txt"])

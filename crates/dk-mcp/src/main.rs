@@ -14,7 +14,9 @@ async fn main() -> Result<()> {
         .init();
 
     // Emit any gate-config warnings once, at startup.
-    for warning in dk_mcp::review_gate::startup_warnings(&dk_mcp::review_gate::GateConfig::from_env()) {
+    for warning in
+        dk_mcp::review_gate::startup_warnings(&dk_mcp::review_gate::GateConfig::from_env())
+    {
         eprintln!("{}", warning);
     }
 

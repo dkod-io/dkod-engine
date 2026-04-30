@@ -10,7 +10,11 @@ fn dk() -> Command {
 
 fn init_repo() -> TempDir {
     let dir = TempDir::new().unwrap();
-    dk().arg("git").arg("init").arg(dir.path()).assert().success();
+    dk().arg("git")
+        .arg("init")
+        .arg(dir.path())
+        .assert()
+        .success();
     dir
 }
 
@@ -32,11 +36,12 @@ fn add_single_file() {
         .current_dir(dir.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains("hello.txt").not().or(
-            predicate::str::contains("new file").or(
-                predicate::str::contains("Changes to be committed"),
-            ),
-        ));
+        .stdout(
+            predicate::str::contains("hello.txt")
+                .not()
+                .or(predicate::str::contains("new file")
+                    .or(predicate::str::contains("Changes to be committed"))),
+        );
 }
 
 #[test]

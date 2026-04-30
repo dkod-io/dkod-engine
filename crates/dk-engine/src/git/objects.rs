@@ -16,9 +16,11 @@ impl<'a> GitObjects<'a> {
 
     /// Write a blob to the Git object store and return its OID as a hex string.
     pub fn write_blob(&self, data: &[u8]) -> Result<String> {
-        let id = self.repo.inner().write_blob(data).map_err(|e| {
-            Error::Git(format!("failed to write blob: {}", e))
-        })?;
+        let id = self
+            .repo
+            .inner()
+            .write_blob(data)
+            .map_err(|e| Error::Git(format!("failed to write blob: {}", e)))?;
         Ok(id.to_hex().to_string())
     }
 
@@ -27,13 +29,14 @@ impl<'a> GitObjects<'a> {
     /// Returns an error if the OID is invalid, the object is not found,
     /// or the object is not a blob.
     pub fn read_blob(&self, oid_hex: &str) -> Result<Vec<u8>> {
-        let oid = gix::ObjectId::from_hex(oid_hex.as_bytes()).map_err(|e| {
-            Error::Git(format!("invalid OID '{}': {}", oid_hex, e))
-        })?;
+        let oid = gix::ObjectId::from_hex(oid_hex.as_bytes())
+            .map_err(|e| Error::Git(format!("invalid OID '{}': {}", oid_hex, e)))?;
 
-        let object = self.repo.inner().find_object(oid).map_err(|e| {
-            Error::Git(format!("object not found '{}': {}", oid_hex, e))
-        })?;
+        let object = self
+            .repo
+            .inner()
+            .find_object(oid)
+            .map_err(|e| Error::Git(format!("object not found '{}': {}", oid_hex, e)))?;
 
         if object.kind != gix::object::Kind::Blob {
             return Err(Error::Git(format!(
@@ -49,7 +52,11 @@ impl<'a> GitObjects<'a> {
     pub fn read_file(&self, file_path: &Path) -> Result<Vec<u8>> {
         let full_path = self.repo.path().join(file_path);
         std::fs::read(&full_path).map_err(|e| {
-            Error::Git(format!("failed to read file {}: {}", full_path.display(), e))
+            Error::Git(format!(
+                "failed to read file {}: {}",
+                full_path.display(),
+                e
+            ))
         })
     }
 
@@ -70,7 +77,11 @@ impl<'a> GitObjects<'a> {
         }
 
         std::fs::write(&full_path, content).map_err(|e| {
-            Error::Git(format!("failed to write file {}: {}", full_path.display(), e))
+            Error::Git(format!(
+                "failed to write file {}: {}",
+                full_path.display(),
+                e
+            ))
         })
     }
 }

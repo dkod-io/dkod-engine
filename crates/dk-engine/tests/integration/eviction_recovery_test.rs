@@ -6,7 +6,9 @@
 
 use dk_engine::changeset::ChangesetState;
 use dk_engine::conflict::{ClaimTracker, LocalClaimTracker, SymbolClaim};
-use dk_engine::workspace::session_manager::{AbandonReason, ResumeResult, StrandReason, WorkspaceManager};
+use dk_engine::workspace::session_manager::{
+    AbandonReason, ResumeResult, StrandReason, WorkspaceManager,
+};
 use sqlx::PgPool;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -73,7 +75,10 @@ async fn resume_happy_path_rehydrates(pool: PgPool) {
 
     let new_session = Uuid::new_v4();
     let result = mgr.resume(&dead, new_session, "agent-test").await.unwrap();
-    assert!(matches!(result, ResumeResult::Ok(_)), "expected ResumeResult::Ok, got {result:?}");
+    assert!(
+        matches!(result, ResumeResult::Ok(_)),
+        "expected ResumeResult::Ok, got {result:?}"
+    );
 
     // Verify DB row was rotated: session_id == new_session, stranded_at cleared,
     // superseded_by set to new_session.
@@ -91,9 +96,19 @@ async fn resume_happy_path_rehydrates(pool: PgPool) {
     .await
     .unwrap();
 
-    assert!(stranded_at.is_none(), "stranded_at must be cleared after resume");
-    assert_eq!(superseded_by, Some(new_session), "superseded_by must be set to new_session");
-    assert_eq!(session_id, new_session, "session_id must be rotated to new_session");
+    assert!(
+        stranded_at.is_none(),
+        "stranded_at must be cleared after resume"
+    );
+    assert_eq!(
+        superseded_by,
+        Some(new_session),
+        "superseded_by must be set to new_session"
+    );
+    assert_eq!(
+        session_id, new_session,
+        "session_id must be rotated to new_session"
+    );
 
     // Verify the workspace is in the in-memory map under new_session.
     assert!(
@@ -107,7 +122,9 @@ async fn resume_after_abandon_returns_abandoned(pool: PgPool) {
     let mgr = WorkspaceManager::new(pool.clone());
     let dead = insert_workspace_with_changeset(&pool, ChangesetState::Submitted).await;
     mgr.strand(&dead, StrandReason::IdleTtl).await.unwrap();
-    mgr.abandon_stranded(&dead, AbandonReason::AutoTtl).await.unwrap();
+    mgr.abandon_stranded(&dead, AbandonReason::AutoTtl)
+        .await
+        .unwrap();
 
     let new_session = Uuid::new_v4();
     let result = mgr.resume(&dead, new_session, "agent-test").await.unwrap();
@@ -158,13 +175,11 @@ async fn resume_terminal_changeset_returns_abandoned(pool: PgPool) {
     let dead = insert_workspace_with_changeset(&pool, ChangesetState::Merged).await;
     // Manually set stranded_at so it passes the stranded check and hits the
     // terminal-changeset guard.
-    sqlx::query(
-        "UPDATE session_workspaces SET stranded_at = now() WHERE session_id = $1",
-    )
-    .bind(dead)
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("UPDATE session_workspaces SET stranded_at = now() WHERE session_id = $1")
+        .bind(dead)
+        .execute(&pool)
+        .await
+        .unwrap();
 
     let new_session = Uuid::new_v4();
     let result = mgr.resume(&dead, new_session, "agent-test").await.unwrap();
@@ -203,16 +218,17 @@ async fn resume_contended_stays_stranded(pool: PgPool) {
 
     // 1. Insert workspace A with a non-terminal changeset.
     let dead_session = insert_workspace_with_changeset(&pool, ChangesetState::Submitted).await;
-    let repo_id: Uuid = sqlx::query_scalar(
-        "SELECT repo_id FROM session_workspaces WHERE session_id = $1",
-    )
-    .bind(dead_session)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let repo_id: Uuid =
+        sqlx::query_scalar("SELECT repo_id FROM session_workspaces WHERE session_id = $1")
+            .bind(dead_session)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
 
     // 2. Strand A.
-    mgr.strand(&dead_session, StrandReason::IdleTtl).await.unwrap();
+    mgr.strand(&dead_session, StrandReason::IdleTtl)
+        .await
+        .unwrap();
 
     // 3. Session B acquires the lock for the same symbol.
     let session_b = Uuid::new_v4();
@@ -237,7 +253,10 @@ async fn resume_contended_stays_stranded(pool: PgPool) {
 
     // 4. Resume A — with overlay rows present this should return Contended.
     let new_session = Uuid::new_v4();
-    let result = mgr.resume(&dead_session, new_session, "agent-test").await.unwrap();
+    let result = mgr
+        .resume(&dead_session, new_session, "agent-test")
+        .await
+        .unwrap();
     assert!(
         matches!(result, ResumeResult::Contended(_)),
         "expected ResumeResult::Contended, got {result:?}"
@@ -246,13 +265,15 @@ async fn resume_contended_stays_stranded(pool: PgPool) {
     // 5. The original dead_session row should still be stranded after the failed resume.
     // The new_session was never fully committed; we're verifying the original stranded row
     // stayed stranded (strand() is idempotent and re-strand on contention is a no-op here).
-    let stranded_at: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
-        "SELECT stranded_at FROM session_workspaces WHERE session_id = $1",
-    )
-    .bind(dead_session)
-    .fetch_optional(&pool)
-    .await
-    .unwrap()
-    .flatten();
-    assert!(stranded_at.is_some(), "A should remain stranded after contended resume");
+    let stranded_at: Option<chrono::DateTime<chrono::Utc>> =
+        sqlx::query_scalar("SELECT stranded_at FROM session_workspaces WHERE session_id = $1")
+            .bind(dead_session)
+            .fetch_optional(&pool)
+            .await
+            .unwrap()
+            .flatten();
+    assert!(
+        stranded_at.is_some(),
+        "A should remain stranded after contended resume"
+    );
 }

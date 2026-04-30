@@ -3,10 +3,12 @@
 //! contributes to a production build unless the `mock-review` feature is
 //! explicitly enabled by a test binary.
 
-use async_trait::async_trait;
 use anyhow::Result;
-use dk_runner::steps::agent_review::provider::{ReviewProvider, ReviewRequest, ReviewResponse, ReviewVerdict};
+use async_trait::async_trait;
 use dk_runner::findings::{Finding, Suggestion};
+use dk_runner::steps::agent_review::provider::{
+    ReviewProvider, ReviewRequest, ReviewResponse, ReviewVerdict,
+};
 
 /// Fixed-response `ReviewProvider` used by tests. Always returns the
 /// `verdict` and `findings` supplied at construction time.
@@ -23,7 +25,9 @@ impl MockReviewProvider {
 
 #[async_trait]
 impl ReviewProvider for MockReviewProvider {
-    fn name(&self) -> &str { "mock" }
+    fn name(&self) -> &str {
+        "mock"
+    }
     async fn review(&self, _req: ReviewRequest) -> Result<ReviewResponse> {
         Ok(ReviewResponse {
             summary: "mock".into(),
@@ -42,9 +46,15 @@ mod tests {
     #[tokio::test]
     async fn mock_returns_configured_score() {
         let m = MockReviewProvider::new(ReviewVerdict::Approve, vec![]);
-        let resp = m.review(ReviewRequest {
-            diff: "".into(), context: vec![], language: "rust".into(), intent: "t".into()
-        }).await.unwrap();
+        let resp = m
+            .review(ReviewRequest {
+                diff: "".into(),
+                context: vec![],
+                language: "rust".into(),
+                intent: "t".into(),
+            })
+            .await
+            .unwrap();
         assert!(matches!(resp.verdict, ReviewVerdict::Approve));
     }
 }

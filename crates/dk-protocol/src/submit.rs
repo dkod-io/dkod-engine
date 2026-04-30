@@ -43,7 +43,9 @@ pub async fn handle_submit(
     let engine = server.engine();
 
     // Parse changeset_id from request
-    let changeset_id = req.changeset_id.parse::<uuid::Uuid>()
+    let changeset_id = req
+        .changeset_id
+        .parse::<uuid::Uuid>()
         .map_err(|_| Status::invalid_argument("invalid changeset_id"))?;
 
     // Get workspace for this session
@@ -81,11 +83,19 @@ pub async fn handle_submit(
     // Snapshot the existing symbols per file (file_path -> (qualified_name -> id))
     // for files that will be changed.  After re-indexing we compare by ID so that
     // modifications (same name, new UUID) are still detected.
-    let mut pre_submit_symbols: std::collections::HashMap<String, std::collections::HashMap<String, uuid::Uuid>> = {
+    let mut pre_submit_symbols: std::collections::HashMap<
+        String,
+        std::collections::HashMap<String, uuid::Uuid>,
+    > = {
         let mut file_syms = std::collections::HashMap::new();
         for change in &req.changes {
-            let entry: &mut std::collections::HashMap<String, uuid::Uuid> = file_syms.entry(change.file_path.clone()).or_default();
-            if let Ok(symbols) = engine.symbol_store().find_by_file(repo_id, &change.file_path).await {
+            let entry: &mut std::collections::HashMap<String, uuid::Uuid> =
+                file_syms.entry(change.file_path.clone()).or_default();
+            if let Ok(symbols) = engine
+                .symbol_store()
+                .find_by_file(repo_id, &change.file_path)
+                .await
+            {
                 for sym in symbols {
                     entry.insert(sym.qualified_name, sym.id);
                 }
@@ -132,7 +142,11 @@ pub async fn handle_submit(
                 let is_new = !exists_in_base;
                 if let Err(e) = ws
                     .overlay
-                    .write(&change.file_path, change.new_source.as_bytes().to_vec(), is_new)
+                    .write(
+                        &change.file_path,
+                        change.new_source.as_bytes().to_vec(),
+                        is_new,
+                    )
                     .await
                 {
                     errors.push(SubmitError {
@@ -149,7 +163,11 @@ pub async fn handle_submit(
                 let is_new = !exists_in_base;
                 if let Err(e) = ws
                     .overlay
-                    .write(&change.file_path, change.new_source.as_bytes().to_vec(), is_new)
+                    .write(
+                        &change.file_path,
+                        change.new_source.as_bytes().to_vec(),
+                        is_new,
+                    )
                     .await
                 {
                     errors.push(SubmitError {
@@ -207,12 +225,14 @@ pub async fn handle_submit(
             OverlayEntry::Added { content, .. } => {
                 ("add", Some(String::from_utf8_lossy(content).into_owned()))
             }
-            OverlayEntry::Modified { content, .. } => {
-                ("modify", Some(String::from_utf8_lossy(content).into_owned()))
-            }
+            OverlayEntry::Modified { content, .. } => (
+                "modify",
+                Some(String::from_utf8_lossy(content).into_owned()),
+            ),
             OverlayEntry::Deleted => ("delete", None),
         };
-        engine.changeset_store()
+        engine
+            .changeset_store()
             .upsert_file(changeset_id, path, op, content.as_deref())
             .await
             .map_err(|e| Status::internal(format!("changeset file record failed: {e}")))?;
@@ -275,7 +295,8 @@ pub async fn handle_submit(
                     .and_then(|m| m.get(&sym.qualified_name))
                     .is_some_and(|old_id| *old_id == sym.id);
                 if !unchanged {
-                    let _ = engine.changeset_store()
+                    let _ = engine
+                        .changeset_store()
                         .record_affected_symbol(changeset_id, sym.id, &sym.qualified_name)
                         .await;
                 }
@@ -284,21 +305,50 @@ pub async fn handle_submit(
     }
 
     // Update changeset status to "submitted"
-    engine.changeset_store().update_status(changeset_id, "submitted").await
+    engine
+        .changeset_store()
+        .update_status(changeset_id, "submitted")
+        .await
         .map_err(|e| Status::internal(format!("changeset status update failed: {e}")))?;
 
+    // Record the state transition in ClickHouse (no-op if sink is
+    // unconfigured). Previous state is "draft" in normal flow; we don't
+    // read the pre-transition row because the store already transitioned.
+    let agent_id = engine
+        .changeset_store()
+        .get(changeset_id)
+        .await
+        .ok()
+        .and_then(|cs| cs.agent_id)
+        .unwrap_or_default();
+    dk_analytics::global::emit(dk_analytics::AnalyticsEvent::Changeset(
+        dk_analytics::ChangesetLifecycle {
+            changeset_id,
+            repo_id,
+            session_id: sid,
+            agent_id,
+            state: "submitted".into(),
+            previous_state: Some("draft".into()),
+            transition_at: chrono::Utc::now(),
+            duration_ms: None,
+        },
+    ));
+
     // Build affected_files list from overlay (unified source of truth)
-    let affected_files: Vec<crate::FileChange> = overlay_snapshot.iter().map(|(path, entry)| {
-        let operation = match entry {
-            OverlayEntry::Added { .. } => "add",
-            OverlayEntry::Modified { .. } => "modify",
-            OverlayEntry::Deleted => "delete",
-        };
-        crate::FileChange {
-            path: path.clone(),
-            operation: operation.to_string(),
-        }
-    }).collect();
+    let affected_files: Vec<crate::FileChange> = overlay_snapshot
+        .iter()
+        .map(|(path, entry)| {
+            let operation = match entry {
+                OverlayEntry::Added { .. } => "add",
+                OverlayEntry::Modified { .. } => "modify",
+                OverlayEntry::Deleted => "delete",
+            };
+            crate::FileChange {
+                path: path.clone(),
+                operation: operation.to_string(),
+            }
+        })
+        .collect();
 
     // Build symbol_changes from pre/post symbol comparison
     let mut symbol_changes: Vec<crate::SymbolChangeDetail> = Vec::new();

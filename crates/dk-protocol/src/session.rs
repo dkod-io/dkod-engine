@@ -116,12 +116,15 @@ impl SessionManager {
         self.sessions.retain(|id, session| {
             let alive = now.signed_duration_since(session.last_active) <= timeout;
             if !alive {
-                expired.push((*id, SessionSnapshot {
-                    agent_id: session.agent_id.clone(),
-                    codebase: session.codebase.clone(),
-                    intent: session.intent.clone(),
-                    codebase_version: session.codebase_version.clone(),
-                }));
+                expired.push((
+                    *id,
+                    SessionSnapshot {
+                        agent_id: session.agent_id.clone(),
+                        codebase: session.codebase.clone(),
+                        intent: session.intent.clone(),
+                        codebase_version: session.codebase_version.clone(),
+                    },
+                ));
             }
             alive
         });

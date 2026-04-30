@@ -1,8 +1,6 @@
 use std::path::PathBuf;
 
-use dk_core::{
-    CallEdge, CallKind, Dependency, Span, Symbol, SymbolKind, TypeInfo, Visibility,
-};
+use dk_core::{CallEdge, CallKind, Dependency, Span, Symbol, SymbolKind, TypeInfo, Visibility};
 use dk_engine::graph::{CallGraphStore, DependencyStore, SymbolStore, TypeInfoStore};
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -286,16 +284,10 @@ async fn test_link_symbol_to_dep() {
     dep_store.upsert_dependency(&dep).await.unwrap();
 
     // Link should succeed
-    dep_store
-        .link_symbol_to_dep(sym.id, dep.id)
-        .await
-        .unwrap();
+    dep_store.link_symbol_to_dep(sym.id, dep.id).await.unwrap();
 
     // Linking again should be idempotent (ON CONFLICT DO NOTHING)
-    dep_store
-        .link_symbol_to_dep(sym.id, dep.id)
-        .await
-        .unwrap();
+    dep_store.link_symbol_to_dep(sym.id, dep.id).await.unwrap();
 
     cleanup_repo(&pool, repo_id).await;
 }
@@ -366,7 +358,10 @@ async fn test_upsert_and_get_type_info() {
     assert_eq!(fetched.params[1], ("U".to_string(), "Debug".to_string()));
     assert!(fetched.return_type.is_none());
     assert_eq!(fetched.fields.len(), 2);
-    assert_eq!(fetched.fields[0], ("name".to_string(), "String".to_string()));
+    assert_eq!(
+        fetched.fields[0],
+        ("name".to_string(), "String".to_string())
+    );
     assert_eq!(fetched.implements, vec!["Clone", "Debug"]);
 
     cleanup_repo(&pool, repo_id).await;

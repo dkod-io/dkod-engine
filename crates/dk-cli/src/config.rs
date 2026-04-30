@@ -29,21 +29,17 @@ impl Config {
         if !path.exists() {
             return Ok(Self::default());
         }
-        let content = std::fs::read_to_string(&path)
-            .context("failed to read config file")?;
+        let content = std::fs::read_to_string(&path).context("failed to read config file")?;
         toml::from_str(&content).context("failed to parse config file")
     }
 
     pub fn save(&self) -> Result<()> {
         let path = Self::path()?;
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .context("failed to create config directory")?;
+            std::fs::create_dir_all(parent).context("failed to create config directory")?;
         }
-        let content = toml::to_string_pretty(self)
-            .context("failed to serialize config")?;
-        std::fs::write(&path, &content)
-            .context("failed to write config file")?;
+        let content = toml::to_string_pretty(self).context("failed to serialize config")?;
+        std::fs::write(&path, &content).context("failed to write config file")?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -53,9 +49,15 @@ impl Config {
     }
 
     pub fn require_auth(&self) -> Result<(&str, &str)> {
-        let url = self.server.url.as_deref()
+        let url = self
+            .server
+            .url
+            .as_deref()
             .context("not logged in — run `dk login <url>` first")?;
-        let token = self.server.token.as_deref()
+        let token = self
+            .server
+            .token
+            .as_deref()
             .context("not logged in — run `dk login <url>` first")?;
         Ok((url, token))
     }

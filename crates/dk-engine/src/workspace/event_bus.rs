@@ -22,10 +22,7 @@ pub enum SessionEvent {
     },
 
     /// A file was modified in a session's overlay.
-    FileModified {
-        session_id: Uuid,
-        file_path: String,
-    },
+    FileModified { session_id: Uuid, file_path: String },
 
     /// A changeset was submitted for review/merge.
     ChangesetSubmitted {
@@ -40,9 +37,7 @@ pub enum SessionEvent {
     },
 
     /// A session disconnected (workspace may still be persistent).
-    SessionDisconnected {
-        session_id: Uuid,
-    },
+    SessionDisconnected { session_id: Uuid },
 }
 
 // ── RepoEventBus ─────────────────────────────────────────────────────
@@ -102,7 +97,8 @@ impl RepoEventBus {
 
     /// Remove channels with no active subscribers.
     pub fn prune_dead_channels(&self) {
-        self.channels.retain(|_repo_id, sender| sender.receiver_count() > 0);
+        self.channels
+            .retain(|_repo_id, sender| sender.receiver_count() > 0);
     }
 
     /// Get or lazily create the broadcast sender for a repo.

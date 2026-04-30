@@ -9,15 +9,27 @@ pub fn upload(repo: String, paths: Vec<PathBuf>) -> Result<()> {
     let client = Client::from_config()?;
 
     let mut files: Vec<serde_json::Value> = Vec::new();
-    let skip_dirs = [".git", "node_modules", "target", "__pycache__", ".next", "dist"];
+    let skip_dirs = [
+        ".git",
+        "node_modules",
+        "target",
+        "__pycache__",
+        ".next",
+        "dist",
+    ];
 
     for base_path in &paths {
-        let base = base_path.canonicalize()
+        let base = base_path
+            .canonicalize()
             .with_context(|| format!("path not found: {}", base_path.display()))?;
 
         if base.is_file() {
             if let Some(content) = read_text_file(&base) {
-                let name = base.file_name().unwrap_or_default().to_string_lossy().to_string();
+                let name = base
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
                 files.push(serde_json::json!({ "path": name, "content": content }));
             }
             continue;
@@ -47,7 +59,8 @@ pub fn upload(repo: String, paths: Vec<PathBuf>) -> Result<()> {
         return Ok(());
     }
 
-    let total_size: usize = files.iter()
+    let total_size: usize = files
+        .iter()
         .map(|f| f["content"].as_str().map_or(0, |s| s.len()))
         .sum();
 
@@ -55,7 +68,11 @@ pub fn upload(repo: String, paths: Vec<PathBuf>) -> Result<()> {
     let resp: serde_json::Value = client.post(&format!("/repos/{}/files", repo), &body)?;
     let uploaded = resp["uploaded"].as_u64().unwrap_or(0);
 
-    println!("Uploaded {} files ({:.1} KB)", uploaded, total_size as f64 / 1024.0);
+    println!(
+        "Uploaded {} files ({:.1} KB)",
+        uploaded,
+        total_size as f64 / 1024.0
+    );
     Ok(())
 }
 

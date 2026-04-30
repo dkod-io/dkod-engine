@@ -1,5 +1,5 @@
-use anyhow::Result;
 use crate::findings::{Finding, Suggestion};
+use anyhow::Result;
 
 #[derive(Debug, Clone)]
 pub struct ReviewRequest {

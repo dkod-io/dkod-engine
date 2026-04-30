@@ -29,9 +29,17 @@ pub async fn run(out: Output, message: &str) -> Result<()> {
             }).collect::<Vec<_>>(),
         }));
     } else if resp.errors.is_empty() {
-        println!("{} changeset {}", "Submitted.".green().bold(), resp.changeset_id.dimmed());
+        println!(
+            "{} changeset {}",
+            "Submitted.".green().bold(),
+            resp.changeset_id.dimmed()
+        );
     } else {
-        println!("{} changeset {}", "Submit had errors.".red().bold(), resp.changeset_id.dimmed());
+        println!(
+            "{} changeset {}",
+            "Submit had errors.".red().bold(),
+            resp.changeset_id.dimmed()
+        );
         for err in &resp.errors {
             let loc = err.file_path.as_deref().unwrap_or("?");
             println!("  {} {}: {}", "error:".red(), loc, err.message);

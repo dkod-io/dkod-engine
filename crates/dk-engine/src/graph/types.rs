@@ -105,10 +105,7 @@ impl TypeInfoStore {
     }
 
     /// Get type information for a symbol by its ID.
-    pub async fn get_by_symbol_id(
-        &self,
-        symbol_id: SymbolId,
-    ) -> dk_core::Result<Option<TypeInfo>> {
+    pub async fn get_by_symbol_id(&self, symbol_id: SymbolId) -> dk_core::Result<Option<TypeInfo>> {
         let row = sqlx::query_as::<_, TypeInfoRow>(
             r#"
             SELECT symbol_id, params, return_type, fields, implements

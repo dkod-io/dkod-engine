@@ -31,9 +31,10 @@ fn overlay_entry_to_op_and_content(entry: &OverlayEntry) -> (&str, Option<String
         OverlayEntry::Added { content, .. } => {
             ("add", Some(String::from_utf8_lossy(content).into_owned()))
         }
-        OverlayEntry::Modified { content, .. } => {
-            ("modify", Some(String::from_utf8_lossy(content).into_owned()))
-        }
+        OverlayEntry::Modified { content, .. } => (
+            "modify",
+            Some(String::from_utf8_lossy(content).into_owned()),
+        ),
         OverlayEntry::Deleted => ("delete", None),
     }
 }
@@ -103,8 +104,7 @@ async fn overlay_mixed_entries_produce_correct_operations() {
     assert_eq!(changes.len(), 3);
 
     // Collect into a map for order-independent assertions
-    let map: std::collections::HashMap<String, OverlayEntry> =
-        changes.into_iter().collect();
+    let map: std::collections::HashMap<String, OverlayEntry> = changes.into_iter().collect();
 
     let (op, content) = overlay_entry_to_op_and_content(map.get("src/new.rs").unwrap());
     assert_eq!(op, "add");
@@ -153,7 +153,7 @@ async fn mcp_path_triggered_when_changes_empty_and_overlay_populated() {
 #[tokio::test]
 async fn standard_path_when_changes_present() {
     // Simulate: req.changes has entries (standard protocol path)
-    let req_changes = vec!["some_change"];
+    let req_changes: &[&str] = &["some_change"];
     let overlay = FileOverlay::new_inmemory(Uuid::new_v4());
     overlay.write_local("src/file.rs", b"content".to_vec(), true);
 
@@ -161,7 +161,10 @@ async fn standard_path_when_changes_present() {
 
     // Standard path: req.changes is NOT empty, so MCP branch is skipped
     let mcp_path = req_changes.is_empty() && !overlay_snapshot.is_empty();
-    assert!(!mcp_path, "MCP path should NOT be triggered when req.changes is present");
+    assert!(
+        !mcp_path,
+        "MCP path should NOT be triggered when req.changes is present"
+    );
 }
 
 #[tokio::test]
@@ -173,7 +176,10 @@ async fn no_path_when_both_empty() {
     let overlay_snapshot = overlay.list_changes();
 
     let mcp_path = req_changes.is_empty() && !overlay_snapshot.is_empty();
-    assert!(!mcp_path, "MCP path should NOT be triggered when overlay is empty");
+    assert!(
+        !mcp_path,
+        "MCP path should NOT be triggered when overlay is empty"
+    );
 }
 
 // ── Overlay snapshot timing test ────────────────────────────────────
@@ -197,8 +203,10 @@ async fn overlay_snapshot_captures_state_before_drop() {
     );
 
     // Write files to the overlay
-    ws.overlay.write_local("src/a.rs", b"fn a() {}".to_vec(), true);
-    ws.overlay.write_local("src/b.rs", b"fn b() {}".to_vec(), false);
+    ws.overlay
+        .write_local("src/a.rs", b"fn a() {}".to_vec(), true);
+    ws.overlay
+        .write_local("src/b.rs", b"fn b() {}".to_vec(), false);
     ws.overlay.delete_local("src/c.rs");
 
     // Snapshot BEFORE drop -- this mirrors submit.rs line 156:
@@ -268,7 +276,10 @@ async fn overlay_write_local_produces_consistent_hash() {
 
     // Different content should produce a different hash
     let hash3 = overlay.write_local("src/other.rs", b"fn other() {}".to_vec(), true);
-    assert_ne!(hash, hash3, "Different content should produce a different hash");
+    assert_ne!(
+        hash, hash3,
+        "Different content should produce a different hash"
+    );
 }
 
 // ── changed_files population test ───────────────────────────────────
@@ -327,8 +338,10 @@ async fn workspace_overlays_are_isolated() {
         WorkspaceMode::Ephemeral,
     );
 
-    ws1.overlay.write_local("shared.rs", b"from agent 1".to_vec(), true);
-    ws2.overlay.write_local("shared.rs", b"from agent 2".to_vec(), true);
+    ws1.overlay
+        .write_local("shared.rs", b"from agent 1".to_vec(), true);
+    ws2.overlay
+        .write_local("shared.rs", b"from agent 2".to_vec(), true);
 
     let snap1 = ws1.overlay.list_changes();
     let snap2 = ws2.overlay.list_changes();
@@ -362,7 +375,11 @@ async fn overlay_write_overwrites_previous_entry() {
     overlay.write_local("src/main.rs", b"version 2".to_vec(), false);
 
     let changes = overlay.list_changes();
-    assert_eq!(changes.len(), 1, "Should have exactly one entry after overwrite");
+    assert_eq!(
+        changes.len(),
+        1,
+        "Should have exactly one entry after overwrite"
+    );
 
     let (path, entry) = &changes[0];
     assert_eq!(path, "src/main.rs");
@@ -390,8 +407,10 @@ async fn submit_overlay_isolation_two_sessions_same_file() {
         "base_commit".into(),
         WorkspaceMode::Ephemeral,
     );
-    ws_a.overlay.write_local("src/shared.rs", b"content from A".to_vec(), true);
-    ws_a.overlay.write_local("src/a_only.rs", b"only in A".to_vec(), true);
+    ws_a.overlay
+        .write_local("src/shared.rs", b"content from A".to_vec(), true);
+    ws_a.overlay
+        .write_local("src/a_only.rs", b"only in A".to_vec(), true);
 
     // Session B writes "src/shared.rs" and "src/b_only.rs"
     let ws_b = SessionWorkspace::new_test(
@@ -402,8 +421,10 @@ async fn submit_overlay_isolation_two_sessions_same_file() {
         "base_commit".into(),
         WorkspaceMode::Ephemeral,
     );
-    ws_b.overlay.write_local("src/shared.rs", b"content from B".to_vec(), true);
-    ws_b.overlay.write_local("src/b_only.rs", b"only in B".to_vec(), true);
+    ws_b.overlay
+        .write_local("src/shared.rs", b"content from B".to_vec(), true);
+    ws_b.overlay
+        .write_local("src/b_only.rs", b"only in B".to_vec(), true);
 
     // Simulate submit for session A: snapshot its overlay
     let snap_a = ws_a.overlay.list_changes();
@@ -411,20 +432,34 @@ async fn submit_overlay_isolation_two_sessions_same_file() {
     let snap_b = ws_b.overlay.list_changes();
 
     // Session A should see exactly 2 files (its own)
-    assert_eq!(snap_a.len(), 2, "Session A should see exactly its own 2 files");
+    assert_eq!(
+        snap_a.len(),
+        2,
+        "Session A should see exactly its own 2 files"
+    );
     let paths_a: std::collections::HashSet<String> =
         snap_a.iter().map(|(p, _)| p.clone()).collect();
     assert!(paths_a.contains("src/shared.rs"));
     assert!(paths_a.contains("src/a_only.rs"));
-    assert!(!paths_a.contains("src/b_only.rs"), "Session A must not see B's files");
+    assert!(
+        !paths_a.contains("src/b_only.rs"),
+        "Session A must not see B's files"
+    );
 
     // Session B should see exactly 2 files (its own)
-    assert_eq!(snap_b.len(), 2, "Session B should see exactly its own 2 files");
+    assert_eq!(
+        snap_b.len(),
+        2,
+        "Session B should see exactly its own 2 files"
+    );
     let paths_b: std::collections::HashSet<String> =
         snap_b.iter().map(|(p, _)| p.clone()).collect();
     assert!(paths_b.contains("src/shared.rs"));
     assert!(paths_b.contains("src/b_only.rs"));
-    assert!(!paths_b.contains("src/a_only.rs"), "Session B must not see A's files");
+    assert!(
+        !paths_b.contains("src/a_only.rs"),
+        "Session B must not see A's files"
+    );
 
     // Verify content isolation: "src/shared.rs" has different content per session
     let a_shared = snap_a.iter().find(|(p, _)| p == "src/shared.rs").unwrap();
@@ -458,8 +493,10 @@ async fn submit_unified_path_records_all_overlay_entries() {
     );
 
     // Simulate MCP writes (no req.changes)
-    ws.overlay.write_local("src/new.rs", b"new file".to_vec(), true);
-    ws.overlay.write_local("src/existing.rs", b"modified".to_vec(), false);
+    ws.overlay
+        .write_local("src/new.rs", b"new file".to_vec(), true);
+    ws.overlay
+        .write_local("src/existing.rs", b"modified".to_vec(), false);
     ws.overlay.delete_local("src/removed.rs");
 
     let overlay_snapshot = ws.overlay.list_changes();
@@ -474,8 +511,10 @@ async fn submit_unified_path_records_all_overlay_entries() {
 
     assert_eq!(recorded.len(), 3);
 
-    let map: std::collections::HashMap<String, (&str, Option<String>)> =
-        recorded.into_iter().map(|(p, op, c)| (p, (op, c))).collect();
+    let map: std::collections::HashMap<String, (&str, Option<String>)> = recorded
+        .into_iter()
+        .map(|(p, op, c)| (p, (op, c)))
+        .collect();
 
     assert_eq!(map["src/new.rs"].0, "add");
     assert_eq!(map["src/new.rs"].1.as_deref(), Some("new file"));

@@ -15,9 +15,7 @@ use tokio::time::Instant;
 use uuid::Uuid;
 
 use crate::workspace::cache::{NoOpCache, WorkspaceCache};
-use crate::workspace::session_workspace::{
-    SessionId, SessionWorkspace, WorkspaceMode,
-};
+use crate::workspace::session_workspace::{SessionId, SessionWorkspace, WorkspaceMode};
 
 // ── Feature flag helper ───────────────────────────────────────────────
 
@@ -220,7 +218,6 @@ impl WorkspaceManager {
         self.cache.as_ref()
     }
 
-
     /// Auto-assign the next agent name for a repository.
     ///
     /// Returns "agent-1", "agent-2", etc. incrementing per repo.
@@ -417,7 +414,10 @@ impl WorkspaceManager {
         // `block_in_place` panics on a current-thread runtime; fall through to
         // the legacy sync path in that case (and for callers with no runtime).
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            if matches!(handle.runtime_flavor(), tokio::runtime::RuntimeFlavor::MultiThread) {
+            if matches!(
+                handle.runtime_flavor(),
+                tokio::runtime::RuntimeFlavor::MultiThread
+            ) {
                 tokio::task::block_in_place(|| {
                     handle.block_on(self.cleanup_disconnected_async(active_session_ids))
                 });
@@ -501,7 +501,10 @@ impl WorkspaceManager {
         // through to the legacy sync path. Callers on a multi-threaded runtime
         // get the pin-aware async path via block_in_place + block_on.
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            if matches!(handle.runtime_flavor(), tokio::runtime::RuntimeFlavor::MultiThread) {
+            if matches!(
+                handle.runtime_flavor(),
+                tokio::runtime::RuntimeFlavor::MultiThread
+            ) {
                 return tokio::task::block_in_place(|| {
                     handle.block_on(self.gc_expired_sessions_async(idle_ttl, max_ttl))
                 });
@@ -642,11 +645,7 @@ impl WorkspaceManager {
     /// stranded row does not change stranded_at. Drops the in-memory entry,
     /// releases all symbol locks held by the session, and emits a
     /// `session.stranded` lifecycle event.
-    pub async fn strand(
-        &self,
-        session_id: &SessionId,
-        reason: StrandReason,
-    ) -> Result<()> {
+    pub async fn strand(&self, session_id: &SessionId, reason: StrandReason) -> Result<()> {
         // Fetch (repo_id, changeset_id) before mutating — idempotent even if
         // the row is already stranded because COALESCE guards the update below.
         let ids: Option<(Uuid, Uuid)> = sqlx::query_as(
@@ -679,9 +678,7 @@ impl WorkspaceManager {
         // Release all symbol locks held by this session (idempotent — returns
         // empty vec if none are held).
         if let Some((repo_id, changeset_id)) = ids {
-            self.claim_tracker
-                .release_locks(repo_id, *session_id)
-                .await;
+            self.claim_tracker.release_locks(repo_id, *session_id).await;
 
             self.events.publish_session_event(
                 "session.stranded",
@@ -732,8 +729,9 @@ impl WorkspaceManager {
         };
 
         let pinned = match row {
-            Some((state,)) => crate::changeset::ChangesetState::parse(&state)
-                .is_some_and(|s| !s.is_terminal()),
+            Some((state,)) => {
+                crate::changeset::ChangesetState::parse(&state).is_some_and(|s| !s.is_terminal())
+            }
             None => false,
         };
         if pinned {
@@ -797,11 +795,11 @@ impl WorkspaceManager {
     ) -> Result<()> {
         // Fetch workspace row PK (id), changeset_id, repo_id, stranded_at, and prior abandoned_at.
         type AbandonRow = (
-            uuid::Uuid,                              // id
-            Option<uuid::Uuid>,                      // changeset_id
-            uuid::Uuid,                              // repo_id
-            Option<chrono::DateTime<chrono::Utc>>,   // stranded_at
-            Option<chrono::DateTime<chrono::Utc>>,   // abandoned_at
+            uuid::Uuid,                            // id
+            Option<uuid::Uuid>,                    // changeset_id
+            uuid::Uuid,                            // repo_id
+            Option<chrono::DateTime<chrono::Utc>>, // stranded_at
+            Option<chrono::DateTime<chrono::Utc>>, // abandoned_at
         );
         let row: Option<AbandonRow> = sqlx::query_as(
             "SELECT id, changeset_id, repo_id, stranded_at, abandoned_at
@@ -812,7 +810,8 @@ impl WorkspaceManager {
         .await
         .map_err(|e| dk_core::Error::Internal(e.to_string()))?;
 
-        let Some((workspace_id, changeset_id_opt, repo_id, stranded_at, already_abandoned)) = row else {
+        let Some((workspace_id, changeset_id_opt, repo_id, stranded_at, already_abandoned)) = row
+        else {
             return Ok(()); // no row — idempotent no-op
         };
         if already_abandoned.is_some() {
@@ -878,8 +877,12 @@ impl WorkspaceManager {
 
         // 5. Emit event.
         let cs_for_event = changeset_id_opt.unwrap_or_else(uuid::Uuid::nil);
-        self.events
-            .publish_session_event("session.abandoned", *session_id, cs_for_event, reason.as_str());
+        self.events.publish_session_event(
+            "session.abandoned",
+            *session_id,
+            cs_for_event,
+            reason.as_str(),
+        );
 
         // 6. Ensure in-memory state is gone.
         self.workspaces.remove(session_id);
@@ -964,18 +967,18 @@ impl WorkspaceManager {
         // The tuple has 12 fields; allow the complexity lint for this one query.
         #[allow(clippy::type_complexity)]
         let row: Option<(
-            uuid::Uuid,              // workspace id (PK)
-            uuid::Uuid,              // repo_id
-            Option<uuid::Uuid>,      // changeset_id
-            String,                  // agent_id
-            String,                  // intent
-            String,                  // base_commit_hash
-            String,                  // mode
-            String,                  // agent_name
+            uuid::Uuid,                            // workspace id (PK)
+            uuid::Uuid,                            // repo_id
+            Option<uuid::Uuid>,                    // changeset_id
+            String,                                // agent_id
+            String,                                // intent
+            String,                                // base_commit_hash
+            String,                                // mode
+            String,                                // agent_name
             Option<chrono::DateTime<chrono::Utc>>, // stranded_at
             Option<chrono::DateTime<chrono::Utc>>, // abandoned_at
-            Option<uuid::Uuid>,      // superseded_by
-            Option<String>,          // changeset state (from JOIN)
+            Option<uuid::Uuid>,                    // superseded_by
+            Option<String>,                        // changeset state (from JOIN)
         )> = sqlx::query_as(
             r#"
             SELECT w.id, w.repo_id, w.changeset_id, w.agent_id,
@@ -994,10 +997,20 @@ impl WorkspaceManager {
         .map_err(|e| dk_core::Error::Internal(e.to_string()))?;
 
         let Some((
-            workspace_id, repo_id, changeset_id_opt, orig_agent, intent,
-            base_commit, mode_str, agent_name,
-            stranded_at, abandoned_at, superseded_by, changeset_state,
-        )) = row else {
+            workspace_id,
+            repo_id,
+            changeset_id_opt,
+            orig_agent,
+            intent,
+            base_commit,
+            mode_str,
+            agent_name,
+            stranded_at,
+            abandoned_at,
+            superseded_by,
+            changeset_state,
+        )) = row
+        else {
             tx.rollback().await.ok();
             return Ok(ResumeResult::NotStranded);
         };
@@ -1008,9 +1021,7 @@ impl WorkspaceManager {
             return Ok(ResumeResult::Abandoned);
         }
         if let Some(state) = changeset_state.as_deref() {
-            if crate::changeset::ChangesetState::parse(state)
-                .is_some_and(|s| s.is_terminal())
-            {
+            if crate::changeset::ChangesetState::parse(state).is_some_and(|s| s.is_terminal()) {
                 tx.rollback().await.ok();
                 crate::metrics::incr_workspace_resumed("abandoned");
                 return Ok(ResumeResult::Abandoned);
@@ -1136,7 +1147,8 @@ impl WorkspaceManager {
         // reference the OLD workspace_id (PK). The new SessionWorkspace has a
         // freshly generated ws.id, so we use restore_from_workspace_id to load
         // from the old workspace PK row instead of ws.overlay.restore_from_db().
-        if let Err(e) = ws.overlay
+        if let Err(e) = ws
+            .overlay
             .restore_from_workspace_id(&self.db, workspace_id)
             .await
             .map_err(|e| dk_core::Error::Internal(e.to_string()))
@@ -1145,7 +1157,8 @@ impl WorkspaceManager {
         }
 
         // Rebuild the semantic graph from overlay content.
-        if let Err(e) = ws.reindex_from_overlay()
+        if let Err(e) = ws
+            .reindex_from_overlay()
             .await
             .map_err(|e| dk_core::Error::Internal(format!("resume: reindex_from_overlay: {e}")))
         {
@@ -1211,12 +1224,8 @@ impl WorkspaceManager {
         // Insert into the in-memory active-workspace map.
         self.workspaces.insert(new_session, ws);
 
-        self.events.publish_session_event(
-            "session.resumed",
-            new_session,
-            changeset_id,
-            "resumed",
-        );
+        self.events
+            .publish_session_event("session.resumed", new_session, changeset_id, "resumed");
 
         crate::metrics::incr_workspace_resumed("ok");
         Ok(ResumeResult::Ok(new_session))
@@ -1269,10 +1278,7 @@ mod tests {
         assert_eq!(json["intent"], "fix bug");
         assert_eq!(json["state"], "active");
         assert_eq!(json["elapsed_secs"], 42);
-        assert_eq!(
-            json["session_id"],
-            "00000000-0000-0000-0000-000000000000"
-        );
+        assert_eq!(json["session_id"], "00000000-0000-0000-0000-000000000000");
     }
 
     #[test]
@@ -1304,7 +1310,11 @@ mod tests {
         for key in &expected_keys {
             assert!(obj.contains_key(*key), "missing key: {}", key);
         }
-        assert_eq!(obj.len(), expected_keys.len(), "unexpected extra keys in SessionInfo JSON");
+        assert_eq!(
+            obj.len(),
+            expected_keys.len(),
+            "unexpected extra keys in SessionInfo JSON"
+        );
     }
 
     #[test]
@@ -1392,7 +1402,8 @@ mod tests {
             WorkspaceMode::Ephemeral,
         );
         ws2.agent_name = "agent-2".to_string();
-        ws2.overlay.write_local("src/lib.rs", b"content".to_vec(), false);
+        ws2.overlay
+            .write_local("src/lib.rs", b"content".to_vec(), false);
 
         mgr.insert_test_workspace(ws2);
 

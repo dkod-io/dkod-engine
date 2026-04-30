@@ -76,12 +76,18 @@ pub async fn handle_pre_submit_check(
 
     let mut base_entries: HashMap<&str, Option<Vec<u8>>> = HashMap::with_capacity(paths.len());
     for path in &paths {
-        base_entries.insert(path.as_str(), git_repo.read_tree_entry(&ws.base_commit, path).ok());
+        base_entries.insert(
+            path.as_str(),
+            git_repo.read_tree_entry(&ws.base_commit, path).ok(),
+        );
     }
 
     let mut head_entries: HashMap<&str, Option<Vec<u8>>> = HashMap::with_capacity(paths.len());
     for path in &paths {
-        head_entries.insert(path.as_str(), git_repo.read_tree_entry(&head_hash, path).ok());
+        head_entries.insert(
+            path.as_str(),
+            git_repo.read_tree_entry(&head_hash, path).ok(),
+        );
     }
 
     let mut conflicts = Vec::new();
@@ -108,14 +114,13 @@ pub async fn handle_pre_submit_check(
                 match (base_content, head_content) {
                     (Some(base), Some(head)) => {
                         if base != head {
-                            let analysis =
-                                dk_engine::workspace::conflict::analyze_file_conflict(
-                                    path,
-                                    base,
-                                    head,
-                                    overlay_content,
-                                    parser,
-                                );
+                            let analysis = dk_engine::workspace::conflict::analyze_file_conflict(
+                                path,
+                                base,
+                                head,
+                                overlay_content,
+                                parser,
+                            );
 
                             if let dk_engine::workspace::conflict::MergeAnalysis::Conflict {
                                 conflicts: file_conflicts,

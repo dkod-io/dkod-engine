@@ -1,6 +1,7 @@
 pub mod add;
 pub mod admin;
 pub mod agent;
+pub mod analytics;
 pub mod branch;
 pub mod cat;
 pub mod check;

@@ -15,11 +15,19 @@ impl GitRepository {
     /// initializes a standard (non-bare) Git repository with a `.git` directory.
     pub fn init(path: &Path) -> Result<Self> {
         std::fs::create_dir_all(path).map_err(|e| {
-            Error::Git(format!("failed to create directory {}: {}", path.display(), e))
+            Error::Git(format!(
+                "failed to create directory {}: {}",
+                path.display(),
+                e
+            ))
         })?;
 
         let repo = gix::init(path).map_err(|e| {
-            Error::Git(format!("failed to init repository at {}: {}", path.display(), e))
+            Error::Git(format!(
+                "failed to init repository at {}: {}",
+                path.display(),
+                e
+            ))
         })?;
 
         Ok(Self { inner: repo })
@@ -28,7 +36,11 @@ impl GitRepository {
     /// Open an existing Git repository at the given path.
     pub fn open(path: &Path) -> Result<Self> {
         let repo = gix::open(path).map_err(|e| {
-            Error::Git(format!("failed to open repository at {}: {}", path.display(), e))
+            Error::Git(format!(
+                "failed to open repository at {}: {}",
+                path.display(),
+                e
+            ))
         })?;
 
         Ok(Self { inner: repo })
@@ -39,9 +51,7 @@ impl GitRepository {
     /// Returns the working tree directory if available, otherwise falls back
     /// to the `.git` directory itself.
     pub fn path(&self) -> &Path {
-        self.inner
-            .workdir()
-            .unwrap_or_else(|| self.inner.git_dir())
+        self.inner.workdir().unwrap_or_else(|| self.inner.git_dir())
     }
 
     /// Get a reference to the inner `gix::Repository`.
@@ -72,8 +82,10 @@ impl GitRepository {
             .args([
                 "commit",
                 "--allow-empty",
-                "-m", message,
-                "--author", &format!("{} <{}>", author_name, author_email),
+                "-m",
+                message,
+                "--author",
+                &format!("{} <{}>", author_name, author_email),
             ])
             .current_dir(workdir)
             .output()
@@ -82,7 +94,8 @@ impl GitRepository {
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             if stderr.contains("nothing to commit") {
-                return self.head_hash()?
+                return self
+                    .head_hash()?
                     .ok_or_else(|| Error::Git("no HEAD after commit".into()));
             }
             return Err(Error::Git(format!("git commit failed: {stderr}")));
@@ -193,10 +206,9 @@ impl GitRepository {
         let base_oid = gix::ObjectId::from_hex(base_commit_hex.as_bytes())
             .map_err(|e| Error::Git(format!("invalid base commit hex '{base_commit_hex}': {e}")))?;
 
-        let base_commit = self
-            .inner
-            .find_commit(base_oid)
-            .map_err(|e| Error::Git(format!("failed to find base commit {base_commit_hex}: {e}")))?;
+        let base_commit = self.inner.find_commit(base_oid).map_err(|e| {
+            Error::Git(format!("failed to find base commit {base_commit_hex}: {e}"))
+        })?;
 
         let base_tree = self
             .inner
@@ -204,8 +216,11 @@ impl GitRepository {
             .map_err(|e| Error::Git(format!("failed to find base tree: {e}")))?;
 
         // Parse the parent commit
-        let parent_oid = gix::ObjectId::from_hex(parent_commit_hex.as_bytes())
-            .map_err(|e| Error::Git(format!("invalid parent commit hex '{parent_commit_hex}': {e}")))?;
+        let parent_oid = gix::ObjectId::from_hex(parent_commit_hex.as_bytes()).map_err(|e| {
+            Error::Git(format!(
+                "invalid parent commit hex '{parent_commit_hex}': {e}"
+            ))
+        })?;
 
         // Create a tree editor from the base tree
         let mut editor = self
@@ -218,10 +233,9 @@ impl GitRepository {
             match maybe_content {
                 Some(content) => {
                     // Write the blob to the object database
-                    let blob_id = self
-                        .inner
-                        .write_blob(content)
-                        .map_err(|e| Error::Git(format!("failed to write blob for '{path}': {e}")))?;
+                    let blob_id = self.inner.write_blob(content).map_err(|e| {
+                        Error::Git(format!("failed to write blob for '{path}': {e}"))
+                    })?;
 
                     // Upsert into the tree — detect executable by file extension heuristic
                     // (default to regular blob)
@@ -265,7 +279,14 @@ impl GitRepository {
 
         let commit_id = self
             .inner
-            .commit_as(sig_ref, sig_ref, "HEAD", message, new_tree_id.detach(), [parent_oid])
+            .commit_as(
+                sig_ref,
+                sig_ref,
+                "HEAD",
+                message,
+                new_tree_id.detach(),
+                [parent_oid],
+            )
             .map_err(|e| Error::Git(format!("failed to create commit: {e}")))?;
 
         let commit_hex = commit_id.to_hex().to_string();
@@ -314,9 +335,7 @@ impl GitRepository {
         use gix::object::tree::EntryKind;
 
         // Start from an empty tree and build up the initial file tree.
-        let empty_tree = self
-            .inner
-            .empty_tree();
+        let empty_tree = self.inner.empty_tree();
 
         let mut editor = self
             .inner

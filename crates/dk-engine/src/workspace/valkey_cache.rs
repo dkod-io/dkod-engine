@@ -73,8 +73,8 @@ impl WorkspaceCache for ValkeyCache {
 
     async fn cache_workspace(&self, id: &Uuid, snapshot: &WorkspaceSnapshot) -> Result<()> {
         let key = Self::meta_key(id);
-        let bytes =
-            rmp_serde::to_vec_named(snapshot).context("ValkeyCache: failed to serialize snapshot")?;
+        let bytes = rmp_serde::to_vec_named(snapshot)
+            .context("ValkeyCache: failed to serialize snapshot")?;
         let mut conn = self.conn.clone();
         conn.set_ex::<_, _, ()>(&key, bytes.as_slice(), u64::from(self.ttl_secs))
             .await
@@ -109,8 +109,8 @@ impl WorkspaceCache for ValkeyCache {
     ) -> Result<()> {
         let file_key = Self::file_key(workspace_id, path);
         let set_key = Self::files_set_key(workspace_id);
-        let bytes =
-            rmp_serde::to_vec_named(entry).context("ValkeyCache: failed to serialize overlay entry")?;
+        let bytes = rmp_serde::to_vec_named(entry)
+            .context("ValkeyCache: failed to serialize overlay entry")?;
 
         let mut conn = self.conn.clone();
         redis::pipe()

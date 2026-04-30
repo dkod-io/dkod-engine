@@ -1,13 +1,15 @@
+use super::{Executor, StepOutput, StepStatus};
 use std::collections::HashMap;
 use std::path::Path;
 use std::time::{Duration, Instant};
-use super::{Executor, StepOutput, StepStatus};
 
 pub struct ProcessExecutor;
 
 impl ProcessExecutor {
     #[allow(clippy::new_without_default)]
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 }
 
 const SAFE_ENV_VARS: &[&str] = &["PATH", "HOME", "LANG", "TERM", "USER", "SHELL"];
@@ -40,16 +42,29 @@ impl Executor for ProcessExecutor {
             Ok(Ok(output)) => {
                 let stdout = String::from_utf8_lossy(&output.stdout).to_string();
                 let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-                let status = if output.status.success() { StepStatus::Pass } else { StepStatus::Fail };
-                StepOutput { status, stdout, stderr, duration }
+                let status = if output.status.success() {
+                    StepStatus::Pass
+                } else {
+                    StepStatus::Fail
+                };
+                StepOutput {
+                    status,
+                    stdout,
+                    stderr,
+                    duration,
+                }
             }
             Ok(Err(e)) => StepOutput {
-                status: StepStatus::Fail, stdout: String::new(),
-                stderr: format!("command error: {e}"), duration,
+                status: StepStatus::Fail,
+                stdout: String::new(),
+                stderr: format!("command error: {e}"),
+                duration,
             },
             Err(_) => StepOutput {
-                status: StepStatus::Timeout, stdout: String::new(),
-                stderr: format!("command timed out after {}s", timeout.as_secs()), duration,
+                status: StepStatus::Timeout,
+                stdout: String::new(),
+                stderr: format!("command timed out after {}s", timeout.as_secs()),
+                duration,
             },
         }
     }
@@ -63,7 +78,9 @@ mod tests {
     async fn test_echo_passes() {
         let exec = ProcessExecutor::new();
         let dir = std::env::temp_dir();
-        let out = exec.run_command("echo hello", &dir, Duration::from_secs(5), &HashMap::new()).await;
+        let out = exec
+            .run_command("echo hello", &dir, Duration::from_secs(5), &HashMap::new())
+            .await;
         assert_eq!(out.status, StepStatus::Pass);
         assert!(out.stdout.contains("hello"));
     }
@@ -72,7 +89,9 @@ mod tests {
     async fn test_false_fails() {
         let exec = ProcessExecutor::new();
         let dir = std::env::temp_dir();
-        let out = exec.run_command("false", &dir, Duration::from_secs(5), &HashMap::new()).await;
+        let out = exec
+            .run_command("false", &dir, Duration::from_secs(5), &HashMap::new())
+            .await;
         assert_eq!(out.status, StepStatus::Fail);
     }
 
@@ -80,7 +99,14 @@ mod tests {
     async fn test_timeout() {
         let exec = ProcessExecutor::new();
         let dir = std::env::temp_dir();
-        let out = exec.run_command("sleep 10", &dir, Duration::from_millis(100), &HashMap::new()).await;
+        let out = exec
+            .run_command(
+                "sleep 10",
+                &dir,
+                Duration::from_millis(100),
+                &HashMap::new(),
+            )
+            .await;
         assert_eq!(out.status, StepStatus::Timeout);
     }
 
@@ -90,7 +116,9 @@ mod tests {
         let dir = std::env::temp_dir();
         let mut env = HashMap::new();
         env.insert("DKOD_TEST".to_string(), "yes".to_string());
-        let out = exec.run_command("echo $DKOD_TEST", &dir, Duration::from_secs(5), &env).await;
+        let out = exec
+            .run_command("echo $DKOD_TEST", &dir, Duration::from_secs(5), &env)
+            .await;
         assert_eq!(out.status, StepStatus::Pass);
         assert!(out.stdout.contains("yes"));
     }

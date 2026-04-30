@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+publish = false
 
 [[bin]]
 name = "dk-mcp"
@@ -31,6 +32,7 @@ chrono = { workspace = true }
 async-nats = "0.38"
 async-trait = { workspace = true }
 dk-runner = { path = "../dk-runner" }
+dk-analytics = { workspace = true }
 
 [dev-dependencies]
 rmcp = { version = "0.16", features = ["client", "server", "transport-io"] }

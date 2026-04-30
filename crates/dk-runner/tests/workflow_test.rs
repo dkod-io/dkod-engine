@@ -53,7 +53,18 @@ type = "human-approve"
     let (tx, mut rx) = mpsc::channel(32);
     let dir = std::env::temp_dir();
 
-    let passed = run_workflow(&workflow, &exec, &dir, &[], &HashMap::new(), &tx, None, None, None).await;
+    let passed = run_workflow(
+        &workflow,
+        &exec,
+        &dir,
+        &[],
+        &HashMap::new(),
+        &tx,
+        None,
+        None,
+        None,
+    )
+    .await;
     drop(tx);
 
     assert!(passed, "all steps should pass");
@@ -95,7 +106,18 @@ changeset_aware = true
 
     let files = vec!["crates/dk-engine/src/repo.rs".to_string()];
 
-    let passed = run_workflow(&workflow, &exec, &dir, &files, &HashMap::new(), &tx, None, None, None).await;
+    let passed = run_workflow(
+        &workflow,
+        &exec,
+        &dir,
+        &files,
+        &HashMap::new(),
+        &tx,
+        None,
+        None,
+        None,
+    )
+    .await;
     drop(tx);
 
     assert!(passed);
@@ -143,7 +165,15 @@ stages:
     let dir = std::env::temp_dir();
 
     let passed = run_workflow(
-        &workflow, &exec, &dir, &[], &HashMap::new(), &tx, None, None, None,
+        &workflow,
+        &exec,
+        &dir,
+        &[],
+        &HashMap::new(),
+        &tx,
+        None,
+        None,
+        None,
     )
     .await;
     drop(tx);

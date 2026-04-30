@@ -10,9 +10,7 @@
 
 #![cfg(feature = "valkey")]
 
-use dk_engine::workspace::cache::{
-    CachedOverlayEntry, WorkspaceCache, WorkspaceSnapshot,
-};
+use dk_engine::workspace::cache::{CachedOverlayEntry, WorkspaceCache, WorkspaceSnapshot};
 use dk_engine::workspace::valkey_cache::ValkeyCache;
 use uuid::Uuid;
 
@@ -70,7 +68,10 @@ async fn roundtrip_overlay_file() {
         hash: "deadbeef".to_string(),
     };
 
-    cache.cache_file(&ws_id, "src/lib.rs", &entry).await.unwrap();
+    cache
+        .cache_file(&ws_id, "src/lib.rs", &entry)
+        .await
+        .unwrap();
 
     let back = cache.get_file(&ws_id, "src/lib.rs").await.unwrap();
     assert_eq!(back.as_ref(), Some(&entry));
@@ -91,8 +92,14 @@ async fn list_files_returns_cached_paths() {
         hash: "abc123".to_string(),
     };
 
-    cache.cache_file(&ws_id, "src/main.rs", &entry).await.unwrap();
-    cache.cache_file(&ws_id, "src/lib.rs", &entry).await.unwrap();
+    cache
+        .cache_file(&ws_id, "src/main.rs", &entry)
+        .await
+        .unwrap();
+    cache
+        .cache_file(&ws_id, "src/lib.rs", &entry)
+        .await
+        .unwrap();
 
     let mut files = cache.list_files(&ws_id).await.unwrap();
     files.sort();
@@ -179,7 +186,11 @@ async fn cache_miss_returns_none() {
     let ws_id = Uuid::new_v4(); // Never written.
 
     assert!(cache.get_workspace(&ws_id).await.unwrap().is_none());
-    assert!(cache.get_file(&ws_id, "nonexistent.rs").await.unwrap().is_none());
+    assert!(cache
+        .get_file(&ws_id, "nonexistent.rs")
+        .await
+        .unwrap()
+        .is_none());
     assert!(cache.get_graph(&ws_id).await.unwrap().is_none());
     assert!(cache.list_files(&ws_id).await.unwrap().is_empty());
 }
@@ -240,11 +251,7 @@ async fn touch_refreshes_ttl_without_error() {
     cache.cache_workspace(&ws_id, &snap).await.unwrap();
     cache.cache_graph(&ws_id, b"graph").await.unwrap();
     cache
-        .cache_file(
-            &ws_id,
-            "src/a.rs",
-            &CachedOverlayEntry::Deleted,
-        )
+        .cache_file(&ws_id, "src/a.rs", &CachedOverlayEntry::Deleted)
         .await
         .unwrap();
 
@@ -264,8 +271,7 @@ async fn touch_refreshes_ttl_without_error() {
 
 #[tokio::test]
 async fn valkey_cache_works_as_trait_object() {
-    let cache: std::sync::Arc<dyn WorkspaceCache> =
-        std::sync::Arc::new(make_cache().await);
+    let cache: std::sync::Arc<dyn WorkspaceCache> = std::sync::Arc::new(make_cache().await);
     let ws_id = Uuid::new_v4();
 
     let snap = sample_snapshot(ws_id);
