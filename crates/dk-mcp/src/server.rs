@@ -183,6 +183,24 @@ struct StatusParams {
 }
 
 #[derive(Deserialize, JsonSchema)]
+struct ListUpstreamToolsParams {
+    /// Optional server filter. When set, only tools from this upstream are returned.
+    server: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct CallUpstreamParams {
+    /// Tool name. May be prefixed `<server>___<tool>` (in which case `server` is optional)
+    /// or unprefixed (in which case `server` is required).
+    tool: String,
+    /// Upstream server ID from the registry (e.g. `context7`, `supabase`, `linear`).
+    /// Required when `tool` is unprefixed.
+    server: Option<String>,
+    /// Arguments forwarded as the upstream tool's input. Must match its input schema.
+    arguments: Option<serde_json::Map<String, serde_json::Value>>,
+}
+
+#[derive(Deserialize, JsonSchema)]
 struct ListIntegrationsParams {
     /// Filter by kind: "mcp" (MCP servers) or "peer" (external binaries).
     /// When omitted, both kinds are returned.
@@ -306,6 +324,10 @@ pub struct DkodMcp {
     /// code review gate is enabled. Cleared on `Drop` so closing the MCP
     /// instance aborts in-flight provider HTTP calls.
     review_tasks: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>>,
+    /// Aggregating gateway over upstream MCP servers from `registry.toml`.
+    /// Populated lazily on first use; configured upstreams (auth_env_vars satisfied,
+    /// launch info present) are mounted with their tools prefixed `<server>___<tool>`.
+    pub gateway: Arc<crate::gateway::Gateway>,
 }
 
 /// Cancel all per-session NATS and Watch tasks when the MCP instance drops
@@ -376,6 +398,7 @@ impl DkodMcp {
             watch_overflow: Arc::new(Mutex::new(HashMap::new())),
             watch_notify: Arc::new(Mutex::new(HashMap::new())),
             review_tasks: Arc::new(Mutex::new(Vec::new())),
+            gateway: Arc::new(crate::gateway::Gateway::new().connect_all().await),
         }
     }
 
@@ -390,7 +413,11 @@ impl DkodMcp {
     /// the Clerk JWT / API key and injects `CurrentUser` into request
     /// extensions. The gRPC calls from this instance use the minted JWT
     /// for server-to-server authentication via the `SessionTokenInterceptor`.
-    pub fn new_for_http(server_addr: String, auth_token: String) -> Self {
+    pub fn new_for_http(
+        server_addr: String,
+        auth_token: String,
+        gateway: Arc<crate::gateway::Gateway>,
+    ) -> Self {
         Self {
             tool_router: Self::tool_router(),
             connection: Arc::new(RwLock::new(SessionState::from_http(
@@ -410,6 +437,7 @@ impl DkodMcp {
             watch_overflow: Arc::new(Mutex::new(HashMap::new())),
             watch_notify: Arc::new(Mutex::new(HashMap::new())),
             review_tasks: Arc::new(Mutex::new(Vec::new())),
+            gateway,
         }
     }
 
@@ -441,6 +469,7 @@ impl DkodMcp {
         server_addr: String,
         auth_token: String,
         shared_sessions: Arc<RwLock<HashMap<String, SessionData>>>,
+        gateway: Arc<crate::gateway::Gateway>,
     ) -> Self {
         Self {
             tool_router: Self::tool_router(),
@@ -461,6 +490,7 @@ impl DkodMcp {
             watch_overflow: Arc::new(Mutex::new(HashMap::new())),
             watch_notify: Arc::new(Mutex::new(HashMap::new())),
             review_tasks: Arc::new(Mutex::new(Vec::new())),
+            gateway,
         }
     }
 
@@ -484,6 +514,7 @@ impl DkodMcp {
             watch_overflow: Arc::new(Mutex::new(HashMap::new())),
             watch_notify: Arc::new(Mutex::new(HashMap::new())),
             review_tasks: Arc::new(Mutex::new(Vec::new())),
+            gateway: Arc::new(crate::gateway::Gateway::new()),
         }
     }
 
@@ -1105,6 +1136,54 @@ impl DkodMcp {
         let text = serde_json::to_string_pretty(&payload)
             .unwrap_or_else(|e| format!("serialization error: {e}"));
         Ok(CallToolResult::success(vec![Content::text(text)]))
+    }
+
+    /// List the union of tools advertised by all mounted upstream MCP servers.
+    /// Each entry's `name` is prefixed with the upstream's server ID
+    /// (`<server>___<tool>`) so an agent can pass it directly to
+    /// `dk_call_upstream`.
+    #[tool(
+        description = "List all tools exposed by mounted upstream MCP servers (gateway aggregation). Each tool name is prefixed `<server>___<tool>` (e.g. `context7___resolve-library-id`). Pass `server` to filter by upstream. Only upstreams with all `auth_env_vars` satisfied at startup are mounted."
+    )]
+    async fn dk_list_upstream_tools(
+        &self,
+        Parameters(params): Parameters<ListUpstreamToolsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let mut tools = self.gateway.aggregated_tools().await;
+        if let Some(server) = params.server.as_deref() {
+            tools.retain(|t| t.get("server").and_then(|s| s.as_str()) == Some(server));
+        }
+        let mounted = self.gateway.mounted_servers().await;
+        let payload = serde_json::json!({
+            "mounted_servers": mounted,
+            "tool_count": tools.len(),
+            "tools": tools,
+        });
+        let text = serde_json::to_string_pretty(&payload)
+            .unwrap_or_else(|e| format!("serialization error: {e}"));
+        Ok(CallToolResult::success(vec![Content::text(text)]))
+    }
+
+    /// Proxy a `call_tool` request to a mounted upstream MCP server.
+    /// Results larger than 10 KB are written to the local payload cache and
+    /// the response is replaced with a `{ "_offloaded": true, "path": ... }`
+    /// pointer so the chat transcript stays small.
+    #[tool(
+        description = "Proxy a tool call to a mounted upstream MCP server (gateway). `tool` may be prefixed `<server>___<tool>` or unprefixed (in which case `server` is required). `arguments` is forwarded verbatim. Large results (>10 KB) are offloaded to disk and returned as a `{ _offloaded, path }` pointer."
+    )]
+    async fn dk_call_upstream(
+        &self,
+        Parameters(params): Parameters<CallUpstreamParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let CallUpstreamParams {
+            tool,
+            server,
+            arguments,
+        } = params;
+        self.gateway
+            .call_tool(&tool, server.as_deref(), arguments)
+            .await
+            .map_err(|e| McpError::internal_error(format!("upstream call failed: {e}"), None))
     }
 
     // ── Tool 1: dk_connect ──

@@ -54,6 +54,34 @@ pub struct McpEntry {
 
     /// One-line description shown in the /dkod/integrations UI.
     pub description: String,
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Launch info (used by the gateway to actually connect, not just list).
+    // All fields are optional so an entry can be advertised without being
+    // wireable yet — the gateway skips entries lacking the needed fields.
+    // ──────────────────────────────────────────────────────────────────────
+    /// stdio: program to spawn (e.g. `npx`, `uvx`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+
+    /// stdio: arguments to the spawned program.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<String>,
+
+    /// stdio + http: extra environment / header values, with `${VAR}`
+    /// placeholders resolved against the process environment at connect time.
+    /// Keys with unresolvable placeholders (referenced env var unset) are
+    /// dropped, not zero-filled.
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub env: std::collections::HashMap<String, String>,
+
+    /// http: streamable-HTTP MCP endpoint URL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+
+    /// http: extra headers (e.g. `Authorization: Bearer ${FOO}`).
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub headers: std::collections::HashMap<String, String>,
 }
 
 /// An external binary dkod delegates to (not an MCP server).

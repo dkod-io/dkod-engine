@@ -30,6 +30,9 @@ categories = ["cache", "pubsub", "claim-tracker"]
 auth_env_vars = ["REDIS_URL"]
 homepage = "https://github.com/redis/mcp-redis"
 description = "Redis/Valkey key-value ops, hashes, lists, sets, streams, pub/sub, JSON. Used by dkod for session claim tracking."
+command = "uvx"
+args = ["--from", "mcp-redis", "mcp-redis"]
+env = { REDIS_URL = "${REDIS_URL}" }
 
 [[mcp]]
 name = "pinecone"
@@ -86,6 +89,8 @@ categories = ["docs"]
 auth_env_vars = ["CONTEXT7_API_KEY"]
 homepage = "https://context7.com"
 description = "Up-to-date package docs for 1000+ npm/Rust frameworks (BAML, rmcp, tonic, etc.)."
+url = "https://mcp.context7.com/mcp"
+headers = { Authorization = "Bearer ${CONTEXT7_API_KEY}" }
 
 [[mcp]]
 name = "deepwiki"
@@ -94,6 +99,7 @@ categories = ["docs", "repo-qa"]
 auth_env_vars = []
 homepage = "https://deepwiki.com"
 description = "GitHub repo Q&A with AI-generated wiki summaries and semantic code search."
+url = "https://mcp.deepwiki.com/mcp"
 
 [[mcp]]
 name = "amplitude"
@@ -110,6 +116,8 @@ categories = ["issue-tracking", "project-mgmt"]
 auth_env_vars = ["LINEAR_API_KEY"]
 homepage = "https://linear.app/docs/mcp"
 description = "Linear issues, projects, cycles, comments. Native Devin integration."
+url = "https://mcp.linear.app/mcp"
+headers = { Authorization = "Bearer ${LINEAR_API_KEY}" }
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Peer binaries (installed alongside dkod, not embedded)
