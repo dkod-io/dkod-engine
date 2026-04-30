@@ -1,0 +1,11 @@
+ts,level,message
+2026-04-01T00:00:00Z,info,service started
+2026-04-01T00:00:05Z,warn,slow response
+2026-04-01T00:00:10Z,info,cache hit
+2026-04-01T00:00:15Z,error,database disconnected
+2026-04-01T00:00:20Z,error,database disconnected
+2026-04-01T00:00:25Z,info,reconnected
+2026-04-01T00:00:30Z,warn,slow response
+2026-04-01T00:00:35Z,error,query timeout
+2026-04-01T00:00:40Z,info,cache hit
+2026-04-01T00:00:45Z,info,request processed
