@@ -205,7 +205,14 @@ impl Engine {
 
         // Create changeset
         self.changeset_store()
-            .create(repo_id, Some(session_id), agent_id, intent, Some(&head), &agent_name)
+            .create(
+                repo_id,
+                Some(session_id),
+                agent_id,
+                intent,
+                Some(&head),
+                &agent_name,
+            )
             .await?;
 
         // Create workspace (agent_id is AgentId = String)
@@ -305,9 +312,7 @@ impl Engine {
                 let end = sym.span.end_byte as usize;
                 file_content.and_then(|c| {
                     if start < c.len() && end <= c.len() {
-                        Some(
-                            String::from_utf8_lossy(&c[start..end]).to_string(),
-                        )
+                        Some(String::from_utf8_lossy(&c[start..end]).to_string())
                     } else {
                         None
                     }
@@ -461,10 +466,7 @@ impl Engine {
     }
 
     /// SESSION_STATUS — get the current workspace state.
-    pub async fn tool_session_status(
-        &self,
-        session_id: Uuid,
-    ) -> dk_core::Result<ToolStatusResult> {
+    pub async fn tool_session_status(&self, session_id: Uuid) -> dk_core::Result<ToolStatusResult> {
         let (files_modified, overlay_size_bytes, repo_id, base_commit, changeset_id) = {
             let ws = self
                 .workspace_manager()
@@ -540,8 +542,7 @@ impl Engine {
             .into_iter()
             .map(|path| {
                 let modified_in_session = modified_paths.contains(&path);
-                let modified_by_other =
-                    wm.describe_other_modifiers(&path, repo_id, session_id);
+                let modified_by_other = wm.describe_other_modifiers(&path, repo_id, session_id);
                 ToolFileListEntry {
                     path,
                     modified_in_session,
@@ -559,10 +560,7 @@ impl Engine {
     /// checking the changeset, and updating its status to "verifying".
     /// The actual runner invocation must be done by the caller (since
     /// dk-runner depends on dk-engine, not the other way around).
-    pub async fn tool_verify_prepare(
-        &self,
-        session_id: Uuid,
-    ) -> dk_core::Result<(Uuid, String)> {
+    pub async fn tool_verify_prepare(&self, session_id: Uuid) -> dk_core::Result<(Uuid, String)> {
         let (changeset_id, repo_id) = {
             let ws = self
                 .workspace_manager()
@@ -580,14 +578,11 @@ impl Engine {
             .await?;
 
         // Look up repo name by ID for the runner
-        let (repo_name,): (String,) =
-            sqlx::query_as("SELECT name FROM repositories WHERE id = $1")
-                .bind(repo_id)
-                .fetch_one(&self.db)
-                .await
-                .map_err(|e| {
-                    dk_core::Error::Internal(format!("failed to look up repo name: {e}"))
-                })?;
+        let (repo_name,): (String,) = sqlx::query_as("SELECT name FROM repositories WHERE id = $1")
+            .bind(repo_id)
+            .fetch_one(&self.db)
+            .await
+            .map_err(|e| dk_core::Error::Internal(format!("failed to look up repo name: {e}")))?;
 
         Ok((changeset_id, repo_name))
     }
@@ -834,10 +829,7 @@ mod tests {
 
         // skip_serializing_if: empty string is omitted from JSON
         let json = serde_json::to_value(&entry).unwrap();
-        assert_eq!(
-            json["modified_by_other"],
-            "create_task modified by agent-2"
-        );
+        assert_eq!(json["modified_by_other"], "create_task modified by agent-2");
 
         let empty_entry = ToolFileListEntry {
             path: "src/lib.rs".into(),
@@ -969,7 +961,11 @@ mod tests {
     #[test]
     fn verify_finalize_status_derivation() {
         let status_for = |passed: bool| -> &str {
-            if passed { "approved" } else { "rejected" }
+            if passed {
+                "approved"
+            } else {
+                "rejected"
+            }
         };
         assert_eq!(status_for(true), "approved");
         assert_eq!(status_for(false), "rejected");

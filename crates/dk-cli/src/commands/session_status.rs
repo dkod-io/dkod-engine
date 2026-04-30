@@ -45,7 +45,11 @@ pub async fn run(out: Output) -> Result<()> {
         println!("  Session ID:  {}", state.session_id.dimmed());
         println!("  Changeset:   {}", state.changeset_id.dimmed());
         println!("  Base commit: {}", resp.base_commit);
-        println!("  Modified:    {} file(s), {} symbol(s)", resp.files_modified.len(), resp.symbols_modified.len());
+        println!(
+            "  Modified:    {} file(s), {} symbol(s)",
+            resp.files_modified.len(),
+            resp.symbols_modified.len()
+        );
         if !resp.files_modified.is_empty() {
             println!("  Files:");
             for f in &resp.files_modified {
@@ -53,7 +57,10 @@ pub async fn run(out: Output) -> Result<()> {
             }
         }
         if resp.active_other_sessions > 0 {
-            println!("  Other sessions: {}", resp.active_other_sessions.to_string().yellow());
+            println!(
+                "  Other sessions: {}",
+                resp.active_other_sessions.to_string().yellow()
+            );
         }
     }
 

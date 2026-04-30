@@ -4,7 +4,9 @@ use uuid::Uuid;
 use dk_engine::workspace::merge::{merge_workspace, WorkspaceMergeResult};
 
 use crate::server::ProtocolServer;
-use crate::{merge_response, ConflictDetail, MergeConflict, MergeRequest, MergeResponse, MergeSuccess};
+use crate::{
+    merge_response, ConflictDetail, MergeConflict, MergeRequest, MergeResponse, MergeSuccess,
+};
 
 /// Conflict type for true write-write semantic conflicts.
 const CONFLICT_TYPE_TRUE: &str = "true_conflict";
@@ -30,11 +32,16 @@ pub async fn handle_merge(
         Err(_) => String::new(),
     };
 
-    let changeset_id = req.changeset_id.parse::<Uuid>()
+    let changeset_id = req
+        .changeset_id
+        .parse::<Uuid>()
         .map_err(|_| Status::invalid_argument("invalid changeset_id"))?;
 
     // Get changeset and verify it's approved
-    let changeset = engine.changeset_store().get(changeset_id).await
+    let changeset = engine
+        .changeset_store()
+        .get(changeset_id)
+        .await
         .map_err(|e| Status::not_found(e.to_string()))?;
 
     if changeset.state != "approved" {
@@ -52,7 +59,9 @@ pub async fn handle_merge(
 
     // Get git repo — also use this repo_id for lock release (the first get_repo
     // call is non-fatal and may return empty string, but this one propagates errors)
-    let (repo_id, git_repo) = engine.get_repo(&session.codebase).await
+    let (repo_id, git_repo) = engine
+        .get_repo(&session.codebase)
+        .await
         .map_err(|e| Status::internal(e.to_string()))?;
 
     let agent = changeset.agent_id.as_deref().unwrap_or("agent");
@@ -61,7 +70,9 @@ pub async fn handle_merge(
         dk_core::resolve_author(&req.author_name, &req.author_email, agent);
 
     // Capture affected files from workspace overlay before merge/drop
-    let affected_files: Vec<crate::FileChange> = ws.overlay.list_changes()
+    let affected_files: Vec<crate::FileChange> = ws
+        .overlay
+        .list_changes()
         .iter()
         .map(|(path, entry)| {
             let operation = match entry {
@@ -96,11 +107,30 @@ pub async fn handle_merge(
             // so locks must be freed regardless of changeset-store state.
             // Idempotent: if locks were already released at submit under
             // DKOD_RELEASE_ON_SUBMIT, this is a no-op.
-            release_locks_and_emit(server, repo_id, sid, &req.session_id, &changeset_id.to_string()).await;
+            release_locks_and_emit(
+                server,
+                repo_id,
+                sid,
+                &req.session_id,
+                &changeset_id.to_string(),
+            )
+            .await;
 
             // Update changeset status to merged
-            engine.changeset_store().set_merged(changeset_id, &commit_hash).await
+            engine
+                .changeset_store()
+                .set_merged(changeset_id, &commit_hash)
+                .await
                 .map_err(|e| Status::internal(e.to_string()))?;
+
+            emit_lifecycle_event(
+                changeset_id,
+                repo_id,
+                sid,
+                changeset.agent_id.as_deref().unwrap_or_default(),
+                "merged",
+                Some("approved"),
+            );
 
             // Publish merge event
             server.event_bus().publish(crate::WatchEvent {
@@ -132,11 +162,30 @@ pub async fn handle_merge(
         } => {
             // Release locks first — git commit is already in the tree.
             // Idempotent w.r.t. a prior release at submit (see FastMerge arm).
-            release_locks_and_emit(server, repo_id, sid, &req.session_id, &changeset_id.to_string()).await;
+            release_locks_and_emit(
+                server,
+                repo_id,
+                sid,
+                &req.session_id,
+                &changeset_id.to_string(),
+            )
+            .await;
 
             // Update changeset status to merged
-            engine.changeset_store().set_merged(changeset_id, &commit_hash).await
+            engine
+                .changeset_store()
+                .set_merged(changeset_id, &commit_hash)
+                .await
                 .map_err(|e| Status::internal(e.to_string()))?;
+
+            emit_lifecycle_event(
+                changeset_id,
+                repo_id,
+                sid,
+                changeset.agent_id.as_deref().unwrap_or_default(),
+                "merged",
+                Some("approved"),
+            );
 
             // Publish merge event
             server.event_bus().publish(crate::WatchEvent {
@@ -192,12 +241,17 @@ pub async fn handle_merge(
                 .collect();
 
             let suggested_action = "adapt".to_string();
-            let available_actions = vec!["adapt".to_string(), "keep_mine".to_string(), "keep_theirs".to_string()];
+            let available_actions = vec![
+                "adapt".to_string(),
+                "keep_mine".to_string(),
+                "keep_theirs".to_string(),
+            ];
 
             debug_assert!(
                 available_actions.iter().any(|a| a == &suggested_action),
                 "suggested_action '{}' is not in available_actions {:?}",
-                suggested_action, available_actions
+                suggested_action,
+                available_actions
             );
 
             Ok(MergeResponse {
@@ -228,7 +282,10 @@ pub(crate) async fn release_locks_and_emit(
     session_id_str: &str,
     changeset_id: &str,
 ) -> usize {
-    let released = server.claim_tracker().release_locks(repo_id, session_id).await;
+    let released = server
+        .claim_tracker()
+        .release_locks(repo_id, session_id)
+        .await;
 
     if released.is_empty() {
         return 0;
@@ -237,7 +294,8 @@ pub(crate) async fn release_locks_and_emit(
     let count = released.len();
 
     // Group released locks by file_path for efficient event emission
-    let mut by_file: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    let mut by_file: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
     for lock in &released {
         by_file
             .entry(lock.file_path.clone())
@@ -249,7 +307,10 @@ pub(crate) async fn release_locks_and_emit(
         server.event_bus().publish(crate::WatchEvent {
             event_type: EVENT_LOCK_RELEASED.to_string(),
             changeset_id: changeset_id.to_string(),
-            agent_id: released.first().map(|r| r.agent_name.clone()).unwrap_or_default(),
+            agent_id: released
+                .first()
+                .map(|r| r.agent_name.clone())
+                .unwrap_or_default(),
             affected_symbols: symbols,
             details: format!("Symbol locks released on {}", file_path),
             session_id: session_id_str.to_string(),
@@ -274,6 +335,34 @@ pub const EVENT_MERGED: &str = "changeset.merged";
 /// Event published when symbol locks are released (after merge, close, or timeout).
 /// Blocked agents watch for this to retry their `dk_file_write`.
 pub const EVENT_LOCK_RELEASED: &str = "symbol.lock.released";
+
+/// Emit a `changeset_lifecycle` row to the process-global analytics sink.
+///
+/// Kept separate from [`crate::WatchEvent`] so the two observability
+/// surfaces (real-time `dk_watch` stream vs. batched OLAP inserts) can
+/// evolve independently. This function is a no-op when no sink handle is
+/// installed — analytics is always optional.
+fn emit_lifecycle_event(
+    changeset_id: Uuid,
+    repo_id: Uuid,
+    session_id: Uuid,
+    agent_id: &str,
+    state: &str,
+    previous_state: Option<&str>,
+) {
+    dk_analytics::global::emit(dk_analytics::AnalyticsEvent::Changeset(
+        dk_analytics::ChangesetLifecycle {
+            changeset_id,
+            repo_id,
+            session_id,
+            agent_id: agent_id.to_string(),
+            state: state.to_string(),
+            previous_state: previous_state.map(str::to_string),
+            transition_at: chrono::Utc::now(),
+            duration_ms: None,
+        },
+    ));
+}
 
 #[cfg(test)]
 mod tests {

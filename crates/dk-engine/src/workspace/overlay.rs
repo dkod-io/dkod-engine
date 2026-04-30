@@ -427,13 +427,12 @@ mod tests {
         }
 
         // Verify rows exist
-        let (count_before,): (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM session_overlay_files WHERE workspace_id = $1",
-        )
-        .bind(workspace_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let (count_before,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM session_overlay_files WHERE workspace_id = $1")
+                .bind(workspace_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(count_before, 2);
 
         // Execute drop_for_workspace
@@ -442,13 +441,12 @@ mod tests {
             .unwrap();
 
         // Verify all rows deleted
-        let (count_after,): (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM session_overlay_files WHERE workspace_id = $1",
-        )
-        .bind(workspace_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let (count_after,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM session_overlay_files WHERE workspace_id = $1")
+                .bind(workspace_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(count_after, 0);
     }
 }

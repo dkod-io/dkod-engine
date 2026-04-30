@@ -12,8 +12,7 @@ pub fn run(url: String) -> Result<()> {
     std::io::stdin().read_line(&mut email)?;
     let email = email.trim().to_string();
 
-    let password = rpassword::prompt_password("Password: ")
-        .context("failed to read password")?;
+    let password = rpassword::prompt_password("Password: ").context("failed to read password")?;
 
     let response: serde_json::Value = Client::login(&url, &email, &password)?;
     let token = response["token"]

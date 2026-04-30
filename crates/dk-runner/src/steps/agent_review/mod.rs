@@ -1,13 +1,14 @@
-pub mod provider;
 pub mod claude;
+pub mod claude_tooluse;
 pub mod openrouter;
-pub mod prompt;
 pub mod parse;
+pub mod prompt;
+pub mod provider;
 
-use std::time::Instant;
 use crate::executor::{StepOutput, StepStatus};
 use crate::findings::{Finding, Suggestion};
-use provider::{ReviewProvider, ReviewRequest, FileContext, ReviewVerdict};
+use provider::{FileContext, ReviewProvider, ReviewRequest, ReviewVerdict};
+use std::time::Instant;
 
 pub async fn run_agent_review_step_with_provider(
     provider: &dyn ReviewProvider,
@@ -33,11 +34,7 @@ pub async fn run_agent_review_step_with_provider(
             (
                 StepOutput {
                     status,
-                    stdout: format!(
-                        "Agent Review ({}): {}",
-                        provider.name(),
-                        response.summary
-                    ),
+                    stdout: format!("Agent Review ({}): {}", provider.name(), response.summary),
                     stderr: String::new(),
                     duration: start.elapsed(),
                 },
@@ -57,10 +54,7 @@ pub async fn run_agent_review_step_with_provider(
             (
                 StepOutput {
                     status: StepStatus::Pass,
-                    stdout: format!(
-                        "Agent Review ({}): error -- {e}",
-                        provider.name()
-                    ),
+                    stdout: format!("Agent Review ({}): error -- {e}", provider.name()),
                     stderr: String::new(),
                     duration: start.elapsed(),
                 },
@@ -125,7 +119,12 @@ mod provider_factory_tests {
     use super::select_provider_from_env;
 
     fn clear() {
-        for k in ["DKOD_ANTHROPIC_API_KEY", "DKOD_OPENROUTER_API_KEY", "DKOD_REVIEW_MODEL", "DKOD_OPENROUTER_BASE_URL"] {
+        for k in [
+            "DKOD_ANTHROPIC_API_KEY",
+            "DKOD_OPENROUTER_API_KEY",
+            "DKOD_REVIEW_MODEL",
+            "DKOD_OPENROUTER_BASE_URL",
+        ] {
             std::env::remove_var(k);
         }
     }

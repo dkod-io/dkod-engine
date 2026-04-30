@@ -134,6 +134,12 @@ enum Commands {
         action: commands::agent::AgentAction,
     },
 
+    /// ClickHouse-backed analytics (migrate / query / summary)
+    Analytics {
+        #[command(subcommand)]
+        action: commands::analytics::AnalyticsAction,
+    },
+
     /// Manage repositories (create, list, delete)
     Repo {
         #[command(subcommand)]
@@ -172,15 +178,10 @@ enum Commands {
 #[derive(Subcommand)]
 enum GitAction {
     /// Clone a repository
-    Clone {
-        url: String,
-        path: Option<PathBuf>,
-    },
+    Clone { url: String, path: Option<PathBuf> },
     /// Initialize a new local repository
     #[command(name = "init")]
-    GitInit {
-        path: Option<PathBuf>,
-    },
+    GitInit { path: Option<PathBuf> },
     /// Stage files
     #[command(name = "add")]
     GitAdd {
@@ -311,39 +312,36 @@ fn main() -> Result<()> {
 
     match cli.command {
         // ── Agent Protocol commands (async) ──────────────────
-        Commands::Init { repo, intent } => {
-            run_async(commands::session_init::run(out, &server, repo.as_deref(), &intent))
-        }
-        Commands::Search { query, depth, max_tokens } => {
-            run_async(commands::session_search::run(out, &query, &depth, max_tokens))
-        }
-        Commands::Cat { path } => {
-            run_async(commands::cat::run(out, &path))
-        }
-        Commands::Add { path, content, from } => {
-            run_async(commands::session_add::run(out, &path, content, from))
-        }
+        Commands::Init { repo, intent } => run_async(commands::session_init::run(
+            out,
+            &server,
+            repo.as_deref(),
+            &intent,
+        )),
+        Commands::Search {
+            query,
+            depth,
+            max_tokens,
+        } => run_async(commands::session_search::run(
+            out, &query, &depth, max_tokens,
+        )),
+        Commands::Cat { path } => run_async(commands::cat::run(out, &path)),
+        Commands::Add {
+            path,
+            content,
+            from,
+        } => run_async(commands::session_add::run(out, &path, content, from)),
         Commands::Ls { prefix, modified } => {
             run_async(commands::ls::run(out, prefix.as_deref(), modified))
         }
-        Commands::Commit { message } => {
-            run_async(commands::session_commit::run(out, &message))
-        }
-        Commands::Check => {
-            run_async(commands::check::run(out))
-        }
+        Commands::Commit { message } => run_async(commands::session_commit::run(out, &message)),
+        Commands::Check => run_async(commands::check::run(out)),
         Commands::Push { message, force } => {
             run_async(commands::session_push::run(out, message.as_deref(), force))
         }
-        Commands::Status => {
-            run_async(commands::session_status::run(out))
-        }
-        Commands::Diff => {
-            run_async(commands::session_diff::run(out))
-        }
-        Commands::Login => {
-            run_async(commands::device_login::run(out, &server))
-        }
+        Commands::Status => run_async(commands::session_status::run(out)),
+        Commands::Diff => run_async(commands::session_diff::run(out)),
+        Commands::Login => run_async(commands::device_login::run(out, &server)),
         Commands::Admin(args) => {
             // Pass the global --server value so `dk --server <addr> admin abandon`
             // routes to the right server even when the subcommand flag is omitted.
@@ -365,16 +363,24 @@ fn main() -> Result<()> {
             GitAction::Merge { branch } => commands::git_merge::run(branch),
             GitAction::Rebase { branch, onto } => commands::rebase::run(branch, onto),
             GitAction::Remote { action, verbose } => commands::remote::run(action, verbose),
-            GitAction::Tag { name, message, delete, list } => commands::tag::run(name, message, delete, list),
+            GitAction::Tag {
+                name,
+                message,
+                delete,
+                list,
+            } => commands::tag::run(name, message, delete, list),
             GitAction::GitStatus => commands::status::run(),
             GitAction::LegacyLogin { url } => commands::login::run(url),
             GitAction::Logout => commands::logout::run(),
             GitAction::Whoami => commands::whoami::run(),
-            GitAction::LegacySearch { query, repo, limit } => commands::search::run(query, repo, limit),
+            GitAction::LegacySearch { query, repo, limit } => {
+                commands::search::run(query, repo, limit)
+            }
         },
 
         // ── Other ────────────────────────────────────────────
         Commands::Agent { action } => commands::agent::run(action),
+        Commands::Analytics { action } => run_async(commands::analytics::run(action)),
         Commands::Repo { action } => match action {
             RepoAction::Create { name } => commands::repo::create(name),
             RepoAction::List => commands::repo::list(),
@@ -384,7 +390,11 @@ fn main() -> Result<()> {
             FilesAction::Upload { repo, paths } => commands::files::upload(repo, paths),
         },
         Commands::Index { repo } => commands::index::run(repo),
-        Commands::Context { query, repo, max_tokens } => commands::context::run(query, repo, max_tokens),
+        Commands::Context {
+            query,
+            repo,
+            max_tokens,
+        } => commands::context::run(query, repo, max_tokens),
     }
 }
 

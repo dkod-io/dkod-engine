@@ -158,9 +158,10 @@ impl ClaimTracker for LocalClaimTracker {
         let mut entry = self.claims.entry(key).or_default();
         let claims = entry.value_mut();
 
-        if let Some(existing) = claims.iter_mut().find(|c| {
-            c.session_id == claim.session_id && c.qualified_name == claim.qualified_name
-        }) {
+        if let Some(existing) = claims
+            .iter_mut()
+            .find(|c| c.session_id == claim.session_id && c.qualified_name == claim.qualified_name)
+        {
             existing.kind = claim.kind;
             existing.agent_name = claim.agent_name;
         } else {
@@ -178,9 +179,10 @@ impl ClaimTracker for LocalClaimTracker {
         let mut entry = self.claims.entry(key).or_default();
         let claims = entry.value_mut();
 
-        if let Some(existing) = claims.iter().find(|c| {
-            c.qualified_name == claim.qualified_name && c.session_id != claim.session_id
-        }) {
+        if let Some(existing) = claims
+            .iter()
+            .find(|c| c.qualified_name == claim.qualified_name && c.session_id != claim.session_id)
+        {
             return Err(SymbolLocked {
                 qualified_name: claim.qualified_name,
                 kind: existing.kind.clone(),
@@ -191,9 +193,10 @@ impl ClaimTracker for LocalClaimTracker {
             });
         }
 
-        if let Some(existing) = claims.iter_mut().find(|c| {
-            c.session_id == claim.session_id && c.qualified_name == claim.qualified_name
-        }) {
+        if let Some(existing) = claims
+            .iter_mut()
+            .find(|c| c.session_id == claim.session_id && c.qualified_name == claim.qualified_name)
+        {
             existing.kind = claim.kind;
             existing.agent_name = claim.agent_name;
             return Ok(AcquireOutcome::ReAcquired);
@@ -212,9 +215,9 @@ impl ClaimTracker for LocalClaimTracker {
     ) {
         let key = (repo_id, file_path.to_string());
         if let Some(mut entry) = self.claims.get_mut(&key) {
-            entry.value_mut().retain(|c| {
-                !(c.session_id == session_id && c.qualified_name == qualified_name)
-            });
+            entry
+                .value_mut()
+                .retain(|c| !(c.session_id == session_id && c.qualified_name == qualified_name));
         }
         self.claims.remove_if(&key, |_, v| v.is_empty());
     }
@@ -385,7 +388,10 @@ mod tests {
         let conflicts = tracker
             .check_conflicts(repo, "src/lib.rs", session_b, &["fn_b".to_string()])
             .await;
-        assert!(conflicts.is_empty(), "different symbols should not conflict");
+        assert!(
+            conflicts.is_empty(),
+            "different symbols should not conflict"
+        );
     }
 
     #[tokio::test]
@@ -500,7 +506,10 @@ mod tests {
             .await;
         assert_eq!(conflicts.len(), 2);
 
-        let names: Vec<&str> = conflicts.iter().map(|c| c.qualified_name.as_str()).collect();
+        let names: Vec<&str> = conflicts
+            .iter()
+            .map(|c| c.qualified_name.as_str())
+            .collect();
         assert!(names.contains(&"fn_a"));
         assert!(names.contains(&"fn_b"));
     }

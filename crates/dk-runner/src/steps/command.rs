@@ -29,9 +29,15 @@ mod tests {
     async fn test_run_allowed_command() {
         let exec = ProcessExecutor::new();
         let dir = std::env::temp_dir();
-        let out = run_command_step(&exec, "echo hello", &dir, Duration::from_secs(5), &HashMap::new())
-            .await
-            .unwrap();
+        let out = run_command_step(
+            &exec,
+            "echo hello",
+            &dir,
+            Duration::from_secs(5),
+            &HashMap::new(),
+        )
+        .await
+        .unwrap();
         assert_eq!(out.status, StepStatus::Pass);
     }
 
@@ -39,7 +45,14 @@ mod tests {
     async fn test_run_disallowed_command_errors() {
         let exec = ProcessExecutor::new();
         let dir = std::env::temp_dir();
-        let result = run_command_step(&exec, "rm -rf /", &dir, Duration::from_secs(5), &HashMap::new()).await;
+        let result = run_command_step(
+            &exec,
+            "rm -rf /",
+            &dir,
+            Duration::from_secs(5),
+            &HashMap::new(),
+        )
+        .await;
         assert!(result.is_err());
     }
 }

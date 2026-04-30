@@ -134,9 +134,7 @@ class Config {
     val timeout: Int = 30
 }
 "#;
-    let analysis = registry
-        .parse_file(Path::new("Config.kt"), source)
-        .unwrap();
+    let analysis = registry.parse_file(Path::new("Config.kt"), source).unwrap();
 
     let names: Vec<&str> = analysis.symbols.iter().map(|s| s.name.as_str()).collect();
     assert!(
@@ -168,9 +166,7 @@ fun main() {
     result.save()
 }
 "#;
-    let analysis = registry
-        .parse_file(Path::new("Main.kt"), source)
-        .unwrap();
+    let analysis = registry.parse_file(Path::new("Main.kt"), source).unwrap();
 
     let call_names: Vec<&str> = analysis
         .calls

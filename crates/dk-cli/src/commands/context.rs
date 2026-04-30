@@ -5,7 +5,12 @@ use crate::client::Client;
 pub fn run(query: String, repo: String, max_tokens: Option<usize>) -> Result<()> {
     let client = Client::from_config()?;
     let tokens = max_tokens.unwrap_or(4000);
-    let path = format!("/repos/{}/context?q={}&max_tokens={}", repo, urlencoding::encode(&query), tokens);
+    let path = format!(
+        "/repos/{}/context?q={}&max_tokens={}",
+        repo,
+        urlencoding::encode(&query),
+        tokens
+    );
     let resp: serde_json::Value = client.get(&path)?;
 
     let symbols = resp["symbols"].as_array();

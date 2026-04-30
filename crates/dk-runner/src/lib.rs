@@ -1,13 +1,13 @@
 #![allow(clippy::new_without_default)]
 
-pub mod workflow;
-pub mod executor;
-pub mod steps;
-pub mod findings;
-pub mod scheduler;
-pub mod runner;
 pub mod changeset;
+pub mod executor;
+pub mod findings;
+pub mod runner;
+pub mod scheduler;
+pub mod steps;
+pub mod workflow;
 
-pub use runner::{Runner, detect_workflow};
 pub use executor::{Executor, StepOutput, StepStatus};
-pub use workflow::types::{Workflow, Stage, Step, StepType};
+pub use runner::{detect_workflow, Runner};
+pub use workflow::types::{Stage, Step, StepType, Workflow};

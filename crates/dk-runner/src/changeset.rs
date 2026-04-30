@@ -6,7 +6,9 @@ use std::collections::HashSet;
 fn is_safe_name(name: &str) -> bool {
     !name.is_empty()
         && !name.starts_with('-')
-        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
 }
 
 /// Given a list of changed file paths and a base command, rewrite the command

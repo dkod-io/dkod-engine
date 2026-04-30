@@ -10,8 +10,7 @@ pub use claim_tracker::{
     SymbolLocked,
 };
 pub use payload::{
-    build_conflict_block, build_conflict_detail, ConflictBlock, SymbolConflictDetail,
-    SymbolVersion,
+    build_conflict_block, build_conflict_detail, ConflictBlock, SymbolConflictDetail, SymbolVersion,
 };
 #[cfg(feature = "valkey")]
 pub use valkey_claim_tracker::ValkeyClaimTracker;

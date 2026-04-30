@@ -1,9 +1,9 @@
-use std::time::Duration;
-use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
 use super::parse::parse_review_response;
 use super::prompt::build_review_prompt;
 use super::provider::{ReviewProvider, ReviewRequest, ReviewResponse};
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 pub struct OpenRouterReviewProvider {
     client: reqwest::Client,
@@ -118,7 +118,11 @@ mod tests {
     use crate::steps::agent_review::provider::ReviewProvider;
 
     fn clear() {
-        for k in ["DKOD_OPENROUTER_API_KEY", "DKOD_REVIEW_MODEL", "DKOD_OPENROUTER_BASE_URL"] {
+        for k in [
+            "DKOD_OPENROUTER_API_KEY",
+            "DKOD_REVIEW_MODEL",
+            "DKOD_OPENROUTER_BASE_URL",
+        ] {
             std::env::remove_var(k);
         }
     }

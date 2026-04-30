@@ -161,8 +161,7 @@ impl SearchIndex {
         let searcher = self.reader.searcher();
 
         // Build a repo_id filter as a TermQuery.
-        let repo_term =
-            tantivy::Term::from_field_text(self.f_repo_id, &repo_id.to_string());
+        let repo_term = tantivy::Term::from_field_text(self.f_repo_id, &repo_id.to_string());
         let repo_query = TermQuery::new(repo_term, IndexRecordOption::Basic);
 
         // Build a full-text query across the text fields using QueryParser.
@@ -196,9 +195,8 @@ impl SearchIndex {
 
             if let Some(id_value) = doc.get_first(self.f_symbol_id) {
                 if let Some(id_str) = id_value.as_str() {
-                    let uuid = Uuid::parse_str(id_str).map_err(|e| {
-                        Error::Internal(format!("Invalid UUID in index: {e}"))
-                    })?;
+                    let uuid = Uuid::parse_str(id_str)
+                        .map_err(|e| Error::Internal(format!("Invalid UUID in index: {e}")))?;
                     results.push(uuid);
                 }
             }

@@ -10,7 +10,11 @@ fn dk() -> Command {
 
 fn init_repo() -> TempDir {
     let dir = TempDir::new().unwrap();
-    dk().arg("git").arg("init").arg(dir.path()).assert().success();
+    dk().arg("git")
+        .arg("init")
+        .arg(dir.path())
+        .assert()
+        .success();
     configure_git_user(dir.path());
     dir
 }

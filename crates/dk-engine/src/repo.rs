@@ -3,20 +3,16 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use dk_core::{
-    CallEdge, Error, RawCallEdge, RepoId, Result, Symbol, SymbolId,
-};
+use dk_core::{CallEdge, Error, RawCallEdge, RepoId, Result, Symbol, SymbolId};
 use sqlx::postgres::PgPool;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::changeset::ChangesetStore;
 use crate::git::GitRepository;
-use crate::pipeline::PipelineStore;
-use crate::graph::{
-    CallGraphStore, DependencyStore, SearchIndex, SymbolStore, TypeInfoStore,
-};
+use crate::graph::{CallGraphStore, DependencyStore, SearchIndex, SymbolStore, TypeInfoStore};
 use crate::parser::ParserRegistry;
+use crate::pipeline::PipelineStore;
 use crate::workspace::cache::{NoOpCache, WorkspaceCache};
 use crate::workspace::session_manager::WorkspaceManager;
 
@@ -236,12 +232,11 @@ impl Engine {
     /// between full names (`"owner/repo"`) and short names (`"repo"`).
     pub async fn get_repo(&self, name: &str) -> Result<(RepoId, GitRepository)> {
         // Exact match.
-        let row: Option<(Uuid, String)> = sqlx::query_as(
-            "SELECT id, path FROM repositories WHERE name = $1",
-        )
-        .bind(name)
-        .fetch_optional(&self.db)
-        .await?;
+        let row: Option<(Uuid, String)> =
+            sqlx::query_as("SELECT id, path FROM repositories WHERE name = $1")
+                .bind(name)
+                .fetch_optional(&self.db)
+                .await?;
 
         // Fallback: input "owner/repo" but DB stores "repo", or vice versa.
         // Guard: the second OR branch only fires when $1 contains '/' to
@@ -276,13 +271,11 @@ impl Engine {
     ///
     /// Returns the `RepoId` and an opened `GitRepository` handle.
     pub async fn get_repo_by_db_id(&self, repo_id: RepoId) -> Result<(RepoId, GitRepository)> {
-        let row: (String,) = sqlx::query_as(
-            "SELECT path FROM repositories WHERE id = $1",
-        )
-        .bind(repo_id)
-        .fetch_optional(&self.db)
-        .await?
-        .ok_or_else(|| Error::RepoNotFound(repo_id.to_string()))?;
+        let row: (String,) = sqlx::query_as("SELECT path FROM repositories WHERE id = $1")
+            .bind(repo_id)
+            .fetch_optional(&self.db)
+            .await?
+            .ok_or_else(|| Error::RepoNotFound(repo_id.to_string()))?;
 
         let git_repo = GitRepository::open(Path::new(&row.0))?;
         Ok((repo_id, git_repo))
@@ -295,11 +288,7 @@ impl Engine {
     /// Walks the working directory (skipping `.git`), parses every file with a
     /// supported extension, and populates the symbol table, type info store,
     /// call graph, and full-text search index.
-    pub async fn index_repo(
-        &self,
-        repo_id: RepoId,
-        git_repo: &GitRepository,
-    ) -> Result<()> {
+    pub async fn index_repo(&self, repo_id: RepoId, git_repo: &GitRepository) -> Result<()> {
         let root = git_repo.path().to_path_buf();
         let files = collect_files(&root, &self.parser);
 
@@ -312,13 +301,9 @@ impl Engine {
         let mut search_index = self.search_index.write().await;
 
         for file_path in &files {
-            let relative = file_path
-                .strip_prefix(&root)
-                .unwrap_or(file_path);
+            let relative = file_path.strip_prefix(&root).unwrap_or(file_path);
 
-            let source = std::fs::read(file_path).map_err(|e| {
-                Error::Io(e)
-            })?;
+            let source = std::fs::read(file_path).map_err(Error::Io)?;
 
             let analysis = self.parser.parse_file(relative, &source)?;
 
@@ -384,17 +369,12 @@ impl Engine {
         let mut search_index = self.search_index.write().await;
 
         for file_path in changed_files {
-            let relative = file_path
-                .strip_prefix(&root)
-                .unwrap_or(file_path);
+            let relative = file_path.strip_prefix(&root).unwrap_or(file_path);
             let rel_str = relative.to_string_lossy().to_string();
 
             // Fetch existing symbols for this file so we can remove their
             // search index entries.
-            let old_symbols = self
-                .symbol_store
-                .find_by_file(repo_id, &rel_str)
-                .await?;
+            let old_symbols = self.symbol_store.find_by_file(repo_id, &rel_str).await?;
             for old_sym in &old_symbols {
                 search_index.remove_symbol(old_sym.id)?;
             }
@@ -403,9 +383,7 @@ impl Engine {
             self.call_graph_store
                 .delete_edges_for_file(repo_id, &rel_str)
                 .await?;
-            self.symbol_store
-                .delete_by_file(repo_id, &rel_str)
-                .await?;
+            self.symbol_store.delete_by_file(repo_id, &rel_str).await?;
 
             // Re-parse.
             let full_path = root.join(relative);

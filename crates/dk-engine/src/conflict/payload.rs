@@ -64,8 +64,7 @@ fn find_symbol_in_content(
             let end = sym.span.end_byte as usize;
             let bytes = content.as_bytes();
             if end <= bytes.len() {
-                let text = String::from_utf8_lossy(&bytes[start..end])
-                    .replace('\0', "");
+                let text = String::from_utf8_lossy(&bytes[start..end]).replace('\0', "");
                 return Ok(Some((sym.clone(), text)));
             }
         }
@@ -76,12 +75,7 @@ fn find_symbol_in_content(
 
 /// Extract the first line of a symbol's source as its signature.
 fn extract_signature(source: &str) -> String {
-    source
-        .lines()
-        .next()
-        .unwrap_or("")
-        .trim()
-        .to_string()
+    source.lines().next().unwrap_or("").trim().to_string()
 }
 
 /// Count lines in source text.
@@ -116,15 +110,9 @@ fn describe_change(
             let base_lines = line_count(base_body);
             let changed_lines = line_count(changed_body);
             if changed_lines > base_lines {
-                parts.push(format!(
-                    "Added {} lines",
-                    changed_lines - base_lines
-                ));
+                parts.push(format!("Added {} lines", changed_lines - base_lines));
             } else if changed_lines < base_lines {
-                parts.push(format!(
-                    "Removed {} lines",
-                    base_lines - changed_lines
-                ));
+                parts.push(format!("Removed {} lines", base_lines - changed_lines));
             } else if base_body != changed_body {
                 parts.push("Body modified (same line count)".to_string());
             }
@@ -285,10 +273,7 @@ pub fn build_conflict_block(
 
     let count = details.len();
     let message = if count == 1 {
-        format!(
-            "1 symbol conflict detected in {}",
-            details[0].file_path
-        )
+        format!("1 symbol conflict detected in {}", details[0].file_path)
     } else {
         let files: std::collections::BTreeSet<&str> =
             details.iter().map(|d| d.file_path.as_str()).collect();

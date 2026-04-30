@@ -32,8 +32,7 @@ pub type AuthClient = AgentServiceClient<InterceptedService<Channel, BearerAuth>
 
 /// Build an authenticated gRPC channel to `addr`.
 pub async fn connect(addr: &str, token: &str) -> Result<AuthClient> {
-    let mut endpoint = Channel::from_shared(addr.to_string())
-        .context("invalid server address")?;
+    let mut endpoint = Channel::from_shared(addr.to_string()).context("invalid server address")?;
 
     if addr.starts_with("https://") {
         endpoint = endpoint

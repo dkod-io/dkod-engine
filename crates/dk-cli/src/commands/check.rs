@@ -61,7 +61,13 @@ pub async fn run(out: Output) -> Result<()> {
                 other => other.to_string(),
             };
             let required_tag = if step.required { "" } else { " (optional)" };
-            println!("  {} {} {}{}", status_display, step.step_name.bold(), step.output.dimmed(), required_tag.dimmed());
+            println!(
+                "  {} {} {}{}",
+                status_display,
+                step.step_name.bold(),
+                step.output.dimmed(),
+                required_tag.dimmed()
+            );
         }
     }
 

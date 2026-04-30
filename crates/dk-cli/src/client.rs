@@ -22,7 +22,8 @@ impl Client {
 
     pub fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
         let url = format!("{}{}", self.base_url, path);
-        let res = self.http
+        let res = self
+            .http
             .get(&url)
             .bearer_auth(&self.token)
             .send()
@@ -32,7 +33,8 @@ impl Client {
 
     pub fn post<T: DeserializeOwned>(&self, path: &str, body: &impl serde::Serialize) -> Result<T> {
         let url = format!("{}{}", self.base_url, path);
-        let res = self.http
+        let res = self
+            .http
             .post(&url)
             .bearer_auth(&self.token)
             .json(body)
@@ -43,7 +45,8 @@ impl Client {
 
     pub fn post_empty<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
         let url = format!("{}{}", self.base_url, path);
-        let res = self.http
+        let res = self
+            .http
             .post(&url)
             .bearer_auth(&self.token)
             .send()
@@ -53,7 +56,8 @@ impl Client {
 
     pub fn delete(&self, path: &str) -> Result<serde_json::Value> {
         let url = format!("{}{}", self.base_url, path);
-        let res = self.http
+        let res = self
+            .http
             .delete(&url)
             .bearer_auth(&self.token)
             .send()

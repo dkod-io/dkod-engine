@@ -49,7 +49,12 @@ pub async fn run(out: Output, query: &str, depth: &str, max_tokens: u32) -> Resu
             let kind = sym.map(|s| s.kind.as_str()).unwrap_or("?");
             let name = sym.map(|s| s.qualified_name.as_str()).unwrap_or("?");
             let file = sym.map(|s| s.file_path.as_str()).unwrap_or("?");
-            println!("{} {} {}", format!("[{}]", i + 1).dimmed(), kind.cyan(), name.bold());
+            println!(
+                "{} {} {}",
+                format!("[{}]", i + 1).dimmed(),
+                kind.cyan(),
+                name.bold()
+            );
             println!("  {}", file.dimmed());
             if let Some(src) = &s.source {
                 if !src.is_empty() {

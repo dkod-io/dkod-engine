@@ -68,11 +68,7 @@ impl SymbolStore {
     ///
     /// Uses `ON CONFLICT (repo_id, qualified_name) DO UPDATE` so that
     /// repeated ingestion of the same file is idempotent.
-    pub async fn upsert_symbol(
-        &self,
-        repo_id: RepoId,
-        sym: &Symbol,
-    ) -> dk_core::Result<()> {
+    pub async fn upsert_symbol(&self, repo_id: RepoId, sym: &Symbol) -> dk_core::Result<()> {
         let kind_str = sym.kind.to_string();
         let vis_str = sym.visibility.to_string();
         let file_path_str = sym.file_path.to_string_lossy().to_string();
@@ -126,11 +122,7 @@ impl SymbolStore {
     }
 
     /// Search symbols by name or qualified_name using ILIKE.
-    pub async fn find_symbols(
-        &self,
-        repo_id: RepoId,
-        query: &str,
-    ) -> dk_core::Result<Vec<Symbol>> {
+    pub async fn find_symbols(&self, repo_id: RepoId, query: &str) -> dk_core::Result<Vec<Symbol>> {
         let pattern = format!("%{query}%");
         let rows = sqlx::query_as::<_, SymbolRow>(
             r#"
@@ -243,18 +235,12 @@ impl SymbolStore {
     }
 
     /// Delete all symbols belonging to a file. Returns the number of rows deleted.
-    pub async fn delete_by_file(
-        &self,
-        repo_id: RepoId,
-        file_path: &str,
-    ) -> dk_core::Result<u64> {
-        let result = sqlx::query(
-            "DELETE FROM symbols WHERE repo_id = $1 AND file_path = $2",
-        )
-        .bind(repo_id)
-        .bind(file_path)
-        .execute(&self.pool)
-        .await?;
+    pub async fn delete_by_file(&self, repo_id: RepoId, file_path: &str) -> dk_core::Result<u64> {
+        let result = sqlx::query("DELETE FROM symbols WHERE repo_id = $1 AND file_path = $2")
+            .bind(repo_id)
+            .bind(file_path)
+            .execute(&self.pool)
+            .await?;
 
         Ok(result.rows_affected())
     }
@@ -271,11 +257,10 @@ impl SymbolStore {
 
     /// Count symbols in a repository.
     pub async fn count(&self, repo_id: RepoId) -> dk_core::Result<i64> {
-        let (count,): (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM symbols WHERE repo_id = $1")
-                .bind(repo_id)
-                .fetch_one(&self.pool)
-                .await?;
+        let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM symbols WHERE repo_id = $1")
+            .bind(repo_id)
+            .fetch_one(&self.pool)
+            .await?;
 
         Ok(count)
     }

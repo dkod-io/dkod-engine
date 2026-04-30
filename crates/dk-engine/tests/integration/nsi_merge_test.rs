@@ -34,12 +34,7 @@ fn init_repo_with_file(filename: &str, content: &[u8]) -> (GitRepository, String
 }
 
 /// Add a new file and create a second commit (advancing HEAD past the base).
-fn advance_repo(
-    repo: &GitRepository,
-    filename: &str,
-    content: &[u8],
-    message: &str,
-) -> String {
+fn advance_repo(repo: &GitRepository, filename: &str, content: &[u8], message: &str) -> String {
     let objects = GitObjects::new(repo);
     objects
         .write_file(Path::new(filename), content)
@@ -72,15 +67,8 @@ async fn test_fast_forward_merge() {
 
     let parser = ParserRegistry::new();
 
-    let result = merge_workspace(
-        &ws,
-        &repo,
-        &parser,
-        "add helper",
-        "test",
-        "test@test.com",
-    )
-    .expect("merge should succeed");
+    let result = merge_workspace(&ws, &repo, &parser, "add helper", "test", "test@test.com")
+        .expect("merge should succeed");
 
     match result {
         WorkspaceMergeResult::FastMerge { commit_hash } => {
@@ -184,14 +172,7 @@ async fn test_merge_empty_overlay_rejected() {
     // Do NOT write anything to the overlay.
     let parser = ParserRegistry::new();
 
-    let result = merge_workspace(
-        &ws,
-        &repo,
-        &parser,
-        "empty merge",
-        "test",
-        "test@test.com",
-    );
+    let result = merge_workspace(&ws, &repo, &parser, "empty merge", "test", "test@test.com");
 
     assert!(
         result.is_err(),

@@ -39,11 +39,14 @@ async fn full_agent_workflow() {
 
     // Submit -- add a new file
     let result = session
-        .submit(vec![Change::Add {
-            path: "src/hello.rs".to_string(),
-            content: "pub fn hello() -> &'static str {\n    \"Hello from dk-agent-sdk!\"\n}\n"
-                .to_string(),
-        }])
+        .submit(
+            vec![Change::Add {
+                path: "src/hello.rs".to_string(),
+                content: "pub fn hello() -> &'static str {\n    \"Hello from dk-agent-sdk!\"\n}\n"
+                    .to_string(),
+            }],
+            "add hello world function",
+        )
         .await
         .expect("submit failed");
 

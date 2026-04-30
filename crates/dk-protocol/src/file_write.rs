@@ -1,11 +1,11 @@
 use tonic::{Response, Status};
 use tracing::{info, warn};
 
-use dk_engine::conflict::{AcquireOutcome, SymbolClaim};
 use crate::server::ProtocolServer;
 use crate::stale_overlay::{is_stale, CompetingChangeset};
 use crate::validation::{validate_file_path, MAX_FILE_SIZE};
 use crate::{ConflictWarning, FileWriteRequest, FileWriteResponse, SymbolChange};
+use dk_engine::conflict::{AcquireOutcome, SymbolClaim};
 
 /// Message prefix MCP uses to distinguish STALE_OVERLAY from SYMBOL_LOCKED.
 /// Both flow through `ConflictWarning` with an empty `new_hash`, so the
@@ -181,25 +181,34 @@ pub async fn handle_file_write(
     // changeset store entry — completely clean rejection.
     let claimable: Vec<&crate::SymbolChangeDetail> = all_symbol_changes
         .iter()
-        .filter(|sc| sc.change_type == "added" || sc.change_type == "modified" || sc.change_type == "deleted")
+        .filter(|sc| {
+            sc.change_type == "added" || sc.change_type == "modified" || sc.change_type == "deleted"
+        })
         .collect();
 
     let mut acquired: Vec<String> = Vec::new();
     let mut locked_symbols: Vec<ConflictWarning> = Vec::new();
 
     for sc in &claimable {
-        let kind = sc.kind.parse::<dk_core::SymbolKind>().unwrap_or(dk_core::SymbolKind::Function);
-        match server.claim_tracker().acquire_lock(
-            repo_id,
-            &req.path,
-            SymbolClaim {
-                session_id: sid,
-                agent_name: agent_name.clone(),
-                qualified_name: sc.symbol_name.clone(),
-                kind,
-                first_touched_at: chrono::Utc::now(),
-            },
-        ).await {
+        let kind = sc
+            .kind
+            .parse::<dk_core::SymbolKind>()
+            .unwrap_or(dk_core::SymbolKind::Function);
+        match server
+            .claim_tracker()
+            .acquire_lock(
+                repo_id,
+                &req.path,
+                SymbolClaim {
+                    session_id: sid,
+                    agent_name: agent_name.clone(),
+                    qualified_name: sc.symbol_name.clone(),
+                    kind,
+                    first_touched_at: chrono::Utc::now(),
+                },
+            )
+            .await
+        {
             Ok(AcquireOutcome::Fresh) => acquired.push(sc.symbol_name.clone()),
             Ok(AcquireOutcome::ReAcquired) => {} // already held — exclude from rollback
             Err(sl) => {
@@ -228,7 +237,10 @@ pub async fn handle_file_write(
         // Roll back any locks acquired before the failure and emit events
         // so any agent that raced and observed the transient lock can wake up.
         for name in &acquired {
-            server.claim_tracker().release_lock(repo_id, &req.path, sid, name).await;
+            server
+                .claim_tracker()
+                .release_lock(repo_id, &req.path, sid, name)
+                .await;
             server.event_bus().publish(crate::WatchEvent {
                 event_type: crate::merge::EVENT_LOCK_RELEASED.to_string(),
                 changeset_id: String::new(),
@@ -267,7 +279,10 @@ pub async fn handle_file_write(
         Some(ws) => ws,
         None => {
             for name in &acquired {
-                server.claim_tracker().release_lock(repo_id, &req.path, sid, name).await;
+                server
+                    .claim_tracker()
+                    .release_lock(repo_id, &req.path, sid, name)
+                    .await;
                 server.event_bus().publish(crate::WatchEvent {
                     event_type: crate::merge::EVENT_LOCK_RELEASED.to_string(),
                     changeset_id: String::new(),
@@ -288,11 +303,18 @@ pub async fn handle_file_write(
         }
     };
 
-    let new_hash = match ws.overlay.write(&req.path, req.content.clone(), is_new).await {
+    let new_hash = match ws
+        .overlay
+        .write(&req.path, req.content.clone(), is_new)
+        .await
+    {
         Ok(hash) => hash,
         Err(e) => {
             for name in &acquired {
-                server.claim_tracker().release_lock(repo_id, &req.path, sid, name).await;
+                server
+                    .claim_tracker()
+                    .release_lock(repo_id, &req.path, sid, name)
+                    .await;
                 server.event_bus().publish(crate::WatchEvent {
                     event_type: crate::merge::EVENT_LOCK_RELEASED.to_string(),
                     changeset_id: String::new(),
@@ -324,7 +346,11 @@ pub async fn handle_file_write(
     let conflict_warnings: Vec<ConflictWarning> = Vec::new();
 
     // Emit a file.modified (or file.added) event
-    let event_type = if is_new { "file.added" } else { "file.modified" };
+    let event_type = if is_new {
+        "file.added"
+    } else {
+        "file.modified"
+    };
     server.event_bus().publish(crate::WatchEvent {
         event_type: event_type.to_string(),
         changeset_id: changeset_id.to_string(),
@@ -432,12 +458,15 @@ fn detect_symbol_changes_diffed(
     // Build a map of old symbol qualified_name → source text.
     // Use entry().or_insert() to keep the first occurrence when duplicate
     // qualified names exist (e.g., overloaded methods in Java/Kotlin/C#).
-    let mut old_symbol_text: std::collections::HashMap<&str, &[u8]> = std::collections::HashMap::new();
+    let mut old_symbol_text: std::collections::HashMap<&str, &[u8]> =
+        std::collections::HashMap::new();
     for sym in &old_symbols {
         let start = sym.span.start_byte as usize;
         let end = sym.span.end_byte as usize;
         if start <= end && end <= old_content.len() {
-            old_symbol_text.entry(sym.qualified_name.as_str()).or_insert(&old_content[start..end]);
+            old_symbol_text
+                .entry(sym.qualified_name.as_str())
+                .or_insert(&old_content[start..end]);
         }
     }
 
@@ -504,7 +533,10 @@ fn detect_symbol_changes_diffed(
         .collect();
     for old_name in &old_names {
         if !new_names.contains(old_name) {
-            if let Some(old_sym) = old_symbols.iter().find(|s| s.qualified_name.as_str() == *old_name) {
+            if let Some(old_sym) = old_symbols
+                .iter()
+                .find(|s| s.qualified_name.as_str() == *old_name)
+            {
                 all_details.push(crate::SymbolChangeDetail {
                     symbol_name: old_sym.qualified_name.clone(),
                     file_path: path.to_string(),

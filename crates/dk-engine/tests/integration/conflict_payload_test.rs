@@ -1,4 +1,4 @@
-use dk_engine::conflict::{build_conflict_detail, build_conflict_block};
+use dk_engine::conflict::{build_conflict_block, build_conflict_detail};
 use dk_engine::parser::ParserRegistry;
 
 fn registry() -> ParserRegistry {
@@ -81,7 +81,10 @@ fn test_payload_description_captures_signature_change() {
 
     // Their change should mention the signature change
     assert!(
-        detail.their_change.description.contains("Signature changed"),
+        detail
+            .their_change
+            .description
+            .contains("Signature changed"),
         "Expected signature change description, got: {}",
         detail.their_change.description
     );
@@ -146,14 +149,7 @@ fn test_build_conflict_block_message() {
     let yours = r#"fn alpha() -> i32 { 3 }
 "#;
 
-    let conflicts = vec![(
-        "src/lib.rs",
-        "alpha",
-        "agent-other",
-        base,
-        theirs,
-        yours,
-    )];
+    let conflicts = vec![("src/lib.rs", "alpha", "agent-other", base, theirs, yours)];
 
     let block = build_conflict_block(&registry(), &conflicts).unwrap();
     assert_eq!(block.conflicting_symbols.len(), 1);

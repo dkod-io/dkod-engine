@@ -1,67 +1,128 @@
+use super::types::{StepType, Workflow};
 use anyhow::{bail, Result};
-use super::types::{Workflow, StepType};
 
-const FORBIDDEN_SHELL_CHARS: &[char] = &[';', '&', '|', '`', '$', '(', ')', '{', '}', '<', '>', '\n', '\r', '\t', '*', '?', '[', ']'];
+const FORBIDDEN_SHELL_CHARS: &[char] = &[
+    ';', '&', '|', '`', '$', '(', ')', '{', '}', '<', '>', '\n', '\r', '\t', '*', '?', '[', ']',
+];
 
 /// Hardcoded denylist of dangerous command prefixes that cannot be overridden
 /// by per-repo custom allowlists.  Even if a `.dkod/pipeline.yaml` explicitly
 /// allows one of these, the validator will reject it.
 const ALWAYS_DENIED_PREFIXES: &[&str] = &[
-    "curl ", "wget ", "nc ", "ncat ", "netcat ",
-    "bash ", "sh ", "/bin/sh", "/bin/bash",
-    "/usr/bin/curl", "/usr/bin/wget", "/usr/bin/nc", "/usr/bin/ncat",
-    "/usr/bin/bash", "/usr/bin/sh", "/usr/bin/env bash", "/usr/bin/env sh",
-    "/usr/bin/python", "/usr/bin/python3", "/usr/bin/perl", "/usr/bin/ruby",
-    "/usr/bin/env python", "/usr/bin/env python3", "/usr/bin/env perl",
-    "/usr/bin/env ruby", "/usr/bin/env node",
-    "python -c", "python3 -c", "perl -e", "ruby -e",
-    "eval ", "exec ",
-    "go run", "go get", "go install",
-    "cargo run", "cargo install",
+    "curl ",
+    "wget ",
+    "nc ",
+    "ncat ",
+    "netcat ",
+    "bash ",
+    "sh ",
+    "/bin/sh",
+    "/bin/bash",
+    "/usr/bin/curl",
+    "/usr/bin/wget",
+    "/usr/bin/nc",
+    "/usr/bin/ncat",
+    "/usr/bin/bash",
+    "/usr/bin/sh",
+    "/usr/bin/env bash",
+    "/usr/bin/env sh",
+    "/usr/bin/python",
+    "/usr/bin/python3",
+    "/usr/bin/perl",
+    "/usr/bin/ruby",
+    "/usr/bin/env python",
+    "/usr/bin/env python3",
+    "/usr/bin/env perl",
+    "/usr/bin/env ruby",
+    "/usr/bin/env node",
+    "python -c",
+    "python3 -c",
+    "perl -e",
+    "ruby -e",
+    "eval ",
+    "exec ",
+    "go run",
+    "go get",
+    "go install",
+    "cargo run",
+    "cargo install",
     // Go execution-delegation flags that allow running arbitrary binaries
-    "go test -exec ", "go build -toolexec ", "go vet -vettool ",
+    "go test -exec ",
+    "go build -toolexec ",
+    "go vet -vettool ",
 ];
 
 /// Substrings that are denied anywhere in a command, preventing flag-injection
 /// attacks where execution-delegation flags appear mid-command (e.g.,
 /// `go test -exec /bin/sh`).
 const DENIED_FLAG_SUBSTRINGS: &[&str] = &[
-    " -exec ", " -toolexec ", " -vettool ",
-    " -exec=", " -toolexec=", " -vettool=",
+    " -exec ",
+    " -toolexec ",
+    " -vettool ",
+    " -exec=",
+    " -toolexec=",
+    " -vettool=",
     // Output path flags — prevent writing compiled artifacts to arbitrary paths
     // (e.g., `go build -o /tmp/payload ./cmd/exploit`, `go build -o/path`)
-    " -o ", " -o=", " -o/",
-    " --target-dir ", " --target-dir=",
-    " --out-dir ", " --out-dir=",
-    " --manifest-path ", " --manifest-path=",
+    " -o ",
+    " -o=",
+    " -o/",
+    " --target-dir ",
+    " --target-dir=",
+    " --out-dir ",
+    " --out-dir=",
+    " --manifest-path ",
+    " --manifest-path=",
     // TypeScript compiler output-path flags
-    " --outDir ", " --outDir=", " --declarationDir ", " --declarationDir=",
+    " --outDir ",
+    " --outDir=",
+    " --declarationDir ",
+    " --declarationDir=",
     // Reject parent-dir traversal in install targets
     " ..",
     // URL schemes — prevent remote code fetching via pip install, npm, etc.
-    " http://", " https://", " ftp://", " file://",
-    " git+", " svn+", " hg+",
+    " http://",
+    " https://",
+    " ftp://",
+    " file://",
+    " git+",
+    " svn+",
+    " hg+",
 ];
 
 const ALLOWED_COMMAND_PREFIXES: &[&str] = &[
-    "cargo check", "cargo test", "cargo clippy", "cargo fmt", "cargo build",
-    "npm ci", "npm test",
-    "bun install --frozen-lockfile", "bun test",
-    "npx tsc", "bunx tsc",
-    "pip install -e .", "pip install -r requirements.txt", "pytest", "python -m pytest",
-    "go build", "go test", "go vet",
+    "cargo check",
+    "cargo test",
+    "cargo clippy",
+    "cargo fmt",
+    "cargo build",
+    "npm ci",
+    "npm test",
+    "bun install --frozen-lockfile",
+    "bun test",
+    "npx tsc",
+    "bunx tsc",
+    "pip install -e .",
+    "pip install -r requirements.txt",
+    "pytest",
+    "python -m pytest",
+    "go build",
+    "go test",
+    "go vet",
     "echo ", // Permitted for CI logging and test pipelines
-    // NOTE: make targets removed from default allowlist because Makefile targets
-    // can execute arbitrary shell commands, bypassing command security controls.
-    // Use allowed_commands in pipeline.yaml to explicitly opt-in to make.
+             // NOTE: make targets removed from default allowlist because Makefile targets
+             // can execute arbitrary shell commands, bypassing command security controls.
+             // Use allowed_commands in pipeline.yaml to explicitly opt-in to make.
 ];
 
 /// Commands that are allowed ONLY as exact matches — no additional arguments
 /// permitted.  This prevents argument-injection attacks where a caller appends
 /// arbitrary flags or file paths (e.g., `npm run lint --rulesdir /attacker-path`).
 const ALLOWED_EXACT_COMMANDS: &[&str] = &[
-    "npm run lint", "npm run check",
-    "bun run lint", "bun run check",
+    "npm run lint",
+    "npm run check",
+    "bun run lint",
+    "bun run check",
 ];
 
 /// Check if a command matches an allowlist prefix with word-boundary awareness.
@@ -87,11 +148,22 @@ pub fn validate_workflow(workflow: &Workflow) -> Result<()> {
                 validate_command_with_allowlist(run, &workflow.allowed_commands)?;
             }
             if let Some(ref wd) = step.work_dir {
-                if wd.components().any(|c| c == std::path::Component::ParentDir) {
-                    bail!("step '{}' work_dir '{}' contains path traversal", step.name, wd.display());
+                if wd
+                    .components()
+                    .any(|c| c == std::path::Component::ParentDir)
+                {
+                    bail!(
+                        "step '{}' work_dir '{}' contains path traversal",
+                        step.name,
+                        wd.display()
+                    );
                 }
                 if wd.is_absolute() {
-                    bail!("step '{}' work_dir '{}' must be a relative path", step.name, wd.display());
+                    bail!(
+                        "step '{}' work_dir '{}' must be a relative path",
+                        step.name,
+                        wd.display()
+                    );
                 }
             }
         }
@@ -112,11 +184,11 @@ pub fn validate_command_with_allowlist(command: &str, custom_allowlist: &[String
         bail!("command contains forbidden shell metacharacter: {:?}", ch);
     }
     // Always-denied prefixes override any allowlist (defense-in-depth)
-    if ALWAYS_DENIED_PREFIXES.iter().any(|p| trimmed.starts_with(p)) {
-        bail!(
-            "command uses a permanently-denied prefix: '{}'",
-            trimmed
-        );
+    if ALWAYS_DENIED_PREFIXES
+        .iter()
+        .any(|p| trimmed.starts_with(p))
+    {
+        bail!("command uses a permanently-denied prefix: '{}'", trimmed);
     }
     // Denied flag substrings prevent execution-delegation flag injection
     // (e.g., `go test -exec /bin/sh ./...`)
@@ -130,9 +202,10 @@ pub fn validate_command_with_allowlist(command: &str, custom_allowlist: &[String
     // regardless of which allowlist path is used.  Applied unconditionally
     // (like ALWAYS_DENIED_PREFIXES) so that custom pipeline.yaml allowlists
     // cannot re-enable argument injection for these commands.
-    if ALLOWED_EXACT_COMMANDS.iter().any(|cmd| {
-        trimmed.starts_with(&format!("{} ", cmd))
-    }) {
+    if ALLOWED_EXACT_COMMANDS
+        .iter()
+        .any(|cmd| trimmed.starts_with(&format!("{} ", cmd)))
+    {
         bail!(
             "command '{}' is only permitted as an exact match with no additional arguments",
             trimmed
@@ -175,7 +248,9 @@ mod tests {
     fn make_cmd_step(name: &str, cmd: &str) -> Step {
         Step {
             name: name.to_string(),
-            step_type: StepType::Command { run: cmd.to_string() },
+            step_type: StepType::Command {
+                run: cmd.to_string(),
+            },
             timeout: Duration::from_secs(60),
             required: true,
             changeset_aware: false,
@@ -380,7 +455,9 @@ mod tests {
     #[test]
     fn test_env_interpreter_variants_denied() {
         let custom = vec!["/usr/bin/env python3".to_string()];
-        assert!(validate_command_with_allowlist("/usr/bin/env python3 script.py", &custom).is_err());
+        assert!(
+            validate_command_with_allowlist("/usr/bin/env python3 script.py", &custom).is_err()
+        );
         assert!(validate_command_with_allowlist("/usr/bin/env python script.py", &custom).is_err());
         assert!(validate_command_with_allowlist("/usr/bin/env perl script.pl", &custom).is_err());
         assert!(validate_command_with_allowlist("/usr/bin/env ruby script.rb", &custom).is_err());
@@ -415,7 +492,10 @@ mod tests {
         // go install downloads, compiles, and installs arbitrary remote packages
         assert!(validate_command("go install github.com/evil/pkg@latest").is_err());
         let custom = vec!["go install".to_string()];
-        assert!(validate_command_with_allowlist("go install github.com/evil/pkg@latest", &custom).is_err());
+        assert!(
+            validate_command_with_allowlist("go install github.com/evil/pkg@latest", &custom)
+                .is_err()
+        );
     }
 
     #[test]
@@ -452,7 +532,10 @@ mod tests {
         assert!(validate_command_with_allowlist("npm run lint", &custom).is_ok());
         assert!(validate_command_with_allowlist("bun run check", &custom).is_ok());
         // Argument injection must still be blocked
-        assert!(validate_command_with_allowlist("npm run lint --rulesdir /attacker-path", &custom).is_err());
+        assert!(
+            validate_command_with_allowlist("npm run lint --rulesdir /attacker-path", &custom)
+                .is_err()
+        );
         assert!(validate_command_with_allowlist("bun run check extra-arg", &custom).is_err());
     }
 
@@ -506,7 +589,6 @@ mod tests {
         assert!(validate_command("go build -o/tmp/evil ./...").is_err());
     }
 
-
     #[test]
     fn test_tsc_outdir_denied() {
         // npx tsc --outDir should be blocked to prevent file-write escape
@@ -524,7 +606,11 @@ mod tests {
         let wf = Workflow {
             name: "test".into(),
             timeout: Duration::from_secs(60),
-            stages: vec![Stage { name: "s".into(), parallel: false, steps: vec![step] }],
+            stages: vec![Stage {
+                name: "s".into(),
+                parallel: false,
+                steps: vec![step],
+            }],
             allowed_commands: vec![],
         };
         assert!(validate_workflow(&wf).is_err());
@@ -538,11 +624,13 @@ mod tests {
         let wf = Workflow {
             name: "test".into(),
             timeout: Duration::from_secs(60),
-            stages: vec![Stage { name: "s".into(), parallel: false, steps: vec![step] }],
+            stages: vec![Stage {
+                name: "s".into(),
+                parallel: false,
+                steps: vec![step],
+            }],
             allowed_commands: vec![],
         };
         assert!(validate_workflow(&wf).is_err());
     }
-
 }
-

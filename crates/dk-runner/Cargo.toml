@@ -26,6 +26,8 @@ futures = "0.3"
 tempfile = "3"
 regex = "1"
 reqwest = { version = "0.12", features = ["json"] }
+chrono = { workspace = true }
+dk-analytics = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }

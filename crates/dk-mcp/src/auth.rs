@@ -210,9 +210,9 @@ mod tests {
         // either return a cached token from disk or fail on device flow.
         // Both outcomes prove the empty env var path was skipped.
         let result = resolve_token("http://localhost:9999", Some("")).await;
-        match result {
-            Ok(t) => assert!(!t.is_empty(), "cached token should not be empty"),
-            Err(_) => {} // no cached token, device flow unreachable — expected
+        if let Ok(t) = result {
+            assert!(!t.is_empty(), "cached token should not be empty");
         }
+        // Err path: no cached token, device flow unreachable — expected.
     }
 }

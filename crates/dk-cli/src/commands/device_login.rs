@@ -1,6 +1,6 @@
-use anyhow::Result;
 use crate::auth;
 use crate::output::Output;
+use anyhow::Result;
 
 pub async fn run(out: Output, server: &str) -> Result<()> {
     let api_base = auth::api_base_from_grpc(server);

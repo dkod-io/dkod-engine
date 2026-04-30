@@ -58,10 +58,7 @@ struct ImportLine {
 
 /// Extract the import block (all contiguous use/import statements at the top)
 /// and the list of top-level symbol spans from parsed source.
-fn extract_spans(
-    source: &str,
-    symbols: &[Symbol],
-) -> (Vec<ImportLine>, Vec<SymbolSpan>) {
+fn extract_spans(source: &str, symbols: &[Symbol]) -> (Vec<ImportLine>, Vec<SymbolSpan>) {
     let bytes = source.as_bytes();
     let mut import_lines = Vec::new();
     let mut symbol_spans = Vec::new();
@@ -178,12 +175,18 @@ pub fn ast_merge(
     let (b_imports, b_spans) = extract_spans(version_b, &b_analysis.symbols);
 
     // Build lookup maps: qualified_name -> SymbolSpan
-    let base_map: BTreeMap<&str, &SymbolSpan> =
-        base_spans.iter().map(|s| (s.qualified_name.as_str(), s)).collect();
-    let a_map: BTreeMap<&str, &SymbolSpan> =
-        a_spans.iter().map(|s| (s.qualified_name.as_str(), s)).collect();
-    let b_map: BTreeMap<&str, &SymbolSpan> =
-        b_spans.iter().map(|s| (s.qualified_name.as_str(), s)).collect();
+    let base_map: BTreeMap<&str, &SymbolSpan> = base_spans
+        .iter()
+        .map(|s| (s.qualified_name.as_str(), s))
+        .collect();
+    let a_map: BTreeMap<&str, &SymbolSpan> = a_spans
+        .iter()
+        .map(|s| (s.qualified_name.as_str(), s))
+        .collect();
+    let b_map: BTreeMap<&str, &SymbolSpan> = b_spans
+        .iter()
+        .map(|s| (s.qualified_name.as_str(), s))
+        .collect();
 
     // Build ordered name list: base order first, then new symbols from A and B.
     // This preserves the original file layout instead of alphabetizing.
@@ -223,15 +226,15 @@ pub fn ast_merge(
 
         let a_modified = match (in_base, in_a) {
             (Some(base_s), Some(a_s)) => base_s.text != a_s.text,
-            (None, Some(_)) => true,  // new in A
-            (Some(_), None) => true,  // deleted by A
+            (None, Some(_)) => true, // new in A
+            (Some(_), None) => true, // deleted by A
             (None, None) => false,
         };
 
         let b_modified = match (in_base, in_b) {
             (Some(base_s), Some(b_s)) => base_s.text != b_s.text,
-            (None, Some(_)) => true,  // new in B
-            (Some(_), None) => true,  // deleted by B
+            (None, Some(_)) => true, // new in B
+            (Some(_), None) => true, // deleted by B
             (None, None) => false,
         };
 
@@ -375,7 +378,11 @@ pub fn ast_merge(
     let mut merged_imports: Vec<String> = Vec::new();
     let mut import_seen: HashSet<String> = HashSet::new();
     // Base imports first (original order), then new imports from A and B
-    for imp in base_imports.iter().chain(a_imports.iter()).chain(b_imports.iter()) {
+    for imp in base_imports
+        .iter()
+        .chain(a_imports.iter())
+        .chain(b_imports.iter())
+    {
         if import_seen.insert(imp.text.clone()) {
             merged_imports.push(imp.text.clone());
         }

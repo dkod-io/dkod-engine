@@ -44,9 +44,10 @@ fn branch_list_shows_current() {
         .current_dir(dir.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains("*").and(
-            predicate::str::contains("main").or(predicate::str::contains("master")),
-        ));
+        .stdout(
+            predicate::str::contains("*")
+                .and(predicate::str::contains("main").or(predicate::str::contains("master"))),
+        );
 }
 
 #[test]

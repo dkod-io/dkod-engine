@@ -50,7 +50,11 @@ impl PipelineStore {
             .collect())
     }
 
-    pub async fn set_pipeline(&self, repo_id: RepoId, steps: &[PipelineStep]) -> dk_core::Result<()> {
+    pub async fn set_pipeline(
+        &self,
+        repo_id: RepoId,
+        steps: &[PipelineStep],
+    ) -> dk_core::Result<()> {
         sqlx::query("DELETE FROM verification_pipelines WHERE repo_id = $1")
             .bind(repo_id)
             .execute(&self.db)
@@ -100,7 +104,10 @@ impl PipelineStore {
         })
     }
 
-    pub async fn get_results(&self, changeset_id: Uuid) -> dk_core::Result<Vec<VerificationResult>> {
+    pub async fn get_results(
+        &self,
+        changeset_id: Uuid,
+    ) -> dk_core::Result<Vec<VerificationResult>> {
         let rows: Vec<(Uuid, Uuid, i32, String, Option<String>)> = sqlx::query_as(
             "SELECT id, changeset_id, step_order, status, output FROM verification_results WHERE changeset_id = $1 ORDER BY step_order",
         )
