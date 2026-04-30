@@ -200,6 +200,36 @@ struct CallUpstreamParams {
     arguments: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
+/// Inline-data variant or local-path variant for `dk_run_local_sql` inputs.
+///
+/// Either `path` (an absolute or relative path the dk-mcp process can read) or
+/// `data` (raw text content) must be supplied — never both. `data` is handy
+/// for small ad-hoc agent-supplied inputs; `path` avoids round-tripping
+/// large CSV/Parquet/JSON dumps through the MCP transport.
+#[derive(Deserialize, JsonSchema)]
+#[allow(dead_code)] // fields are read only when `local-sql` feature is enabled
+struct LocalSqlSource {
+    /// Local filesystem path to a CSV / Parquet / JSON file.
+    path: Option<String>,
+    /// Inline text content (CSV or JSONEachRow). Ignored if `path` is set.
+    data: Option<String>,
+    /// Source format. One of: `csv`, `parquet`, `json` (alias of `jsoneachrow`).
+    /// Defaults to `csv` when omitted.
+    format: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[allow(dead_code)] // fields are read only when `local-sql` feature is enabled
+struct RunLocalSqlParams {
+    /// SQL query to run via embedded chDB. The literal token `$SOURCE` is
+    /// replaced with the `file('<path>', <format>)` table function for the
+    /// supplied `source` (when one is provided). Without `source`, the SQL is
+    /// executed standalone — useful for `SELECT 1`, `numbers(N)`, etc.
+    sql: String,
+    /// Optional input file or inline text content to query.
+    source: Option<LocalSqlSource>,
+}
+
 #[derive(Deserialize, JsonSchema)]
 struct ListIntegrationsParams {
     /// Filter by kind: "mcp" (MCP servers) or "peer" (external binaries).
@@ -1184,6 +1214,25 @@ impl DkodMcp {
             .call_tool(&tool, server.as_deref(), arguments)
             .await
             .map_err(|e| McpError::internal_error(format!("upstream call failed: {e}"), None))
+    }
+
+    /// Run an arbitrary ClickHouse-flavoured SQL statement against an
+    /// in-process chDB instance, optionally bound to a local CSV / Parquet /
+    /// JSON file or inline data. Results are returned as JSONEachRow text;
+    /// payloads larger than 10 KB are offloaded to disk and replaced with a
+    /// `{ "_offloaded": true, "path": ... }` pointer so the chat transcript
+    /// stays small.
+    ///
+    /// Only available when `dk-mcp` is built with the `local-sql` feature
+    /// (default off; chDB only ships Linux x86_64 binaries).
+    #[tool(
+        description = "Run a SQL query against an in-process chDB engine. The literal token `$SOURCE` in `sql` is replaced with `file('<path>', <format>)` when `source` is provided. Returns JSONEachRow; large results (>10 KB) are offloaded to disk."
+    )]
+    async fn dk_run_local_sql(
+        &self,
+        Parameters(params): Parameters<RunLocalSqlParams>,
+    ) -> Result<CallToolResult, McpError> {
+        run_local_sql_impl(params).await
     }
 
     // ── Tool 1: dk_connect ──
@@ -3959,6 +4008,179 @@ impl ServerHandler for DkodMcp {
                 )),
             }
         }
+    }
+}
+
+// ── dk_run_local_sql impl (feature-gated) ──────────────────────────────────
+//
+// chDB only ships Linux x86_64 binaries, so the heavy backend is gated behind
+// the `local-sql` cargo feature. When the feature is off, calling the tool
+// returns a structured error explaining how to opt in. When the feature is
+// on, we route to `dk-embedded-ch`'s `query_*` helpers and offload large
+// results via the gateway's `maybe_offload`.
+
+#[cfg(feature = "local-sql")]
+async fn run_local_sql_impl(params: RunLocalSqlParams) -> Result<CallToolResult, McpError> {
+    use std::io::Write as _;
+
+    let RunLocalSqlParams { sql, source } = params;
+
+    // Resolve the source: either a path on disk, an inline blob (which we
+    // spool to a temp file so chDB's `file()` can read it), or `None`
+    // (standalone SQL like `SELECT 1`).
+    let resolved_path: Option<std::path::PathBuf> = match source {
+        None => None,
+        Some(LocalSqlSource { path: Some(p), .. }) => Some(std::path::PathBuf::from(p)),
+        Some(LocalSqlSource {
+            path: None,
+            data: Some(data),
+            format,
+        }) => {
+            // Spool inline data to <cache>/dkod/local-sql-inputs/<uuid>.<ext>.
+            let ext = match format.as_deref().unwrap_or("csv").to_ascii_lowercase().as_str() {
+                "parquet" => "parquet",
+                "json" | "jsoneachrow" => "jsonl",
+                _ => "csv",
+            };
+            let dir = dirs::cache_dir()
+                .ok_or_else(|| {
+                    McpError::internal_error("no cache dir available for inline data spool", None)
+                })?
+                .join("dkod")
+                .join("local-sql-inputs");
+            std::fs::create_dir_all(&dir).map_err(|e| {
+                McpError::internal_error(format!("failed to create spool dir: {e}"), None)
+            })?;
+            let path = dir.join(format!("{}.{}", uuid::Uuid::new_v4(), ext));
+            let mut f = std::fs::File::create(&path).map_err(|e| {
+                McpError::internal_error(format!("failed to spool inline data: {e}"), None)
+            })?;
+            f.write_all(data.as_bytes()).map_err(|e| {
+                McpError::internal_error(format!("failed to write spool data: {e}"), None)
+            })?;
+            Some(path)
+        }
+        Some(LocalSqlSource {
+            path: None,
+            data: None,
+            ..
+        }) => {
+            return Err(McpError::invalid_params(
+                "`source` must include either `path` or `data`",
+                None,
+            ));
+        }
+    };
+
+    // Pick the right helper based on file extension or explicit `format`.
+    // The `format` field on `LocalSqlSource` overrides extension sniffing.
+    let format_hint = match resolved_path.as_ref() {
+        Some(p) => p
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase(),
+        None => String::new(),
+    };
+
+    let output = tokio::task::spawn_blocking(move || -> dk_embedded_ch::Result<_> {
+        match resolved_path.as_ref() {
+            None => dk_embedded_ch::execute(
+                &sql,
+                dk_embedded_ch::format::OutputFormat::JSONEachRow,
+            ),
+            Some(path) => match format_hint.as_str() {
+                "parquet" => dk_embedded_ch::query_parquet(path, &sql),
+                "jsonl" | "json" | "ndjson" => dk_embedded_ch::query_json_each_row(path, &sql),
+                _ => dk_embedded_ch::query_csv(path, &sql),
+            },
+        }
+    })
+    .await
+    .map_err(|e| McpError::internal_error(format!("chDB join error: {e}"), None))?
+    .map_err(|e| McpError::internal_error(format!("chDB query failed: {e}"), None))?;
+
+    let body = output.as_utf8_lossy().into_owned();
+    let result = CallToolResult::success(vec![Content::text(body)]);
+    Ok(crate::gateway::maybe_offload("local-sql", result))
+}
+
+#[cfg(not(feature = "local-sql"))]
+async fn run_local_sql_impl(_params: RunLocalSqlParams) -> Result<CallToolResult, McpError> {
+    Err(McpError::internal_error(
+        "dk_run_local_sql requires dk-mcp built with `--features local-sql` (chDB ships Linux x86_64 binaries only).",
+        None,
+    ))
+}
+
+#[cfg(test)]
+mod local_sql_tests {
+    use super::*;
+
+    /// When the `local-sql` feature is OFF, calling the tool returns a
+    /// structured error pointing at the build flag — not a panic, not a
+    /// silent no-op.
+    #[cfg(not(feature = "local-sql"))]
+    #[tokio::test]
+    async fn returns_feature_disabled_error() {
+        let params = RunLocalSqlParams {
+            sql: "SELECT 1".into(),
+            source: None,
+        };
+        let err = run_local_sql_impl(params)
+            .await
+            .expect_err("must error when feature is disabled");
+        assert!(
+            err.message.contains("local-sql"),
+            "error message should reference the feature flag, got: {}",
+            err.message
+        );
+    }
+
+    /// `source` set but with neither `path` nor `data` is a user error.
+    #[cfg(feature = "local-sql")]
+    #[tokio::test]
+    async fn errors_when_source_is_empty() {
+        let params = RunLocalSqlParams {
+            sql: "SELECT 1 FROM $SOURCE".into(),
+            source: Some(LocalSqlSource {
+                path: None,
+                data: None,
+                format: None,
+            }),
+        };
+        let err = run_local_sql_impl(params)
+            .await
+            .expect_err("must error when source is empty");
+        assert!(
+            err.message.contains("path") && err.message.contains("data"),
+            "error message should explain required fields, got: {}",
+            err.message
+        );
+    }
+
+    /// Feature-on smoke test: standalone SQL through chDB returns the
+    /// expected JSONEachRow row.
+    #[cfg(feature = "local-sql")]
+    #[tokio::test]
+    async fn standalone_select_returns_jsoneachrow() {
+        let params = RunLocalSqlParams {
+            sql: "SELECT 1 + 1 AS sum".into(),
+            source: None,
+        };
+        let result = run_local_sql_impl(params)
+            .await
+            .expect("standalone SELECT should succeed");
+        let text = result
+            .content
+            .iter()
+            .filter_map(|c| c.as_text())
+            .map(|t| t.text.as_str())
+            .collect::<String>();
+        assert!(
+            text.contains(r#""sum":2"#),
+            "expected sum:2 in JSONEachRow output, got: {text}"
+        );
     }
 }
 
