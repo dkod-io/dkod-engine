@@ -1,0 +1,16 @@
+{
+  "name": "@dkod/baml-client",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Generated TypeScript client for dkod BAML agent/workflow graph. Regenerate via `./scripts/baml-generate.sh` in dkod-engine.",
+  "type": "commonjs",
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "peerDependencies": {
+    "@boundaryml/baml": "0.221.0"
+  },
+  "files": [
+    "*.ts",
+    "README.md"
+  ]
+}
