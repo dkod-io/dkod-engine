@@ -42,12 +42,18 @@ async-trait = { workspace = true }
 toml = "0.8"
 dk-runner = { path = "../dk-runner" }
 dk-analytics = { workspace = true }
+# Optional: pulls in chDB (libchdb.so, ~540 MB) for the `dk_run_local_sql`
+# tool. Default off because chDB only ships Linux x86_64 binaries; cross-
+# compile jobs (linux-arm64, darwin-*) would fail to link otherwise. Build
+# with `--features local-sql` on linux-amd64 to enable.
+dk-embedded-ch = { path = "../dk-embedded-ch", optional = true }
 
 [dev-dependencies]
 rmcp = { version = "0.16", features = ["client", "server", "transport-io"] }
 
 [features]
 mock-review = []
+local-sql = ["dep:dk-embedded-ch"]
 
 [build-dependencies]
 tonic-build = "0.12"

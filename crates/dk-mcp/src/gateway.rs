@@ -223,7 +223,11 @@ fn resolve_target(tool_name: &str, server_hint: Option<&str>) -> anyhow::Result<
 }
 
 /// Offload large results to disk and replace them with a small JSON pointer.
-fn maybe_offload(server_id: &str, result: CallToolResult) -> CallToolResult {
+///
+/// `server_id` is used to namespace the on-disk file (e.g. `context7-<uuid>.json`,
+/// `local-sql-<uuid>.json`). Exposed as `pub(crate)` so other tools (notably
+/// `dk_run_local_sql`) can reuse the same offload semantics.
+pub(crate) fn maybe_offload(server_id: &str, result: CallToolResult) -> CallToolResult {
     let serialized = match serde_json::to_string(&result) {
         Ok(s) => s,
         Err(_) => return result,
