@@ -813,3 +813,62 @@ class CloseResponse(_message.Message):
     message: str
     session_id: str
     def __init__(self, success: bool = ..., message: _Optional[str] = ..., session_id: _Optional[str] = ...) -> None: ...
+
+class AbandonRequest(_message.Message):
+    __slots__ = ("session_id",)
+    SESSION_ID_FIELD_NUMBER: _ClassVar[int]
+    session_id: str
+    def __init__(self, session_id: _Optional[str] = ...) -> None: ...
+
+class AbandonResponse(_message.Message):
+    __slots__ = ("success", "changeset_id", "abandoned_reason")
+    SUCCESS_FIELD_NUMBER: _ClassVar[int]
+    CHANGESET_ID_FIELD_NUMBER: _ClassVar[int]
+    ABANDONED_REASON_FIELD_NUMBER: _ClassVar[int]
+    success: bool
+    changeset_id: str
+    abandoned_reason: str
+    def __init__(self, success: bool = ..., changeset_id: _Optional[str] = ..., abandoned_reason: _Optional[str] = ...) -> None: ...
+
+class SessionStrandedDetail(_message.Message):
+    __slots__ = ("changeset_id", "base_commit", "stranded_reason", "stranded_at_rfc3339")
+    CHANGESET_ID_FIELD_NUMBER: _ClassVar[int]
+    BASE_COMMIT_FIELD_NUMBER: _ClassVar[int]
+    STRANDED_REASON_FIELD_NUMBER: _ClassVar[int]
+    STRANDED_AT_RFC3339_FIELD_NUMBER: _ClassVar[int]
+    changeset_id: str
+    base_commit: str
+    stranded_reason: str
+    stranded_at_rfc3339: str
+    def __init__(self, changeset_id: _Optional[str] = ..., base_commit: _Optional[str] = ..., stranded_reason: _Optional[str] = ..., stranded_at_rfc3339: _Optional[str] = ...) -> None: ...
+
+class ResumeContendedDetail(_message.Message):
+    __slots__ = ("symbols",)
+    class ConflictingSymbol(_message.Message):
+        __slots__ = ("qualified_name", "file_path", "claimant_session", "claimant_agent")
+        QUALIFIED_NAME_FIELD_NUMBER: _ClassVar[int]
+        FILE_PATH_FIELD_NUMBER: _ClassVar[int]
+        CLAIMANT_SESSION_FIELD_NUMBER: _ClassVar[int]
+        CLAIMANT_AGENT_FIELD_NUMBER: _ClassVar[int]
+        qualified_name: str
+        file_path: str
+        claimant_session: str
+        claimant_agent: str
+        def __init__(self, qualified_name: _Optional[str] = ..., file_path: _Optional[str] = ..., claimant_session: _Optional[str] = ..., claimant_agent: _Optional[str] = ...) -> None: ...
+    SYMBOLS_FIELD_NUMBER: _ClassVar[int]
+    symbols: _containers.RepeatedCompositeFieldContainer[ResumeContendedDetail.ConflictingSymbol]
+    def __init__(self, symbols: _Optional[_Iterable[_Union[ResumeContendedDetail.ConflictingSymbol, _Mapping]]] = ...) -> None: ...
+
+class AlreadyResumedDetail(_message.Message):
+    __slots__ = ("new_session_id",)
+    NEW_SESSION_ID_FIELD_NUMBER: _ClassVar[int]
+    new_session_id: str
+    def __init__(self, new_session_id: _Optional[str] = ...) -> None: ...
+
+class SessionAbandonedDetail(_message.Message):
+    __slots__ = ("changeset_id", "abandoned_reason")
+    CHANGESET_ID_FIELD_NUMBER: _ClassVar[int]
+    ABANDONED_REASON_FIELD_NUMBER: _ClassVar[int]
+    changeset_id: str
+    abandoned_reason: str
+    def __init__(self, changeset_id: _Optional[str] = ..., abandoned_reason: _Optional[str] = ...) -> None: ...

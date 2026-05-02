@@ -6,11 +6,9 @@ with ``allowed_callers`` for programmatic tool calling, and
 :class:`~dkod.session.DkodSession`.
 """
 
-from __future__ import annotations
-
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from dkod.models import Change, ChangeType, ContextDepth
 
@@ -29,7 +27,7 @@ def dkod_tools() -> list[dict]:
     Returns
     -------
     list[dict]
-        Six tool definitions ready to be passed directly to the Anthropic API.
+        Nine tool definitions ready to be passed directly to the Anthropic API.
     """
     return json.loads(_MANIFEST_PATH.read_text())
 
@@ -41,7 +39,7 @@ _LEGACY_ALIASES = {
 }
 
 
-def dispatch_tool(session: DkodSession, name: str, input: dict) -> str:
+def dispatch_tool(session: 'DkodSession', name: str, input: dict) -> str:
     """Execute a tool call against *session* and return JSON.
 
     Parameters
