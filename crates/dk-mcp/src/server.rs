@@ -4041,41 +4041,49 @@ async fn run_local_sql_impl(params: RunLocalSqlParams) -> Result<CallToolResult,
                 data: Some(data),
                 format,
             }) => {
-            // Spool inline data to <cache>/dkod/local-sql-inputs/<uuid>.<ext>.
-            let ext = match format.as_deref().unwrap_or("csv").to_ascii_lowercase().as_str() {
-                "parquet" => "parquet",
-                "json" | "jsoneachrow" => "jsonl",
-                _ => "csv",
-            };
-            let dir = dirs::cache_dir()
-                .ok_or_else(|| {
-                    McpError::internal_error("no cache dir available for inline data spool", None)
-                })?
-                .join("dkod")
-                .join("local-sql-inputs");
-            std::fs::create_dir_all(&dir).map_err(|e| {
-                McpError::internal_error(format!("failed to create spool dir: {e}"), None)
-            })?;
-            let path = dir.join(format!("{}.{}", uuid::Uuid::new_v4(), ext));
-            let mut f = std::fs::File::create(&path).map_err(|e| {
-                McpError::internal_error(format!("failed to spool inline data: {e}"), None)
-            })?;
-            f.write_all(data.as_bytes()).map_err(|e| {
-                McpError::internal_error(format!("failed to write spool data: {e}"), None)
-            })?;
-            (Some(path), None) // format already encoded in extension
-        }
-        Some(LocalSqlSource {
-            path: None,
-            data: None,
-            ..
-        }) => {
-            return Err(McpError::invalid_params(
-                "`source` must include either `path` or `data`",
-                None,
-            ));
-        }
-    };
+                // Spool inline data to <cache>/dkod/local-sql-inputs/<uuid>.<ext>.
+                let ext = match format
+                    .as_deref()
+                    .unwrap_or("csv")
+                    .to_ascii_lowercase()
+                    .as_str()
+                {
+                    "parquet" => "parquet",
+                    "json" | "jsoneachrow" => "jsonl",
+                    _ => "csv",
+                };
+                let dir = dirs::cache_dir()
+                    .ok_or_else(|| {
+                        McpError::internal_error(
+                            "no cache dir available for inline data spool",
+                            None,
+                        )
+                    })?
+                    .join("dkod")
+                    .join("local-sql-inputs");
+                std::fs::create_dir_all(&dir).map_err(|e| {
+                    McpError::internal_error(format!("failed to create spool dir: {e}"), None)
+                })?;
+                let path = dir.join(format!("{}.{}", uuid::Uuid::new_v4(), ext));
+                let mut f = std::fs::File::create(&path).map_err(|e| {
+                    McpError::internal_error(format!("failed to spool inline data: {e}"), None)
+                })?;
+                f.write_all(data.as_bytes()).map_err(|e| {
+                    McpError::internal_error(format!("failed to write spool data: {e}"), None)
+                })?;
+                (Some(path), None) // format already encoded in extension
+            }
+            Some(LocalSqlSource {
+                path: None,
+                data: None,
+                ..
+            }) => {
+                return Err(McpError::invalid_params(
+                    "`source` must include either `path` or `data`",
+                    None,
+                ));
+            }
+        };
 
     // Pick the right helper based on explicit `format` (if caller supplied one)
     // falling back to file extension sniffing.
@@ -4092,10 +4100,9 @@ async fn run_local_sql_impl(params: RunLocalSqlParams) -> Result<CallToolResult,
 
     let output = tokio::task::spawn_blocking(move || -> dk_embedded_ch::Result<_> {
         match resolved_path.as_ref() {
-            None => dk_embedded_ch::execute(
-                &sql,
-                dk_embedded_ch::format::OutputFormat::JSONEachRow,
-            ),
+            None => {
+                dk_embedded_ch::execute(&sql, dk_embedded_ch::format::OutputFormat::JSONEachRow)
+            }
             Some(path) => match format_hint.as_str() {
                 "parquet" => dk_embedded_ch::query_parquet(path, &sql),
                 "jsonl" | "json" | "ndjson" => dk_embedded_ch::query_json_each_row(path, &sql),

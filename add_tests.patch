@@ -1,0 +1,40 @@
+--- crates/dk-runner/src/runner.rs
++++ crates/dk-runner/src/runner.rs
+@@ -1048,6 +1048,39 @@
+             step_names
+         );
+     }
++
++    #[test]
++    fn test_detect_workflow_skips_ignored_directories() {
++        let dir = tempfile::tempdir().unwrap();
++
++        // These should be ignored
++        std::fs::create_dir_all(dir.path().join("node_modules")).unwrap();
++        std::fs::write(dir.path().join("node_modules/package.json"), "{}").unwrap();
++
++        std::fs::create_dir_all(dir.path().join("target")).unwrap();
++        std::fs::write(dir.path().join("target/Cargo.toml"), "[package]\nname = \"test\"").unwrap();
++
++        std::fs::create_dir_all(dir.path().join(".hidden")).unwrap();
++        std::fs::write(dir.path().join(".hidden/go.mod"), "module example.com/test").unwrap();
++
++        let wf = detect_workflow(dir.path());
++        assert_eq!(wf.name, "auto-none");
++        assert!(wf.stages.is_empty());
++    }
++
++    #[test]
++    fn test_detect_workflow_ignores_files() {
++        let dir = tempfile::tempdir().unwrap();
++
++        // Create a file instead of a directory
++        // The file name looks like a language that might be detected if it were a directory containing project files
++        // But since it's a file, it should be ignored when scanning for subdirectories
++        std::fs::write(dir.path().join("rust"), "some content").unwrap();
++
++        let wf = detect_workflow(dir.path());
++        assert_eq!(wf.name, "auto-none");
++        assert!(wf.stages.is_empty());
++    }
+ }
