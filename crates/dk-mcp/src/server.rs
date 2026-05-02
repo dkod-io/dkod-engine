@@ -4028,14 +4028,19 @@ async fn run_local_sql_impl(params: RunLocalSqlParams) -> Result<CallToolResult,
     // Resolve the source: either a path on disk, an inline blob (which we
     // spool to a temp file so chDB's `file()` can read it), or `None`
     // (standalone SQL like `SELECT 1`).
-    let resolved_path: Option<std::path::PathBuf> = match source {
-        None => None,
-        Some(LocalSqlSource { path: Some(p), .. }) => Some(std::path::PathBuf::from(p)),
-        Some(LocalSqlSource {
-            path: None,
-            data: Some(data),
-            format,
-        }) => {
+    let (resolved_path, explicit_format): (Option<std::path::PathBuf>, Option<String>) =
+        match source {
+            None => (None, None),
+            Some(LocalSqlSource {
+                path: Some(p),
+                format,
+                ..
+            }) => (Some(std::path::PathBuf::from(p)), format),
+            Some(LocalSqlSource {
+                path: None,
+                data: Some(data),
+                format,
+            }) => {
             // Spool inline data to <cache>/dkod/local-sql-inputs/<uuid>.<ext>.
             let ext = match format.as_deref().unwrap_or("csv").to_ascii_lowercase().as_str() {
                 "parquet" => "parquet",
@@ -4058,7 +4063,7 @@ async fn run_local_sql_impl(params: RunLocalSqlParams) -> Result<CallToolResult,
             f.write_all(data.as_bytes()).map_err(|e| {
                 McpError::internal_error(format!("failed to write spool data: {e}"), None)
             })?;
-            Some(path)
+            (Some(path), None) // format already encoded in extension
         }
         Some(LocalSqlSource {
             path: None,
@@ -4072,16 +4077,18 @@ async fn run_local_sql_impl(params: RunLocalSqlParams) -> Result<CallToolResult,
         }
     };
 
-    // Pick the right helper based on file extension or explicit `format`.
-    // The `format` field on `LocalSqlSource` overrides extension sniffing.
-    let format_hint = match resolved_path.as_ref() {
-        Some(p) => p
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_ascii_lowercase(),
-        None => String::new(),
-    };
+    // Pick the right helper based on explicit `format` (if caller supplied one)
+    // falling back to file extension sniffing.
+    let format_hint = explicit_format
+        .map(|f| f.to_ascii_lowercase())
+        .or_else(|| {
+            resolved_path
+                .as_ref()?
+                .extension()?
+                .to_str()
+                .map(|s| s.to_ascii_lowercase())
+        })
+        .unwrap_or_default();
 
     let output = tokio::task::spawn_blocking(move || -> dk_embedded_ch::Result<_> {
         match resolved_path.as_ref() {
