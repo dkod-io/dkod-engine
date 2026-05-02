@@ -147,7 +147,7 @@ impl GitRepository {
             )));
         }
 
-        Ok((object.data.clone(), entry_oid))
+        Ok((object.data.clone(), entry.oid().to_hex().to_string()))
     }
 
     /// List all files (recursive) in a commit's tree. Returns relative paths

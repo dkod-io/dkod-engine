@@ -79,12 +79,14 @@ async fn test_fast_forward_merge() {
             // Verify overlay content now appears in the repo tree.
             let content = repo
                 .read_tree_entry(&commit_hash, "src/helper.rs")
+                .map(|(c, _)| c)
                 .expect("helper.rs should exist in new commit");
             assert_eq!(content.0, b"pub fn help() {}");
 
             // Original file should still be present.
             let original = repo
                 .read_tree_entry(&commit_hash, "src/main.rs")
+                .map(|(c, _)| c)
                 .expect("main.rs should still exist");
             assert_eq!(original.0, b"fn main() {}");
         }
@@ -145,6 +147,7 @@ async fn test_rebase_merge_no_conflict() {
             // Verify all files present in the new commit.
             let helper = repo
                 .read_tree_entry(&commit_hash, "src/helper.rs")
+                .map(|(c, _)| c)
                 .expect("helper.rs should exist");
             assert_eq!(helper.0, b"pub fn help() {}");
         }

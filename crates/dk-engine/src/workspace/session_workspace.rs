@@ -7,7 +7,6 @@
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use dk_core::{AgentId, RepoId, Result};
-
 use sqlx::PgPool;
 use std::collections::HashSet;
 use std::sync::Arc;

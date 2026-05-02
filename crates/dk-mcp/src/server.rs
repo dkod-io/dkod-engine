@@ -921,113 +921,126 @@ impl DkodMcp {
         let overflow_flag = Arc::clone(&self.watch_overflow);
         let pending_warnings_for_watch = Arc::clone(&self.pending_warnings);
         let watch_notify_for_task = Arc::clone(&self.watch_notify);
-        let watch_handle = tokio::spawn(async move {
-            let mut client = client;
-            // repo_id is intentionally empty: the engine scopes the Watch stream
-            // by session_id alone (verified via verify_session_owner in the auth
-            // layer). No cross-tenant leak is possible.
-            let request = crate::WatchRequest {
-                session_id: session_id_for_task.clone(),
-                repo_id: String::new(),
-                filter: filter_owned,
-            };
-
-            match client.watch(request).await {
-                Ok(response) => {
-                    let mut stream = response.into_inner();
-                    while let Some(result) = stream.next().await {
-                        if cancelled.load(std::sync::atomic::Ordering::Acquire) {
-                            tracing::debug!(
-                                session_id = %session_id_for_task,
-                                "Watch stream task cancelled"
-                            );
-                            break;
-                        }
-                        match result {
-                            Ok(event) => {
-                                // Route conflict events to pending_warnings for higher
-                                // visibility (prepended to every tool response), matching
-                                // the behaviour of the NATS-based conflict subscription.
-                                // This enables real-time conflict warnings via the Watch
-                                // stream even when NATS is unavailable (e.g. stdio transport).
-                                if event.event_type.starts_with("conflict.")
-                                    && !event.details.is_empty()
-                                {
-                                    if let Some(warning_text) =
-                                        format_conflict_warning(&event.details)
-                                    {
-                                        let mut warnings = pending_warnings_for_watch.lock().await;
-                                        let w = warnings
-                                            .entry(session_id_for_task.clone())
-                                            .or_default();
-                                        if w.len() < 50 && !w.contains(&warning_text) {
-                                            w.push(warning_text);
-                                        }
-                                        continue; // Don't also add to watch events
-                                    }
-                                }
-                                let mut map = pending_events.lock().await;
-                                let events = map.entry(session_id_for_task.clone()).or_default();
-                                // Deduplicate by event_id.
-                                let already_exists = !event.event_id.is_empty()
-                                    && events.iter().any(|e| e.event_id == event.event_id);
-                                if !already_exists {
-                                    if events.len() < 100 {
-                                        events.push(event);
-                                        // Wake up any blocking dk_watch call
-                                        drop(map); // release lock before notify
-                                        if let Some(notify) = watch_notify_for_task
-                                            .lock()
-                                            .await
-                                            .get(&session_id_for_task)
-                                        {
-                                            notify.notify_one();
-                                        }
-                                    } else {
-                                        tracing::warn!(
-                                            session_id = %session_id_for_task,
-                                            "Watch event buffer full (100), dropping event"
-                                        );
-                                        let mut flags = overflow_flag.lock().await;
-                                        flags.insert(session_id_for_task.clone(), true);
-                                        drop(flags);
-                                        // Wake blocking dk_watch so it can drain the overflow notice
-                                        if let Some(notify) = watch_notify_for_task
-                                            .lock()
-                                            .await
-                                            .get(&session_id_for_task)
-                                        {
-                                            notify.notify_one();
-                                        }
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                tracing::warn!(
-                                    error = %e,
-                                    session_id = %session_id_for_task,
-                                    "Watch stream error"
-                                );
-                                break;
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        error = %e,
-                        session_id = %session_id_for_task,
-                        "Failed to start Watch stream"
-                    );
-                }
-            }
-        });
+        let watch_handle = tokio::spawn(Self::run_watch_stream(
+            client,
+            session_id_for_task,
+            filter_owned,
+            cancelled,
+            pending_events,
+            pending_warnings_for_watch,
+            watch_notify_for_task,
+            overflow_flag,
+        ));
 
         // Store the task handle. Abort any previous handle for this session.
         {
             let mut tasks = self.watch_tasks.lock().await;
             if let Some(old_handle) = tasks.insert(session_id_owned, watch_handle) {
                 old_handle.abort();
+            }
+        }
+    }
+    #[allow(clippy::too_many_arguments)]
+    async fn run_watch_stream(
+        mut client: crate::grpc::AuthenticatedClient,
+        session_id_for_task: String,
+        filter_owned: String,
+        cancelled: Arc<std::sync::atomic::AtomicBool>,
+        pending_events: Arc<tokio::sync::Mutex<HashMap<String, Vec<crate::WatchEvent>>>>,
+        pending_warnings_for_watch: Arc<tokio::sync::Mutex<HashMap<String, Vec<String>>>>,
+        watch_notify_for_task: Arc<tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Notify>>>>,
+        overflow_flag: Arc<tokio::sync::Mutex<HashMap<String, bool>>>,
+    ) {
+        // repo_id is intentionally empty: the engine scopes the Watch stream
+        // by session_id alone (verified via verify_session_owner in the auth
+        // layer). No cross-tenant leak is possible.
+        let request = crate::WatchRequest {
+            session_id: session_id_for_task.clone(),
+            repo_id: String::new(),
+            filter: filter_owned,
+        };
+
+        match client.watch(request).await {
+            Ok(response) => {
+                let mut stream = response.into_inner();
+                while let Some(result) = stream.next().await {
+                    if cancelled.load(std::sync::atomic::Ordering::Acquire) {
+                        tracing::debug!(
+                            session_id = %session_id_for_task,
+                            "Watch stream task cancelled"
+                        );
+                        break;
+                    }
+                    match result {
+                        Ok(event) => {
+                            // Route conflict events to pending_warnings for higher
+                            // visibility (prepended to every tool response), matching
+                            // the behaviour of the NATS-based conflict subscription.
+                            // This enables real-time conflict warnings via the Watch
+                            // stream even when NATS is unavailable (e.g. stdio transport).
+                            if event.event_type.starts_with("conflict.")
+                                && !event.details.is_empty()
+                            {
+                                if let Some(warning_text) = format_conflict_warning(&event.details)
+                                {
+                                    let mut warnings = pending_warnings_for_watch.lock().await;
+                                    let w =
+                                        warnings.entry(session_id_for_task.clone()).or_default();
+                                    if w.len() < 50 && !w.contains(&warning_text) {
+                                        w.push(warning_text);
+                                    }
+                                    continue; // Don't also add to watch events
+                                }
+                            }
+                            let mut map = pending_events.lock().await;
+                            let events = map.entry(session_id_for_task.clone()).or_default();
+                            // Deduplicate by event_id.
+                            let already_exists = !event.event_id.is_empty()
+                                && events.iter().any(|e| e.event_id == event.event_id);
+                            if !already_exists {
+                                if events.len() < 100 {
+                                    events.push(event);
+                                    // Wake up any blocking dk_watch call
+                                    drop(map); // release lock before notify
+                                    if let Some(notify) =
+                                        watch_notify_for_task.lock().await.get(&session_id_for_task)
+                                    {
+                                        notify.notify_one();
+                                    }
+                                } else {
+                                    tracing::warn!(
+                                        session_id = %session_id_for_task,
+                                        "Watch event buffer full (100), dropping event"
+                                    );
+                                    let mut flags = overflow_flag.lock().await;
+                                    flags.insert(session_id_for_task.clone(), true);
+                                    drop(flags);
+                                    // Wake blocking dk_watch so it can drain the overflow notice
+                                    if let Some(notify) =
+                                        watch_notify_for_task.lock().await.get(&session_id_for_task)
+                                    {
+                                        notify.notify_one();
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                error = %e,
+                                session_id = %session_id_for_task,
+                                "Watch stream error"
+                            );
+                            break;
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    session_id = %session_id_for_task,
+                    "Failed to start Watch stream"
+                );
             }
         }
     }
@@ -4028,65 +4041,75 @@ async fn run_local_sql_impl(params: RunLocalSqlParams) -> Result<CallToolResult,
     // Resolve the source: either a path on disk, an inline blob (which we
     // spool to a temp file so chDB's `file()` can read it), or `None`
     // (standalone SQL like `SELECT 1`).
-    let resolved_path: Option<std::path::PathBuf> = match source {
-        None => None,
-        Some(LocalSqlSource { path: Some(p), .. }) => Some(std::path::PathBuf::from(p)),
-        Some(LocalSqlSource {
-            path: None,
-            data: Some(data),
-            format,
-        }) => {
-            // Spool inline data to <cache>/dkod/local-sql-inputs/<uuid>.<ext>.
-            let ext = match format
-                .as_deref()
-                .unwrap_or("csv")
-                .to_ascii_lowercase()
-                .as_str()
-            {
-                "parquet" => "parquet",
-                "json" | "jsoneachrow" => "jsonl",
-                _ => "csv",
-            };
-            let dir = dirs::cache_dir()
-                .ok_or_else(|| {
-                    McpError::internal_error("no cache dir available for inline data spool", None)
-                })?
-                .join("dkod")
-                .join("local-sql-inputs");
-            std::fs::create_dir_all(&dir).map_err(|e| {
-                McpError::internal_error(format!("failed to create spool dir: {e}"), None)
-            })?;
-            let path = dir.join(format!("{}.{}", uuid::Uuid::new_v4(), ext));
-            let mut f = std::fs::File::create(&path).map_err(|e| {
-                McpError::internal_error(format!("failed to spool inline data: {e}"), None)
-            })?;
-            f.write_all(data.as_bytes()).map_err(|e| {
-                McpError::internal_error(format!("failed to write spool data: {e}"), None)
-            })?;
-            Some(path)
-        }
-        Some(LocalSqlSource {
-            path: None,
-            data: None,
-            ..
-        }) => {
-            return Err(McpError::invalid_params(
-                "`source` must include either `path` or `data`",
-                None,
-            ));
-        }
-    };
+    let (resolved_path, explicit_format): (Option<std::path::PathBuf>, Option<String>) =
+        match source {
+            None => (None, None),
+            Some(LocalSqlSource {
+                path: Some(p),
+                format,
+                ..
+            }) => (Some(std::path::PathBuf::from(p)), format),
+            Some(LocalSqlSource {
+                path: None,
+                data: Some(data),
+                format,
+            }) => {
+                // Spool inline data to <cache>/dkod/local-sql-inputs/<uuid>.<ext>.
+                let ext = match format
+                    .as_deref()
+                    .unwrap_or("csv")
+                    .to_ascii_lowercase()
+                    .as_str()
+                {
+                    "parquet" => "parquet",
+                    "json" | "jsoneachrow" => "jsonl",
+                    _ => "csv",
+                };
+                let dir = dirs::cache_dir()
+                    .ok_or_else(|| {
+                        McpError::internal_error(
+                            "no cache dir available for inline data spool",
+                            None,
+                        )
+                    })?
+                    .join("dkod")
+                    .join("local-sql-inputs");
+                std::fs::create_dir_all(&dir).map_err(|e| {
+                    McpError::internal_error(format!("failed to create spool dir: {e}"), None)
+                })?;
+                let path = dir.join(format!("{}.{}", uuid::Uuid::new_v4(), ext));
+                let mut f = std::fs::File::create(&path).map_err(|e| {
+                    McpError::internal_error(format!("failed to spool inline data: {e}"), None)
+                })?;
+                f.write_all(data.as_bytes()).map_err(|e| {
+                    McpError::internal_error(format!("failed to write spool data: {e}"), None)
+                })?;
+                (Some(path), None) // format already encoded in extension
+            }
+            Some(LocalSqlSource {
+                path: None,
+                data: None,
+                ..
+            }) => {
+                return Err(McpError::invalid_params(
+                    "`source` must include either `path` or `data`",
+                    None,
+                ));
+            }
+        };
 
-    // Pick the right helper based on file extension or explicit `format`.
-    // The `format` field on `LocalSqlSource` overrides extension sniffing.
-    let format_hint = match resolved_path.as_ref() {
-        Some(p) => p
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_ascii_lowercase(),
-        None => String::new(),
-    };
+    // Pick the right helper based on explicit `format` (if caller supplied one)
+    // falling back to file extension sniffing.
+    let format_hint = explicit_format
+        .map(|f| f.to_ascii_lowercase())
+        .or_else(|| {
+            resolved_path
+                .as_ref()?
+                .extension()?
+                .to_str()
+                .map(|s| s.to_ascii_lowercase())
+        })
+        .unwrap_or_default();
 
     let output = tokio::task::spawn_blocking(move || -> dk_embedded_ch::Result<_> {
         match resolved_path.as_ref() {

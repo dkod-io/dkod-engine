@@ -195,16 +195,12 @@ async fn resume_terminal_changeset_returns_abandoned(pool: PgPool) {
 ///
 /// This test requires the symbol to already be in A's graph (written to the
 /// overlay + parsed before strand) AND for session B to hold the lock in the
-/// shared ClaimTracker. Because the overlay is empty at DB-level in this test
-/// setup (no session_overlay_files rows inserted), the Contended path cannot
-/// be triggered via `reindex_from_overlay` alone. The test is therefore marked
-/// `#[ignore]` and left as a placeholder for when a helper exists that writes
-/// overlay rows to the DB.
+/// shared ClaimTracker. We manually insert overlay rows into the DB to
+/// simulate a workspace that was stranded with in-flight changes.
 ///
 /// To run when a DB-overlay helper is available:
-///   DATABASE_URL=... cargo test -p dk-engine resume_contended_stays_stranded -- --ignored
+///   DATABASE_URL=... cargo test -p dk-engine resume_contended_stays_stranded
 #[sqlx::test]
-#[ignore]
 async fn resume_contended_stays_stranded(pool: PgPool) {
     use dk_core::SymbolKind;
 
@@ -247,11 +243,30 @@ async fn resume_contended_stays_stranded(pool: PgPool) {
         .await
         .unwrap();
 
-    // TODO: insert overlay rows for `src/lib.rs` in the DB for workspace A
+    // 4. Insert overlay rows for `src/lib.rs` in the DB for workspace A
     // so that reindex_from_overlay picks up `conflict_fn` and tries to
     // re-acquire — that triggers the Contended path.
+    let workspace_id: Uuid =
+        sqlx::query_scalar("SELECT id FROM session_workspaces WHERE session_id = $1")
+            .bind(dead_session)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
 
-    // 4. Resume A — with overlay rows present this should return Contended.
+    sqlx::query(
+        "INSERT INTO session_overlay_files (workspace_id, file_path, content, content_hash, change_type)
+         VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(workspace_id)
+    .bind("src/lib.rs")
+    .bind(b"pub fn conflict_fn() {}".as_slice())
+    .bind("dummy-hash")
+    .bind("modified")
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // 5. Resume A — with overlay rows present this should return Contended.
     let new_session = Uuid::new_v4();
     let result = mgr
         .resume(&dead_session, new_session, "agent-test")
@@ -262,7 +277,7 @@ async fn resume_contended_stays_stranded(pool: PgPool) {
         "expected ResumeResult::Contended, got {result:?}"
     );
 
-    // 5. The original dead_session row should still be stranded after the failed resume.
+    // 6. The original dead_session row should still be stranded after the failed resume.
     // The new_session was never fully committed; we're verifying the original stranded row
     // stayed stranded (strand() is idempotent and re-strand on contention is a no-op here).
     let stranded_at: Option<chrono::DateTime<chrono::Utc>> =

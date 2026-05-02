@@ -14,11 +14,11 @@ from dkod.tools import dkod_tools, dispatch_tool
 # ── Descriptor tests ─────────────────────────────────────────────────
 
 
-def test_dkod_tools_returns_six_tools() -> None:
-    """dkod_tools() returns exactly 6 tools with the expected names."""
+def test_dkod_tools_returns_all_tools() -> None:
+    """dkod_tools() returns all tools with the expected names."""
     tools = dkod_tools()
 
-    assert len(tools) == 6
+    assert len(tools) == 9
     names = {t["name"] for t in tools}
     assert names == {
         "dkod_connect",
@@ -27,6 +27,9 @@ def test_dkod_tools_returns_six_tools() -> None:
         "dkod_write_file",
         "dkod_submit",
         "dkod_session_status",
+        "dkod_list_files",
+        "dkod_merge",
+        "dkod_verify",
     }
 
 

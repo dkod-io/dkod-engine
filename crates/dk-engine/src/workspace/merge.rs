@@ -110,8 +110,8 @@ pub fn merge_workspace(
             path.as_str(),
             git_repo
                 .read_tree_entry(&workspace.base_commit, path)
-                .map(|(c, _)| c)
-                .ok(),
+                .ok()
+                .map(|(c, _)| c),
         );
     }
 
@@ -121,8 +121,8 @@ pub fn merge_workspace(
             path.as_str(),
             git_repo
                 .read_tree_entry(&head_hash, path)
-                .map(|(c, _)| c)
-                .ok(),
+                .ok()
+                .map(|(c, _)| c),
         );
     }
 
