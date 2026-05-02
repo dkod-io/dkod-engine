@@ -35,7 +35,11 @@ fn suggest(finding_index: usize, finding: &Finding) -> Option<Suggestion> {
         ),
         "no-unwrap-added" => (
             "Replace .unwrap() with ? operator or .expect(\"reason\")".to_string(),
-            Some(".expect(\"TODO: add error context\")".to_string()),
+            Some(format!(
+                ".expect(\"failed to unwrap at {}:{}\")",
+                finding.file_path.as_deref().unwrap_or("unknown"),
+                finding.line.unwrap_or(0)
+            )),
         ),
         "error-handling-preserved" => (
             "Restore the Result return type to maintain error handling".to_string(),
