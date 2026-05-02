@@ -1,0 +1,11 @@
+🎯 **What:** The code health issue addressed
+Implemented batch fetching of call graph edges and symbols to resolve a TODO(perf) item in `crates/dk-engine/src/tool_ops.rs`. Replaced N sequential `get_call_graph` queries with a single set of batch queries.
+
+💡 **Why:** How this improves maintainability
+The original code looped over `symbols` and executed individual SQL queries for each symbol's callers and callees, resulting in an N+1 query problem. By adding `find_callers_batch`, `find_callees_batch`, and `get_call_graph_batch`, the code now efficiently queries the database using `WHERE ... = ANY($1)`. This greatly enhances performance and maintainability by keeping network roundtrips flat regardless of the number of symbols.
+
+✅ **Verification:** How you confirmed the change is safe
+Ran `cargo clippy --workspace` to ensure no lint warnings, `cargo fmt` to apply formatting rules, and `cargo test -p dk-engine` to ensure the logic and behaviour remain unchanged. The tests succeeded (except for a pre-existing flaky test related to `DATABASE_URL` setup mentioned in memory context).
+
+✨ **Result:** The improvement achieved
+Successfully removed the TODO, and `tool_read_file` logic now takes full advantage of batch queries, leading to better database throughput and lower execution time.

@@ -463,6 +463,24 @@ impl Engine {
         Ok((callers, callees))
     }
 
+    /// Retrieve the call graph neighbourhood for multiple symbols.
+    ///
+    /// Returns `(caller_edges, callee_edges)` which can then be resolved manually,
+    /// or we can use `get_by_ids` for all at once.
+    pub async fn get_call_graph_batch(
+        &self,
+        _repo_id: RepoId,
+        symbol_ids: &[SymbolId],
+    ) -> Result<(Vec<CallEdge>, Vec<CallEdge>)> {
+        let caller_edges = self.call_graph_store.find_callers_batch(symbol_ids).await?;
+        let callee_edges = self.call_graph_store.find_callees_batch(symbol_ids).await?;
+        Ok((caller_edges, callee_edges))
+    }
+
+    pub async fn get_symbols_by_ids(&self, ids: &[SymbolId]) -> Result<Vec<Symbol>> {
+        self.symbol_store.get_by_ids(ids).await
+    }
+
     /// Produce a high-level summary of the indexed codebase.
     ///
     /// Queries the symbols table for distinct file extensions (→ languages),

@@ -108,6 +108,50 @@ impl CallGraphStore {
         Ok(rows.into_iter().map(CallEdgeRow::into_call_edge).collect())
     }
 
+    /// Find all edges where the given symbols are the callee (i.e. who calls these symbols).
+    pub async fn find_callers_batch(
+        &self,
+        symbol_ids: &[SymbolId],
+    ) -> dk_core::Result<Vec<CallEdge>> {
+        if symbol_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let rows = sqlx::query_as::<_, CallEdgeRow>(
+            r#"
+            SELECT id, repo_id, caller_id, callee_id, kind
+            FROM call_edges
+            WHERE callee_id = ANY($1)
+            "#,
+        )
+        .bind(symbol_ids)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows.into_iter().map(CallEdgeRow::into_call_edge).collect())
+    }
+
+    /// Find all edges where the given symbols are the caller (i.e. what do these symbols call).
+    pub async fn find_callees_batch(
+        &self,
+        symbol_ids: &[SymbolId],
+    ) -> dk_core::Result<Vec<CallEdge>> {
+        if symbol_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let rows = sqlx::query_as::<_, CallEdgeRow>(
+            r#"
+            SELECT id, repo_id, caller_id, callee_id, kind
+            FROM call_edges
+            WHERE caller_id = ANY($1)
+            "#,
+        )
+        .bind(symbol_ids)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows.into_iter().map(CallEdgeRow::into_call_edge).collect())
+    }
+
     /// Delete all call edges where any involved symbol is in the given file.
     /// This deletes edges where the file's symbols appear as either caller OR
     /// callee, which is required before deleting the symbols themselves —

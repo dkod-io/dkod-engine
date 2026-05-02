@@ -321,18 +321,6 @@ impl Engine {
                 None
             };
 
-            // TODO(perf): Batch-fetch call graph edges for all symbol IDs in a
-            // single query instead of N sequential get_call_graph calls.
-            let (callers, callees) = if include_call_graph {
-                let (c, e) = self.get_call_graph(repo_id, sym.id).await?;
-                (
-                    c.iter().map(|s| s.qualified_name.clone()).collect(),
-                    e.iter().map(|s| s.qualified_name.clone()).collect(),
-                )
-            } else {
-                (vec![], vec![])
-            };
-
             if let Some(ref src) = source {
                 total_chars += src.len() as u64;
             }
@@ -344,9 +332,46 @@ impl Engine {
                 file_path: sym.file_path.to_string_lossy().to_string(),
                 signature: sym.signature.clone(),
                 source,
-                callers,
-                callees,
+                callers: vec![],
+                callees: vec![],
             });
+        }
+
+        if include_call_graph && !symbols.is_empty() {
+            let symbol_ids: Vec<_> = symbols.iter().map(|s| s.id).collect();
+            let (caller_edges, callee_edges) =
+                self.get_call_graph_batch(repo_id, &symbol_ids).await?;
+
+            let mut related_ids = Vec::new();
+            related_ids.extend(caller_edges.iter().map(|e| e.caller));
+            related_ids.extend(callee_edges.iter().map(|e| e.callee));
+            related_ids.sort_unstable();
+            related_ids.dedup();
+
+            let related_symbols = self.get_symbols_by_ids(&related_ids).await?;
+            let symbol_map: HashMap<_, _> =
+                related_symbols.into_iter().map(|s| (s.id, s)).collect();
+
+            for (i, sym) in symbols.iter().enumerate() {
+                let mut callers = vec![];
+                let mut callees = vec![];
+                for edge in &caller_edges {
+                    if edge.callee == sym.id {
+                        if let Some(s) = symbol_map.get(&edge.caller) {
+                            callers.push(s.qualified_name.clone());
+                        }
+                    }
+                }
+                for edge in &callee_edges {
+                    if edge.caller == sym.id {
+                        if let Some(s) = symbol_map.get(&edge.callee) {
+                            callees.push(s.qualified_name.clone());
+                        }
+                    }
+                }
+                result_symbols[i].callers = callers;
+                result_symbols[i].callees = callees;
+            }
         }
 
         let token_count = (total_chars / 4) as u32;
