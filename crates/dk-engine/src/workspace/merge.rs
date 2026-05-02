@@ -108,7 +108,10 @@ pub fn merge_workspace(
     for path in &paths {
         base_entries.insert(
             path.as_str(),
-            git_repo.read_tree_entry(&workspace.base_commit, path).ok(),
+            git_repo
+                .read_tree_entry(&workspace.base_commit, path)
+                .map(|(c, _)| c)
+                .ok(),
         );
     }
 
@@ -116,7 +119,10 @@ pub fn merge_workspace(
     for path in &paths {
         head_entries.insert(
             path.as_str(),
-            git_repo.read_tree_entry(&head_hash, path).ok(),
+            git_repo
+                .read_tree_entry(&head_hash, path)
+                .map(|(c, _)| c)
+                .ok(),
         );
     }
 

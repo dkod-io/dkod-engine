@@ -7,7 +7,7 @@
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
 use dk_core::{AgentId, RepoId, Result};
-use sha2::{Digest, Sha256};
+
 use sqlx::PgPool;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -269,11 +269,7 @@ impl SessionWorkspace {
         }
 
         // Fall through to base tree.
-        // TODO(perf): The git tree entry already stores a content-addressable
-        // OID (blob hash). If GitRepository exposed the entry OID we could use
-        // it directly instead of recomputing SHA-256 on every base-tree read.
-        let content = git_repo.read_tree_entry(&self.base_commit, path)?;
-        let hash = format!("{:x}", Sha256::digest(&content));
+        let (content, hash) = git_repo.read_tree_entry(&self.base_commit, path)?;
 
         Ok(FileReadResult {
             content,

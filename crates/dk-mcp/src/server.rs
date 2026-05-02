@@ -4037,7 +4037,12 @@ async fn run_local_sql_impl(params: RunLocalSqlParams) -> Result<CallToolResult,
             format,
         }) => {
             // Spool inline data to <cache>/dkod/local-sql-inputs/<uuid>.<ext>.
-            let ext = match format.as_deref().unwrap_or("csv").to_ascii_lowercase().as_str() {
+            let ext = match format
+                .as_deref()
+                .unwrap_or("csv")
+                .to_ascii_lowercase()
+                .as_str()
+            {
                 "parquet" => "parquet",
                 "json" | "jsoneachrow" => "jsonl",
                 _ => "csv",
@@ -4085,10 +4090,9 @@ async fn run_local_sql_impl(params: RunLocalSqlParams) -> Result<CallToolResult,
 
     let output = tokio::task::spawn_blocking(move || -> dk_embedded_ch::Result<_> {
         match resolved_path.as_ref() {
-            None => dk_embedded_ch::execute(
-                &sql,
-                dk_embedded_ch::format::OutputFormat::JSONEachRow,
-            ),
+            None => {
+                dk_embedded_ch::execute(&sql, dk_embedded_ch::format::OutputFormat::JSONEachRow)
+            }
             Some(path) => match format_hint.as_str() {
                 "parquet" => dk_embedded_ch::query_parquet(path, &sql),
                 "jsonl" | "json" | "ndjson" => dk_embedded_ch::query_json_each_row(path, &sql),
