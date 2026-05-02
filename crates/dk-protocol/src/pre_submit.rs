@@ -78,7 +78,10 @@ pub async fn handle_pre_submit_check(
     for path in &paths {
         base_entries.insert(
             path.as_str(),
-            git_repo.read_tree_entry(&ws.base_commit, path).ok(),
+            git_repo
+                .read_tree_entry(&ws.base_commit, path)
+                .ok()
+                .map(|(c, _)| c),
         );
     }
 
@@ -86,7 +89,10 @@ pub async fn handle_pre_submit_check(
     for path in &paths {
         head_entries.insert(
             path.as_str(),
-            git_repo.read_tree_entry(&head_hash, path).ok(),
+            git_repo
+                .read_tree_entry(&head_hash, path)
+                .ok()
+                .map(|(c, _)| c),
         );
     }
 

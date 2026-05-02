@@ -14,8 +14,8 @@ from dkod.tools import dkod_tools, dispatch_tool
 # ── Descriptor tests ─────────────────────────────────────────────────
 
 
-def test_dkod_tools_returns_six_tools() -> None:
-    """dkod_tools() returns exactly 9 tools with the expected names."""
+def test_dkod_tools_returns_all_tools() -> None:
+    """dkod_tools() returns all tools with the expected names."""
     tools = dkod_tools()
 
     assert len(tools) == 9
@@ -28,8 +28,8 @@ def test_dkod_tools_returns_six_tools() -> None:
         "dkod_submit",
         "dkod_session_status",
         "dkod_list_files",
-        "dkod_verify",
         "dkod_merge",
+        "dkod_verify",
     }
 
 

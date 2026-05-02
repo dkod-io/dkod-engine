@@ -1,9 +1,5 @@
 """Stateful session wrapping Connect/Context/Submit Agent Protocol RPCs."""
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
-
 import grpc
 
 from dkod._generated.dkod.v1 import agent_pb2, agent_pb2_grpc
@@ -15,9 +11,6 @@ from dkod.models import (
     SubmitResult,
     _CONTEXT_DEPTH_TO_PROTO,
 )
-
-if TYPE_CHECKING:
-    pass
 
 
 class DkodSession:
@@ -168,7 +161,7 @@ class DkodSession:
         """Close the underlying gRPC channel."""
         self._channel.close()
 
-    def __enter__(self) -> DkodSession:
+    def __enter__(self) -> "DkodSession":
         return self
 
     def __exit__(self, *exc: object) -> None:

@@ -69,7 +69,10 @@ pub async fn handle_file_write(
             .get_repo(&session.codebase)
             .await
             .map_err(|e| Status::internal(format!("Repo error: {e}")))?;
-        match git_repo.read_tree_entry(&ws.base_commit, &req.path) {
+        match git_repo
+            .read_tree_entry(&ws.base_commit, &req.path)
+            .map(|(c, _)| c)
+        {
             Ok(bytes) => (rid, false, bytes),
             Err(e) => {
                 // File not in base tree — treat as new. Log the error in case
