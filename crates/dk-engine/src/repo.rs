@@ -454,19 +454,11 @@ impl Engine {
         let caller_edges = self.call_graph_store.find_callers(symbol_id).await?;
         let callee_edges = self.call_graph_store.find_callees(symbol_id).await?;
 
-        let mut callers = Vec::with_capacity(caller_edges.len());
-        for edge in &caller_edges {
-            if let Some(sym) = self.symbol_store.get_by_id(edge.caller).await? {
-                callers.push(sym);
-            }
-        }
+        let caller_ids: Vec<SymbolId> = caller_edges.iter().map(|e| e.caller).collect();
+        let callee_ids: Vec<SymbolId> = callee_edges.iter().map(|e| e.callee).collect();
 
-        let mut callees = Vec::with_capacity(callee_edges.len());
-        for edge in &callee_edges {
-            if let Some(sym) = self.symbol_store.get_by_id(edge.callee).await? {
-                callees.push(sym);
-            }
-        }
+        let callers = self.symbol_store.get_by_ids(&caller_ids).await?;
+        let callees = self.symbol_store.get_by_ids(&callee_ids).await?;
 
         Ok((callers, callees))
     }
