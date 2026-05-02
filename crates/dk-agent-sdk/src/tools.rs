@@ -4,14 +4,14 @@
 //! mechanism. These definitions can be passed directly to the Messages API
 //! `tools=` parameter, or loaded from the generated `dkod-tools.json` manifest.
 
+use std::sync::LazyLock;
+
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::error::Result;
 use crate::session::Session;
 use crate::types::{Change, ContextResult, Depth};
-
-const ALLOWED_CALLER: &str = "code_execution_20260120";
 
 /// A single tool definition in Anthropic's tool format.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,229 +22,14 @@ pub struct ToolDefinition {
     pub allowed_callers: Vec<String>,
 }
 
-/// Returns all 6 dkod tool definitions for programmatic calling.
+static TOOLS: LazyLock<Vec<ToolDefinition>> = LazyLock::new(|| {
+    let yaml = include_str!("tools.yaml");
+    serde_yml::from_str(yaml).expect("tools.yaml is valid")
+});
+
+/// Returns all 9 dkod tool definitions for programmatic calling.
 pub fn tool_definitions() -> Vec<ToolDefinition> {
-    vec![
-        ToolDefinition {
-            name: "dkod_connect".into(),
-            description: concat!(
-                "Establish an isolated session workspace on a dkod repository. ",
-                "Returns a session_id, base_commit hash, codebase summary ",
-                "(languages, modules, symbol count), and count of other active ",
-                "sessions. The session workspace is automatically isolated — ",
-                "changes made in this session are invisible to other sessions ",
-                "until merged. Response is JSON: {session_id, base_commit, ",
-                "codebase_summary: {languages, total_symbols, total_files}, ",
-                "active_sessions}."
-            )
-            .into(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "codebase": {
-                        "type": "string",
-                        "description": "Repository identifier: 'org/repo'"
-                    },
-                    "intent": {
-                        "type": "string",
-                        "description": "What this agent session intends to accomplish"
-                    },
-                    "mode": {
-                        "type": "string",
-                        "enum": ["ephemeral", "persistent"],
-                        "description": "Ephemeral (default): auto-cleanup on disconnect. Persistent: survives disconnect for later resume."
-                    }
-                },
-                "required": ["codebase", "intent"]
-            }),
-            allowed_callers: vec![ALLOWED_CALLER.into()],
-        },
-        ToolDefinition {
-            name: "dkod_context".into(),
-            description: concat!(
-                "Query semantic context from the codebase. Returns symbols ",
-                "(functions, classes, types) matching the query, with signatures, ",
-                "file locations, call graph edges, and associated tests. ",
-                "Response is JSON: {symbols: [{name, qualified_name, kind, ",
-                "file_path, signature, source, callers, callees}], token_count, ",
-                "freshness}. Results reflect this session's workspace (including ",
-                "uncommitted local changes)."
-            )
-            .into(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "session_id": {
-                        "type": "string"
-                    },
-                    "query": {
-                        "type": "string",
-                        "description": "Natural language or structured query: 'All functions that handle user authentication' or 'symbol:authenticate_user'"
-                    },
-                    "depth": {
-                        "type": "string",
-                        "enum": ["signatures", "full", "call_graph"],
-                        "description": "signatures: names + types only. full: complete source. call_graph: signatures + caller/callee edges."
-                    },
-                    "include_tests": {
-                        "type": "boolean"
-                    },
-                    "max_tokens": {
-                        "type": "integer",
-                        "description": "Cap response size in tokens"
-                    }
-                },
-                "required": ["session_id", "query"]
-            }),
-            allowed_callers: vec![ALLOWED_CALLER.into()],
-        },
-        ToolDefinition {
-            name: "dkod_read_file".into(),
-            description: concat!(
-                "Read a file from this session's workspace. Returns the session's ",
-                "view: if the file was modified in this session, returns the ",
-                "modified version; otherwise returns the base version. Response is ",
-                "JSON: {content, hash, modified_in_session}."
-            )
-            .into(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "session_id": { "type": "string" },
-                    "path": { "type": "string" }
-                },
-                "required": ["session_id", "path"]
-            }),
-            allowed_callers: vec![ALLOWED_CALLER.into()],
-        },
-        ToolDefinition {
-            name: "dkod_write_file".into(),
-            description: concat!(
-                "Write a file to this session's workspace overlay. The change is ",
-                "only visible to this session until submitted. Response is JSON: ",
-                "{new_hash, detected_changes: [{symbol_name, change_type}]}."
-            )
-            .into(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "session_id": { "type": "string" },
-                    "path": { "type": "string" },
-                    "content": { "type": "string" }
-                },
-                "required": ["session_id", "path", "content"]
-            }),
-            allowed_callers: vec![ALLOWED_CALLER.into()],
-        },
-        ToolDefinition {
-            name: "dkod_submit".into(),
-            description: concat!(
-                "Submit this session's changes as a semantic changeset for ",
-                "verification and merge. The platform auto-rebases onto current ",
-                "HEAD if the base moved. Response is JSON with one of: ",
-                "{status: 'accepted', version, changeset_id} or ",
-                "{status: 'verification_failed', failures: [{gate, test_name, ",
-                "error, suggestion}]} or {status: 'conflict', conflicts: [{file, ",
-                "symbol, our_change, their_change}]} or {status: 'pending_review', ",
-                "changeset_id}."
-            )
-            .into(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "session_id": { "type": "string" },
-                    "intent": {
-                        "type": "string",
-                        "description": "What this changeset accomplishes"
-                    },
-                    "verify": {
-                        "type": "array",
-                        "items": { "type": "string" },
-                        "description": "Verification gates to run: 'typecheck', 'affected_tests', 'all_tests', 'lint', 'invariants'"
-                    }
-                },
-                "required": ["session_id", "intent"]
-            }),
-            allowed_callers: vec![ALLOWED_CALLER.into()],
-        },
-        ToolDefinition {
-            name: "dkod_session_status".into(),
-            description: concat!(
-                "Get the current state of this session's workspace. Response is ",
-                "JSON: {session_id, base_commit, files_modified, symbols_modified, ",
-                "overlay_size_bytes, active_other_sessions}."
-            )
-            .into(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "session_id": { "type": "string" }
-                },
-                "required": ["session_id"]
-            }),
-            allowed_callers: vec![ALLOWED_CALLER.into()],
-        },
-        ToolDefinition {
-            name: "dkod_list_files".into(),
-            description: concat!(
-                "List files in this session's workspace, optionally filtered by ",
-                "path prefix. Modified files are tagged. Response is JSON: ",
-                "{files: [{path, modified_in_session}], total}."
-            )
-            .into(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "session_id": { "type": "string" },
-                    "prefix": {
-                        "type": "string",
-                        "description": "Optional path prefix filter (e.g. 'src/')"
-                    }
-                },
-                "required": ["session_id"]
-            }),
-            allowed_callers: vec![ALLOWED_CALLER.into()],
-        },
-        ToolDefinition {
-            name: "dkod_verify".into(),
-            description: concat!(
-                "Run verification pipeline (lint, test, type-check) on the ",
-                "session's changeset. Returns step-by-step results. Response is ",
-                "JSON: {changeset_id, passed, steps: [{step_name, status, output, required}]}."
-            )
-            .into(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "session_id": { "type": "string" }
-                },
-                "required": ["session_id"]
-            }),
-            allowed_callers: vec![ALLOWED_CALLER.into()],
-        },
-        ToolDefinition {
-            name: "dkod_merge".into(),
-            description: concat!(
-                "Merge the verified changeset into a Git commit. Session is ",
-                "cleared on success. Changeset must be in 'approved' state. ",
-                "Response is JSON: {commit_hash, merged_version, auto_rebased, ",
-                "auto_rebased_files, conflicts}."
-            )
-            .into(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "session_id": { "type": "string" },
-                    "message": {
-                        "type": "string",
-                        "description": "Optional commit message (auto-generated if omitted)"
-                    }
-                },
-                "required": ["session_id"]
-            }),
-            allowed_callers: vec![ALLOWED_CALLER.into()],
-        },
-    ]
+    TOOLS.clone()
 }
 
 /// Execute a tool call against *session* and return a JSON string result.
