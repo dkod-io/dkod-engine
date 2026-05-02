@@ -134,6 +134,8 @@ impl GitRepository {
             .map_err(|e| Error::Git(format!("failed to lookup '{path}' in {commit_hex}: {e}")))?
             .ok_or_else(|| Error::Git(format!("path '{path}' not found in commit {commit_hex}")))?;
 
+        let entry_oid = entry.oid().to_hex().to_string();
+
         let object = entry
             .object()
             .map_err(|e| Error::Git(format!("failed to read object for '{path}': {e}")))?;
