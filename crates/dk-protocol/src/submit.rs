@@ -71,6 +71,7 @@ pub async fn handle_submit(
             .map(|change| {
                 let exists_in_base = git_repo
                     .read_tree_entry(&base_commit, &change.file_path)
+                    .map(|(c, _)| c)
                     .is_ok();
                 (change, exists_in_base)
             })

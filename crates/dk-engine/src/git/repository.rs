@@ -115,7 +115,7 @@ impl GitRepository {
     ///
     /// Returns the raw bytes of the blob, or an error if the commit / path
     /// does not exist or the entry is not a blob.
-    pub fn read_tree_entry(&self, commit_hex: &str, path: &str) -> Result<Vec<u8>> {
+    pub fn read_tree_entry(&self, commit_hex: &str, path: &str) -> Result<(Vec<u8>, String)> {
         let oid = gix::ObjectId::from_hex(commit_hex.as_bytes())
             .map_err(|e| Error::Git(format!("invalid commit hex '{commit_hex}': {e}")))?;
 
@@ -145,7 +145,7 @@ impl GitRepository {
             )));
         }
 
-        Ok(object.data.clone())
+        Ok((object.data.clone(), entry.oid().to_hex().to_string()))
     }
 
     /// List all files (recursive) in a commit's tree. Returns relative paths
