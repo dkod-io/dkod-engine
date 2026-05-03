@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+publish = false
 description = "dkod Agent SDK — connect AI agents to the dkod platform"
 homepage = "https://dkod.io"
 keywords = ["ai", "agents", "sdk", "code"]

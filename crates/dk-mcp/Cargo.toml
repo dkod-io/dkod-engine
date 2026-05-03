@@ -4,13 +4,21 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+publish = false
 
 [[bin]]
 name = "dk-mcp"
 path = "src/main.rs"
 
 [dependencies]
-rmcp = { version = "0.16", features = ["server", "transport-io"] }
+rmcp = { version = "0.16", features = [
+    "server",
+    "transport-io",
+    "client",
+    "transport-child-process",
+    "transport-streamable-http-client",
+    "transport-streamable-http-client-reqwest",
+] }
 tonic = { version = "0.12", features = ["transport", "tls", "tls-webpki-roots"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 prost = "0.13"
@@ -25,18 +33,27 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 reqwest = { version = "0.12", features = ["json"] }
+http = "1"
 open = "5"
 dirs = "6"
 chrono = { workspace = true }
 async-nats = "0.38"
 async-trait = { workspace = true }
+toml = "0.8"
 dk-runner = { path = "../dk-runner" }
+dk-analytics = { workspace = true }
+# Optional: pulls in chDB (libchdb.so, ~540 MB) for the `dk_run_local_sql`
+# tool. Default off because chDB only ships Linux x86_64 binaries; cross-
+# compile jobs (linux-arm64, darwin-*) would fail to link otherwise. Build
+# with `--features local-sql` on linux-amd64 to enable.
+dk-embedded-ch = { path = "../dk-embedded-ch", optional = true }
 
 [dev-dependencies]
 rmcp = { version = "0.16", features = ["client", "server", "transport-io"] }
 
 [features]
 mock-review = []
+local-sql = ["dep:dk-embedded-ch"]
 
 [build-dependencies]
 tonic-build = "0.12"

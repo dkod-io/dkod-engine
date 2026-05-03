@@ -38,10 +38,7 @@ impl SemanticCheck for NoUnsafeAdded {
                     findings.push(Finding {
                         severity: Severity::Error,
                         check_name: self.name().to_string(),
-                        message: format!(
-                            "unsafe block found at line {}",
-                            line_idx + 1
-                        ),
+                        message: format!("unsafe block found at line {}", line_idx + 1),
                         file_path: Some(file.path.clone()),
                         line: Some((line_idx + 1) as u32),
                         symbol: None,
@@ -202,9 +199,9 @@ pub fn safety_checks() -> Vec<Box<dyn SemanticCheck>> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::checks::{ChangedFile, CheckContext};
     use super::*;
     use crate::findings::Severity;
-    use super::super::checks::{ChangedFile, CheckContext};
 
     fn empty_context() -> CheckContext {
         CheckContext {
@@ -286,7 +283,10 @@ mod tests {
             kind: SymbolKind::Function,
             visibility: Visibility::Public,
             file_path: "src/lib.rs".into(),
-            span: Span { start_byte: 0, end_byte: 100 },
+            span: Span {
+                start_byte: 0,
+                end_byte: 100,
+            },
             signature: Some("fn process() -> Result<(), Error>".into()),
             doc_comment: None,
             parent: None,
@@ -301,7 +301,10 @@ mod tests {
             kind: SymbolKind::Function,
             visibility: Visibility::Public,
             file_path: "src/lib.rs".into(),
-            span: Span { start_byte: 0, end_byte: 80 },
+            span: Span {
+                start_byte: 0,
+                end_byte: 80,
+            },
             signature: Some("fn process() -> ()".into()),
             doc_comment: None,
             parent: None,

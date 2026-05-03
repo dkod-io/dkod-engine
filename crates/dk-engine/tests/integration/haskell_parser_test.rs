@@ -19,9 +19,7 @@ processItems xs = map transform xs
 
 helper x = x + 1
 "#;
-    let analysis = registry
-        .parse_file(Path::new("Main.hs"), source)
-        .unwrap();
+    let analysis = registry.parse_file(Path::new("Main.hs"), source).unwrap();
 
     let names: Vec<&str> = analysis.symbols.iter().map(|s| s.name.as_str()).collect();
     assert!(
@@ -61,9 +59,7 @@ data Tree a = Leaf a | Branch (Tree a) (Tree a)
 
 newtype Wrapper a = Wrap a
 "#;
-    let analysis = registry
-        .parse_file(Path::new("Types.hs"), source)
-        .unwrap();
+    let analysis = registry.parse_file(Path::new("Types.hs"), source).unwrap();
 
     let names: Vec<&str> = analysis.symbols.iter().map(|s| s.name.as_str()).collect();
     assert!(
@@ -82,11 +78,7 @@ newtype Wrapper a = Wrap a
         names
     );
 
-    let color = analysis
-        .symbols
-        .iter()
-        .find(|s| s.name == "Color")
-        .unwrap();
+    let color = analysis.symbols.iter().find(|s| s.name == "Color").unwrap();
     assert_eq!(color.kind, SymbolKind::Struct);
 
     let wrapper = analysis
@@ -143,11 +135,7 @@ type Mapping k v = [(k, v)]
     // the `type_synomym` typo to `type_synonym` — if that happens, these
     // assertions will fail, signalling that haskell_symbols.scm needs
     // updating to match the corrected node name.
-    let name_type = analysis
-        .symbols
-        .iter()
-        .find(|s| s.name == "Name")
-        .unwrap();
+    let name_type = analysis.symbols.iter().find(|s| s.name == "Name").unwrap();
     assert_eq!(
         name_type.kind,
         SymbolKind::TypeAlias,
@@ -180,9 +168,7 @@ import Data.List
 import qualified Data.Map as Map
 import Control.Monad
 "#;
-    let analysis = registry
-        .parse_file(Path::new("Main.hs"), source)
-        .unwrap();
+    let analysis = registry.parse_file(Path::new("Main.hs"), source).unwrap();
 
     assert!(
         analysis.imports.len() >= 3,

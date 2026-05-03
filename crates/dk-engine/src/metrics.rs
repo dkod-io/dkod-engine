@@ -15,20 +15,16 @@ use dashmap::DashMap;
 // ── Labeled counter families ──────────────────────────────────────────────────
 
 /// Workspaces skipped by GC because the pin rule applied, keyed by `reason`.
-static WORKSPACE_PINNED: LazyLock<DashMap<String, AtomicU64>> =
-    LazyLock::new(DashMap::new);
+static WORKSPACE_PINNED: LazyLock<DashMap<String, AtomicU64>> = LazyLock::new(DashMap::new);
 
 /// Workspaces transitioned to stranded state, keyed by `reason`.
-static WORKSPACE_STRANDED: LazyLock<DashMap<String, AtomicU64>> =
-    LazyLock::new(DashMap::new);
+static WORKSPACE_STRANDED: LazyLock<DashMap<String, AtomicU64>> = LazyLock::new(DashMap::new);
 
 /// Resume attempts, keyed by `outcome`.
-static WORKSPACE_RESUMED: LazyLock<DashMap<String, AtomicU64>> =
-    LazyLock::new(DashMap::new);
+static WORKSPACE_RESUMED: LazyLock<DashMap<String, AtomicU64>> = LazyLock::new(DashMap::new);
 
 /// Workspaces permanently abandoned, keyed by `reason`.
-static WORKSPACE_ABANDONED: LazyLock<DashMap<String, AtomicU64>> =
-    LazyLock::new(DashMap::new);
+static WORKSPACE_ABANDONED: LazyLock<DashMap<String, AtomicU64>> = LazyLock::new(DashMap::new);
 
 // ── Gauge ─────────────────────────────────────────────────────────────────────
 

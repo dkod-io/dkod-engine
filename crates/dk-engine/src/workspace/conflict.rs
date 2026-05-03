@@ -40,9 +40,7 @@ pub enum MergeAnalysis {
         merged_content: Vec<u8>,
     },
     /// Overlapping symbol changes that require manual resolution.
-    Conflict {
-        conflicts: Vec<SemanticConflict>,
-    },
+    Conflict { conflicts: Vec<SemanticConflict> },
 }
 
 // ── Analysis ─────────────────────────────────────────────────────────
@@ -250,12 +248,18 @@ mod tests {
 
     #[test]
     fn infer_change_kind_added() {
-        assert_eq!(infer_change_kind("", "fn new() {}"), SymbolChangeKind::Added);
+        assert_eq!(
+            infer_change_kind("", "fn new() {}"),
+            SymbolChangeKind::Added
+        );
     }
 
     #[test]
     fn infer_change_kind_removed() {
-        assert_eq!(infer_change_kind("fn old() {}", ""), SymbolChangeKind::Removed);
+        assert_eq!(
+            infer_change_kind("fn old() {}", ""),
+            SymbolChangeKind::Removed
+        );
     }
 
     #[test]

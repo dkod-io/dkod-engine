@@ -183,6 +183,64 @@ struct StatusParams {
 }
 
 #[derive(Deserialize, JsonSchema)]
+struct ListUpstreamToolsParams {
+    /// Optional server filter. When set, only tools from this upstream are returned.
+    server: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct CallUpstreamParams {
+    /// Tool name. May be prefixed `<server>___<tool>` (in which case `server` is optional)
+    /// or unprefixed (in which case `server` is required).
+    tool: String,
+    /// Upstream server ID from the registry (e.g. `context7`, `supabase`, `linear`).
+    /// Required when `tool` is unprefixed.
+    server: Option<String>,
+    /// Arguments forwarded as the upstream tool's input. Must match its input schema.
+    arguments: Option<serde_json::Map<String, serde_json::Value>>,
+}
+
+/// Inline-data variant or local-path variant for `dk_run_local_sql` inputs.
+///
+/// Either `path` (an absolute or relative path the dk-mcp process can read) or
+/// `data` (raw text content) must be supplied — never both. `data` is handy
+/// for small ad-hoc agent-supplied inputs; `path` avoids round-tripping
+/// large CSV/Parquet/JSON dumps through the MCP transport.
+#[derive(Deserialize, JsonSchema)]
+#[allow(dead_code)] // fields are read only when `local-sql` feature is enabled
+struct LocalSqlSource {
+    /// Local filesystem path to a CSV / Parquet / JSON file.
+    path: Option<String>,
+    /// Inline text content (CSV or JSONEachRow). Ignored if `path` is set.
+    data: Option<String>,
+    /// Source format. One of: `csv`, `parquet`, `json` (alias of `jsoneachrow`).
+    /// Defaults to `csv` when omitted.
+    format: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[allow(dead_code)] // fields are read only when `local-sql` feature is enabled
+struct RunLocalSqlParams {
+    /// SQL query to run via embedded chDB. The literal token `$SOURCE` is
+    /// replaced with the `file('<path>', <format>)` table function for the
+    /// supplied `source` (when one is provided). Without `source`, the SQL is
+    /// executed standalone — useful for `SELECT 1`, `numbers(N)`, etc.
+    sql: String,
+    /// Optional input file or inline text content to query.
+    source: Option<LocalSqlSource>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct ListIntegrationsParams {
+    /// Filter by kind: "mcp" (MCP servers) or "peer" (external binaries).
+    /// When omitted, both kinds are returned.
+    kind: Option<String>,
+    /// Optional category filter (e.g. "db", "docs", "analytics").
+    /// Matches any of the entry's `categories`.
+    category: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
 struct PushParams {
     /// Session ID from dk_connect (required when multiple sessions are active)
     session_id: Option<String>,
@@ -226,6 +284,24 @@ struct ReviewParams {
     session_id: Option<String>,
     /// The changeset ID to get review results for. If omitted, uses the current session's changeset.
     changeset_id: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct PreSubmitCheckParams {
+    /// Session ID from dk_connect (required when multiple sessions are active)
+    session_id: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct DelegateParams {
+    /// Repository name, e.g. 'demo/hello-world'. Must match the parent session's codebase.
+    repo: String,
+    /// What the sub-agent should accomplish
+    intent: String,
+    /// Agent name for the sub-session (auto-generated from the parent if omitted)
+    agent_name: Option<String>,
+    /// Optional parent session ID. Defaults to the currently resolved session.
+    parent_session_id: Option<String>,
 }
 
 /// MCP server that bridges Claude Code to the dkod Agent Protocol via gRPC.
@@ -278,6 +354,10 @@ pub struct DkodMcp {
     /// code review gate is enabled. Cleared on `Drop` so closing the MCP
     /// instance aborts in-flight provider HTTP calls.
     review_tasks: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>>,
+    /// Aggregating gateway over upstream MCP servers from `registry.toml`.
+    /// Populated lazily on first use; configured upstreams (auth_env_vars satisfied,
+    /// launch info present) are mounted with their tools prefixed `<server>___<tool>`.
+    pub gateway: Arc<crate::gateway::Gateway>,
 }
 
 /// Cancel all per-session NATS and Watch tasks when the MCP instance drops
@@ -348,6 +428,7 @@ impl DkodMcp {
             watch_overflow: Arc::new(Mutex::new(HashMap::new())),
             watch_notify: Arc::new(Mutex::new(HashMap::new())),
             review_tasks: Arc::new(Mutex::new(Vec::new())),
+            gateway: Arc::new(crate::gateway::Gateway::new().connect_all().await),
         }
     }
 
@@ -362,7 +443,11 @@ impl DkodMcp {
     /// the Clerk JWT / API key and injects `CurrentUser` into request
     /// extensions. The gRPC calls from this instance use the minted JWT
     /// for server-to-server authentication via the `SessionTokenInterceptor`.
-    pub fn new_for_http(server_addr: String, auth_token: String) -> Self {
+    pub fn new_for_http(
+        server_addr: String,
+        auth_token: String,
+        gateway: Arc<crate::gateway::Gateway>,
+    ) -> Self {
         Self {
             tool_router: Self::tool_router(),
             connection: Arc::new(RwLock::new(SessionState::from_http(
@@ -382,6 +467,7 @@ impl DkodMcp {
             watch_overflow: Arc::new(Mutex::new(HashMap::new())),
             watch_notify: Arc::new(Mutex::new(HashMap::new())),
             review_tasks: Arc::new(Mutex::new(Vec::new())),
+            gateway,
         }
     }
 
@@ -413,6 +499,7 @@ impl DkodMcp {
         server_addr: String,
         auth_token: String,
         shared_sessions: Arc<RwLock<HashMap<String, SessionData>>>,
+        gateway: Arc<crate::gateway::Gateway>,
     ) -> Self {
         Self {
             tool_router: Self::tool_router(),
@@ -433,6 +520,7 @@ impl DkodMcp {
             watch_overflow: Arc::new(Mutex::new(HashMap::new())),
             watch_notify: Arc::new(Mutex::new(HashMap::new())),
             review_tasks: Arc::new(Mutex::new(Vec::new())),
+            gateway,
         }
     }
 
@@ -456,6 +544,7 @@ impl DkodMcp {
             watch_overflow: Arc::new(Mutex::new(HashMap::new())),
             watch_notify: Arc::new(Mutex::new(HashMap::new())),
             review_tasks: Arc::new(Mutex::new(Vec::new())),
+            gateway: Arc::new(crate::gateway::Gateway::new()),
         }
     }
 
@@ -480,15 +569,11 @@ impl DkodMcp {
         let api_base = derive_api_base(&addr);
         let token = crate::auth::resolve_token(&api_base, env_token.as_deref())
             .await
-            .map_err(|e| {
-                McpError::internal_error(format!("auth connect failed: {e}"), None)
-            })?;
+            .map_err(|e| McpError::internal_error(format!("auth connect failed: {e}"), None))?;
 
         let new_client = crate::grpc::connect_with_auth(&addr, token)
             .await
-            .map_err(|e| {
-                McpError::internal_error(format!("gRPC connect failed: {e}"), None)
-            })?;
+            .map_err(|e| McpError::internal_error(format!("gRPC connect failed: {e}"), None))?;
 
         *cached = Some(new_client.clone());
         Ok(new_client)
@@ -836,114 +921,126 @@ impl DkodMcp {
         let overflow_flag = Arc::clone(&self.watch_overflow);
         let pending_warnings_for_watch = Arc::clone(&self.pending_warnings);
         let watch_notify_for_task = Arc::clone(&self.watch_notify);
-        let watch_handle = tokio::spawn(async move {
-            let mut client = client;
-            // repo_id is intentionally empty: the engine scopes the Watch stream
-            // by session_id alone (verified via verify_session_owner in the auth
-            // layer). No cross-tenant leak is possible.
-            let request = crate::WatchRequest {
-                session_id: session_id_for_task.clone(),
-                repo_id: String::new(),
-                filter: filter_owned,
-            };
-
-            match client.watch(request).await {
-                Ok(response) => {
-                    let mut stream = response.into_inner();
-                    while let Some(result) = stream.next().await {
-                        if cancelled.load(std::sync::atomic::Ordering::Acquire) {
-                            tracing::debug!(
-                                session_id = %session_id_for_task,
-                                "Watch stream task cancelled"
-                            );
-                            break;
-                        }
-                        match result {
-                            Ok(event) => {
-                                // Route conflict events to pending_warnings for higher
-                                // visibility (prepended to every tool response), matching
-                                // the behaviour of the NATS-based conflict subscription.
-                                // This enables real-time conflict warnings via the Watch
-                                // stream even when NATS is unavailable (e.g. stdio transport).
-                                if event.event_type.starts_with("conflict.")
-                                    && !event.details.is_empty()
-                                {
-                                    if let Some(warning_text) =
-                                        format_conflict_warning(&event.details)
-                                    {
-                                        let mut warnings =
-                                            pending_warnings_for_watch.lock().await;
-                                        let w = warnings
-                                            .entry(session_id_for_task.clone())
-                                            .or_default();
-                                        if w.len() < 50 && !w.contains(&warning_text) {
-                                            w.push(warning_text);
-                                        }
-                                        continue; // Don't also add to watch events
-                                    }
-                                }
-                                let mut map = pending_events.lock().await;
-                                let events = map.entry(session_id_for_task.clone()).or_default();
-                                // Deduplicate by event_id.
-                                let already_exists = !event.event_id.is_empty()
-                                    && events.iter().any(|e| e.event_id == event.event_id);
-                                if !already_exists {
-                                    if events.len() < 100 {
-                                        events.push(event);
-                                        // Wake up any blocking dk_watch call
-                                        drop(map); // release lock before notify
-                                        if let Some(notify) = watch_notify_for_task
-                                            .lock()
-                                            .await
-                                            .get(&session_id_for_task)
-                                        {
-                                            notify.notify_one();
-                                        }
-                                    } else {
-                                        tracing::warn!(
-                                            session_id = %session_id_for_task,
-                                            "Watch event buffer full (100), dropping event"
-                                        );
-                                        let mut flags = overflow_flag.lock().await;
-                                        flags.insert(session_id_for_task.clone(), true);
-                                        drop(flags);
-                                        // Wake blocking dk_watch so it can drain the overflow notice
-                                        if let Some(notify) = watch_notify_for_task
-                                            .lock()
-                                            .await
-                                            .get(&session_id_for_task)
-                                        {
-                                            notify.notify_one();
-                                        }
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                tracing::warn!(
-                                    error = %e,
-                                    session_id = %session_id_for_task,
-                                    "Watch stream error"
-                                );
-                                break;
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        error = %e,
-                        session_id = %session_id_for_task,
-                        "Failed to start Watch stream"
-                    );
-                }
-            }
-        });
+        let watch_handle = tokio::spawn(Self::run_watch_stream(
+            client,
+            session_id_for_task,
+            filter_owned,
+            cancelled,
+            pending_events,
+            pending_warnings_for_watch,
+            watch_notify_for_task,
+            overflow_flag,
+        ));
 
         // Store the task handle. Abort any previous handle for this session.
         {
             let mut tasks = self.watch_tasks.lock().await;
             if let Some(old_handle) = tasks.insert(session_id_owned, watch_handle) {
                 old_handle.abort();
+            }
+        }
+    }
+    #[allow(clippy::too_many_arguments)]
+    async fn run_watch_stream(
+        mut client: crate::grpc::AuthenticatedClient,
+        session_id_for_task: String,
+        filter_owned: String,
+        cancelled: Arc<std::sync::atomic::AtomicBool>,
+        pending_events: Arc<tokio::sync::Mutex<HashMap<String, Vec<crate::WatchEvent>>>>,
+        pending_warnings_for_watch: Arc<tokio::sync::Mutex<HashMap<String, Vec<String>>>>,
+        watch_notify_for_task: Arc<tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Notify>>>>,
+        overflow_flag: Arc<tokio::sync::Mutex<HashMap<String, bool>>>,
+    ) {
+        // repo_id is intentionally empty: the engine scopes the Watch stream
+        // by session_id alone (verified via verify_session_owner in the auth
+        // layer). No cross-tenant leak is possible.
+        let request = crate::WatchRequest {
+            session_id: session_id_for_task.clone(),
+            repo_id: String::new(),
+            filter: filter_owned,
+        };
+
+        match client.watch(request).await {
+            Ok(response) => {
+                let mut stream = response.into_inner();
+                while let Some(result) = stream.next().await {
+                    if cancelled.load(std::sync::atomic::Ordering::Acquire) {
+                        tracing::debug!(
+                            session_id = %session_id_for_task,
+                            "Watch stream task cancelled"
+                        );
+                        break;
+                    }
+                    match result {
+                        Ok(event) => {
+                            // Route conflict events to pending_warnings for higher
+                            // visibility (prepended to every tool response), matching
+                            // the behaviour of the NATS-based conflict subscription.
+                            // This enables real-time conflict warnings via the Watch
+                            // stream even when NATS is unavailable (e.g. stdio transport).
+                            if event.event_type.starts_with("conflict.")
+                                && !event.details.is_empty()
+                            {
+                                if let Some(warning_text) = format_conflict_warning(&event.details)
+                                {
+                                    let mut warnings = pending_warnings_for_watch.lock().await;
+                                    let w =
+                                        warnings.entry(session_id_for_task.clone()).or_default();
+                                    if w.len() < 50 && !w.contains(&warning_text) {
+                                        w.push(warning_text);
+                                    }
+                                    continue; // Don't also add to watch events
+                                }
+                            }
+                            let mut map = pending_events.lock().await;
+                            let events = map.entry(session_id_for_task.clone()).or_default();
+                            // Deduplicate by event_id.
+                            let already_exists = !event.event_id.is_empty()
+                                && events.iter().any(|e| e.event_id == event.event_id);
+                            if !already_exists {
+                                if events.len() < 100 {
+                                    events.push(event);
+                                    // Wake up any blocking dk_watch call
+                                    drop(map); // release lock before notify
+                                    if let Some(notify) =
+                                        watch_notify_for_task.lock().await.get(&session_id_for_task)
+                                    {
+                                        notify.notify_one();
+                                    }
+                                } else {
+                                    tracing::warn!(
+                                        session_id = %session_id_for_task,
+                                        "Watch event buffer full (100), dropping event"
+                                    );
+                                    let mut flags = overflow_flag.lock().await;
+                                    flags.insert(session_id_for_task.clone(), true);
+                                    drop(flags);
+                                    // Wake blocking dk_watch so it can drain the overflow notice
+                                    if let Some(notify) =
+                                        watch_notify_for_task.lock().await.get(&session_id_for_task)
+                                    {
+                                        notify.notify_one();
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                error = %e,
+                                session_id = %session_id_for_task,
+                                "Watch stream error"
+                            );
+                            break;
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    session_id = %session_id_for_task,
+                    "Failed to start Watch stream"
+                );
             }
         }
     }
@@ -1012,6 +1109,145 @@ impl DkodMcp {
         Ok(CallToolResult::success(vec![Content::text(text)]))
     }
 
+    /// List managed integrations (MCP servers + peer binaries) available to dkod agents.
+    #[tool(
+        description = "List dkod-managed integrations: 11 MCP servers (supabase, redis, vercel, cloudflare-*, context7, deepwiki, amplitude, linear, pinecone) and 7 peer binaries (rtk, grit, gh-aw, icm, mdbook, mcp-clickhouse, houseofagents). Optional kind filter (\"mcp\" | \"peer\") and category filter. Each MCP entry also reports whether it's configured (all auth_env_vars set) in the current environment."
+    )]
+    async fn dk_list_integrations(
+        &self,
+        Parameters(params): Parameters<ListIntegrationsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::registry::Registry;
+
+        let reg = Registry::load_embedded();
+
+        let matches_category = |cats: &[String]| -> bool {
+            match &params.category {
+                None => true,
+                Some(c) => cats.iter().any(|x| x == c),
+            }
+        };
+
+        let include_mcp = matches!(params.kind.as_deref(), None | Some("mcp"));
+        let include_peer = matches!(params.kind.as_deref(), None | Some("peer"));
+
+        let mcps: Vec<_> = if include_mcp {
+            reg.mcp_servers()
+                .filter(|m| matches_category(&m.categories))
+                .map(|m| {
+                    serde_json::json!({
+                        "kind": "mcp",
+                        "name": m.name,
+                        "transport": m.transport,
+                        "categories": m.categories,
+                        "auth_env_vars": m.auth_env_vars,
+                        "homepage": m.homepage,
+                        "description": m.description,
+                        "configured": Registry::is_mcp_configured(m),
+                    })
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        let peers: Vec<_> = if include_peer {
+            reg.peers()
+                .filter(|p| matches_category(&p.categories))
+                .map(|p| {
+                    serde_json::json!({
+                        "kind": "peer",
+                        "name": p.name,
+                        "install": p.install,
+                        "categories": p.categories,
+                        "homepage": p.homepage,
+                        "description": p.description,
+                    })
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        let payload = serde_json::json!({
+            "mcp_count": mcps.len(),
+            "peer_count": peers.len(),
+            "mcp": mcps,
+            "peer": peers,
+        });
+
+        let text = serde_json::to_string_pretty(&payload)
+            .unwrap_or_else(|e| format!("serialization error: {e}"));
+        Ok(CallToolResult::success(vec![Content::text(text)]))
+    }
+
+    /// List the union of tools advertised by all mounted upstream MCP servers.
+    /// Each entry's `name` is prefixed with the upstream's server ID
+    /// (`<server>___<tool>`) so an agent can pass it directly to
+    /// `dk_call_upstream`.
+    #[tool(
+        description = "List all tools exposed by mounted upstream MCP servers (gateway aggregation). Each tool name is prefixed `<server>___<tool>` (e.g. `context7___resolve-library-id`). Pass `server` to filter by upstream. Only upstreams with all `auth_env_vars` satisfied at startup are mounted."
+    )]
+    async fn dk_list_upstream_tools(
+        &self,
+        Parameters(params): Parameters<ListUpstreamToolsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let mut tools = self.gateway.aggregated_tools().await;
+        if let Some(server) = params.server.as_deref() {
+            tools.retain(|t| t.get("server").and_then(|s| s.as_str()) == Some(server));
+        }
+        let mounted = self.gateway.mounted_servers().await;
+        let payload = serde_json::json!({
+            "mounted_servers": mounted,
+            "tool_count": tools.len(),
+            "tools": tools,
+        });
+        let text = serde_json::to_string_pretty(&payload)
+            .unwrap_or_else(|e| format!("serialization error: {e}"));
+        Ok(CallToolResult::success(vec![Content::text(text)]))
+    }
+
+    /// Proxy a `call_tool` request to a mounted upstream MCP server.
+    /// Results larger than 10 KB are written to the local payload cache and
+    /// the response is replaced with a `{ "_offloaded": true, "path": ... }`
+    /// pointer so the chat transcript stays small.
+    #[tool(
+        description = "Proxy a tool call to a mounted upstream MCP server (gateway). `tool` may be prefixed `<server>___<tool>` or unprefixed (in which case `server` is required). `arguments` is forwarded verbatim. Large results (>10 KB) are offloaded to disk and returned as a `{ _offloaded, path }` pointer."
+    )]
+    async fn dk_call_upstream(
+        &self,
+        Parameters(params): Parameters<CallUpstreamParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let CallUpstreamParams {
+            tool,
+            server,
+            arguments,
+        } = params;
+        self.gateway
+            .call_tool(&tool, server.as_deref(), arguments)
+            .await
+            .map_err(|e| McpError::internal_error(format!("upstream call failed: {e}"), None))
+    }
+
+    /// Run an arbitrary ClickHouse-flavoured SQL statement against an
+    /// in-process chDB instance, optionally bound to a local CSV / Parquet /
+    /// JSON file or inline data. Results are returned as JSONEachRow text;
+    /// payloads larger than 10 KB are offloaded to disk and replaced with a
+    /// `{ "_offloaded": true, "path": ... }` pointer so the chat transcript
+    /// stays small.
+    ///
+    /// Only available when `dk-mcp` is built with the `local-sql` feature
+    /// (default off; chDB only ships Linux x86_64 binaries).
+    #[tool(
+        description = "Run a SQL query against an in-process chDB engine. The literal token `$SOURCE` in `sql` is replaced with `file('<path>', <format>)` when `source` is provided. Returns JSONEachRow; large results (>10 KB) are offloaded to disk."
+    )]
+    async fn dk_run_local_sql(
+        &self,
+        Parameters(params): Parameters<RunLocalSqlParams>,
+    ) -> Result<CallToolResult, McpError> {
+        run_local_sql_impl(params).await
+    }
+
     // ── Tool 1: dk_connect ──
 
     /// Connect to a dkod codebase and open an agent session.
@@ -1068,10 +1304,12 @@ impl DkodMcp {
             self.get_client().await?
         };
 
-        let workspace_config = resume_session_id.clone().map(|rsid| crate::WorkspaceConfig {
-            resume_session_id: Some(rsid),
-            ..Default::default()
-        });
+        let workspace_config = resume_session_id
+            .clone()
+            .map(|rsid| crate::WorkspaceConfig {
+                resume_session_id: Some(rsid),
+                ..Default::default()
+            });
 
         let request = crate::ConnectRequest {
             agent_id: "claude-code".to_string(),
@@ -1088,7 +1326,10 @@ impl DkodMcp {
         // stale cache and retry with a fresh device flow — once.
         let response = match &result {
             Err(status) if status.code() == tonic::Code::Unauthenticated => {
-                tracing::warn!("token rejected ({}), clearing cache and re-authenticating", status.message());
+                tracing::warn!(
+                    "token rejected ({}), clearing cache and re-authenticating",
+                    status.message()
+                );
                 crate::auth::clear_cached_token();
                 {
                     let mut conn = self.connection.write().await;
@@ -1098,9 +1339,9 @@ impl DkodMcp {
                 let fresh_token = crate::auth::resolve_token(&api_base, None)
                     .await
                     .map_err(|e| McpError::internal_error(format!("re-auth failed: {e}"), None))?;
-                let new_client = create_client(&addr, fresh_token)
-                    .await
-                    .map_err(|e| McpError::internal_error(format!("gRPC reconnect failed: {e}"), None))?;
+                let new_client = create_client(&addr, fresh_token).await.map_err(|e| {
+                    McpError::internal_error(format!("gRPC reconnect failed: {e}"), None)
+                })?;
                 {
                     let mut cached = self.grpc_client.lock().await;
                     *cached = Some(new_client.clone());
@@ -1117,11 +1358,19 @@ impl DkodMcp {
                 client
                     .connect(retry_request)
                     .await
-                    .map_err(|e| McpError::internal_error(format!("CONNECT RPC failed after re-auth: {e}"), None))?
+                    .map_err(|e| {
+                        McpError::internal_error(
+                            format!("CONNECT RPC failed after re-auth: {e}"),
+                            None,
+                        )
+                    })?
                     .into_inner()
             }
             Err(e) => {
-                return Err(McpError::internal_error(format!("CONNECT RPC failed: {e}"), None));
+                return Err(McpError::internal_error(
+                    format!("CONNECT RPC failed: {e}"),
+                    None,
+                ));
             }
             Ok(_) => result.unwrap().into_inner(),
         };
@@ -1147,7 +1396,12 @@ impl DkodMcp {
         // Tear down any background tasks still running for the resumed (old) session.
         if let Some(ref old_sid) = resume_session_id {
             if old_sid != &response.session_id {
-                if let Some(flag) = self.nats_cancellations.lock().await.remove(old_sid.as_str()) {
+                if let Some(flag) = self
+                    .nats_cancellations
+                    .lock()
+                    .await
+                    .remove(old_sid.as_str())
+                {
                     flag.store(true, std::sync::atomic::Ordering::Release);
                 }
                 if let Some(handle) = self.nats_tasks.lock().await.remove(old_sid.as_str()) {
@@ -1554,7 +1808,8 @@ impl DkodMcp {
         // are disambiguated by the message prefix on the first warning —
         // see `crates/dk-protocol/src/file_write.rs` (STALE_OVERLAY_PREFIX).
         let write_rejected = response.new_hash.is_empty() && !response.conflict_warnings.is_empty();
-        let silent_rejection = response.new_hash.is_empty() && response.conflict_warnings.is_empty();
+        let silent_rejection =
+            response.new_hash.is_empty() && response.conflict_warnings.is_empty();
         let stale_overlay_rejection = write_rejected
             && response
                 .conflict_warnings
@@ -1599,8 +1854,10 @@ impl DkodMcp {
                     text.push_str(&cw.message);
                     text.push('\n');
                 }
-                text.push_str("\nYour write was NOT applied — your session's view predates a \
-                    competing submitted changeset on this file. To proceed:\n");
+                text.push_str(
+                    "\nYour write was NOT applied — your session's view predates a \
+                    competing submitted changeset on this file. To proceed:\n",
+                );
                 text.push_str("  1. dk_file_read(path)  — refresh your view\n");
                 text.push_str("  2. dk_file_write(path, adapted_content)  — retry\n");
             } else if write_rejected {
@@ -1611,9 +1868,11 @@ impl DkodMcp {
                         cw.symbol_name, cw.conflicting_agent
                     ));
                 }
-                text.push_str("\nYour write was NOT applied. Locks now release on the holder's \
+                text.push_str(
+                    "\nYour write was NOT applied. Locks now release on the holder's \
                     next dk_submit, so the typical wait is seconds (not the old merge-bound \
-                    window of minutes). To proceed:\n");
+                    window of minutes). To proceed:\n",
+                );
                 text.push_str("  1. dk_watch(filter: \"symbol.lock.released\", wait: true, timeout_ms: 30000)\n");
                 text.push_str("  2. dk_file_read(path)  — refresh your view\n");
                 text.push_str("  3. dk_file_write(path, adapted_content)  — retry\n");
@@ -1949,12 +2208,20 @@ impl DkodMcp {
             is_pass: bool,
             is_skip: bool,
             required: bool,
+            status: String,
             output: String,
             findings: Vec<crate::Finding>,
             suggestions: Vec<crate::Suggestion>,
+            duration_ms: u64,
         }
 
         let mut collected_steps: Vec<CollectedStep> = Vec::new();
+        // Time since the previous terminal step result (or stream start) —
+        // the Verify proto has no server-side timing field, so we record the
+        // elapsed wall-clock time the client observed between deliveries as
+        // a best-effort duration.
+        let verify_started_at = std::time::Instant::now();
+        let mut last_terminal_at = verify_started_at;
 
         while let Some(step_result) = stream.next().await {
             match step_result {
@@ -1970,15 +2237,21 @@ impl DkodMcp {
                     if status_lower.starts_with("run") {
                         continue;
                     }
+                    let now = std::time::Instant::now();
+                    let duration_ms =
+                        now.saturating_duration_since(last_terminal_at).as_millis() as u64;
+                    last_terminal_at = now;
                     collected_steps.push(CollectedStep {
                         step_name: step.step_name,
                         is_fail,
                         is_pass,
                         is_skip,
                         required: step.required,
+                        status: step.status.clone(),
                         output: step.output,
                         findings: step.findings,
                         suggestions: step.suggestions,
+                        duration_ms,
                     });
                 }
                 Err(e) => {
@@ -2020,9 +2293,7 @@ impl DkodMcp {
         for lang in &lang_order {
             let step_indices = &lang_groups[lang];
             let step_count = step_indices.len();
-            let lang_has_failure = step_indices
-                .iter()
-                .any(|&i| collected_steps[i].is_fail);
+            let lang_has_failure = step_indices.iter().any(|&i| collected_steps[i].is_fail);
 
             if lang_has_failure {
                 langs_failed += 1;
@@ -2071,9 +2342,7 @@ impl DkodMcp {
                             let trimmed = line.trim();
                             if trimmed.starts_with("test result:") {
                                 final_result_line = Some(trimmed);
-                            } else if trimmed.starts_with("test ")
-                                && trimmed.ends_with("FAILED")
-                            {
+                            } else if trimmed.starts_with("test ") && trimmed.ends_with("FAILED") {
                                 failed_count += 1;
                             } else if trimmed.contains("panicked at") {
                                 // Extract the panic message for dedup
@@ -2175,9 +2444,7 @@ impl DkodMcp {
                             } else {
                                 String::new()
                             };
-                            text.push_str(&format!(
-                                "    {total_passed} passed{ignored_note}\n"
-                            ));
+                            text.push_str(&format!("    {total_passed} passed{ignored_note}\n"));
                         } else {
                             let line_count = output.lines().count();
                             text.push_str(&format!("    ({line_count} lines of output)\n"));
@@ -2243,6 +2510,35 @@ impl DkodMcp {
         } else {
             text.push_str("Overall: SOME FAILED\n");
         }
+
+        // Emit a compact JSON block with per-step name/status/duration so
+        // programmatic MCP clients can parse the structured data without
+        // re-reading the human-readable text. Kept as a fenced code block
+        // since rmcp 0.16's `Content::text` is the only stable variant.
+        let json_steps: Vec<serde_json::Value> = collected_steps
+            .iter()
+            .map(|s| {
+                serde_json::json!({
+                    "step_name": s.step_name,
+                    "status": s.status,
+                    "required": s.required,
+                    "duration_ms": s.duration_ms,
+                    "findings": s.findings.len(),
+                    "suggestions": s.suggestions.len(),
+                })
+            })
+            .collect();
+        let steps_json = serde_json::json!({
+            "session_id": session_id,
+            "overall_passed": all_passed && !stream_error_occurred,
+            "total_duration_ms": verify_started_at.elapsed().as_millis() as u64,
+            "steps": json_steps,
+        });
+        text.push_str("\n```json\n");
+        text.push_str(
+            &serde_json::to_string_pretty(&steps_json).unwrap_or_else(|_| "{}".to_string()),
+        );
+        text.push_str("\n```\n");
 
         let prefix = self
             .drain_notifications(&session_id)
@@ -2559,10 +2855,8 @@ impl DkodMcp {
                     .into_iter()
                     .find(|r| r.tier == "deep")
             };
-            let snap = crate::review_gate::build_review_snapshot(
-                deep_review_for_snapshot.as_ref(),
-                &cfg,
-            );
+            let snap =
+                crate::review_gate::build_review_snapshot(deep_review_for_snapshot.as_ref(), &cfg);
 
             let request = crate::ApproveRequest {
                 session_id: session_id.clone(),
@@ -2592,9 +2886,7 @@ impl DkodMcp {
         // sends `override_reason: None, review_snapshot: None` to the engine
         // and produces the standard success text (no `force-approved` marker).
         if force && !cfg.enabled {
-            tracing::info!(
-                "force requested but gate is disabled — proceeding as normal approve"
-            );
+            tracing::info!("force requested but gate is disabled — proceeding as normal approve");
         }
 
         // Deep-review gate (opt-in via DKOD_CODE_REVIEW=1). When enabled, fetch
@@ -2973,9 +3265,7 @@ impl DkodMcp {
         let session_id = session.session_id.clone();
         let filter_str = filter.unwrap_or_else(|| "*".to_string());
         let blocking = wait.unwrap_or(false);
-        let timeout = std::time::Duration::from_millis(
-            timeout_ms.unwrap_or(30_000).min(120_000),
-        );
+        let timeout = std::time::Duration::from_millis(timeout_ms.unwrap_or(30_000).min(120_000));
 
         // Start the watch stream if not already running.
         self.start_watch_stream(&session_id, &filter_str).await;
@@ -3020,9 +3310,9 @@ impl DkodMcp {
                             flags.remove(&session_id).unwrap_or(false)
                         };
                         if !events.is_empty() || overflowed {
-                            return self.format_watch_response(
-                                &session_id, &prefix, events, overflowed,
-                            ).await;
+                            return self
+                                .format_watch_response(&session_id, &prefix, events, overflowed)
+                                .await;
                         }
                         // Spurious wake — return empty
                         return Ok(CallToolResult::success(vec![Content::text(format!(
@@ -3066,7 +3356,8 @@ impl DkodMcp {
             notifiers.insert(session_id.clone(), Arc::new(tokio::sync::Notify::new()));
         }
 
-        self.format_watch_response(&session_id, &prefix, events, overflowed).await
+        self.format_watch_response(&session_id, &prefix, events, overflowed)
+            .await
     }
 
     /// Format watch events into a CallToolResult (shared by blocking and non-blocking paths).
@@ -3101,7 +3392,9 @@ impl DkodMcp {
 
     // ── Tool 14: dk_review ──
 
-    #[tool(description = "Get code review results for a changeset. Returns review score (1-5), findings with severity/category/message/suggestion, and confidence levels. Call after dk_submit to see full review details, or at any time to query an older changeset's review.")]
+    #[tool(
+        description = "Get code review results for a changeset. Returns review score (1-5), findings with severity/category/message/suggestion, and confidence levels. Call after dk_submit to see full review details, or at any time to query an older changeset's review."
+    )]
     async fn dk_review(
         &self,
         Parameters(params): Parameters<ReviewParams>,
@@ -3179,8 +3472,162 @@ impl DkodMcp {
 
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
+    // ── Tool 15: dk_pre_submit_check ──
 
-    // ── Tool 15: dk_abandon ──
+    /// Dry-run conflict detection before dk_submit.
+    #[tool(
+        description = "Dry-run conflict detection for the current session before dk_submit. Returns a preview of potential semantic conflicts with other agents, plus file/symbol counts."
+    )]
+    async fn dk_pre_submit_check(
+        &self,
+        Parameters(params): Parameters<PreSubmitCheckParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let PreSubmitCheckParams {
+            session_id: param_session_id,
+        } = params;
+
+        let session = self.resolve_session(param_session_id.as_deref()).await?;
+        let session_id = session.session_id.clone();
+
+        let mut client = self.get_client().await?;
+
+        let request = crate::PreSubmitCheckRequest {
+            session_id: session_id.clone(),
+        };
+
+        let response = client
+            .pre_submit_check(request)
+            .await
+            .map_err(|e| {
+                McpError::internal_error(format!("PRE_SUBMIT_CHECK RPC failed: {e}"), None)
+            })?
+            .into_inner();
+
+        let mut text = format!(
+            "Pre-submit check for session {session_id}:\n\
+             - files_modified: {}\n\
+             - symbols_changed: {}\n\
+             - has_conflicts: {}\n",
+            response.files_modified, response.symbols_changed, response.has_conflicts,
+        );
+
+        if response.has_conflicts {
+            text.push_str("\nPotential conflicts:\n");
+            for c in &response.potential_conflicts {
+                text.push_str(&format!(
+                    "- {}::{}\n  yours:  {}\n  theirs: {}\n",
+                    c.file_path, c.symbol_name, c.our_change, c.their_change,
+                ));
+            }
+            text.push_str(
+                "\nResolve with dk_resolve or adjust your workspace before calling dk_submit.\n",
+            );
+        } else {
+            text.push_str("\nNo semantic conflicts detected — safe to call dk_submit.\n");
+        }
+
+        let prefix = self
+            .drain_notifications(&session_id)
+            .await
+            .unwrap_or_default();
+        Ok(CallToolResult::success(vec![Content::text(format!(
+            "{prefix}{text}"
+        ))]))
+    }
+
+    // ── Tool 16: dk_delegate ──
+
+    /// Spawn a sub-agent session for divide-and-conquer workflows.
+    #[tool(
+        description = "Open a new agent session on the same codebase so a parent agent can orchestrate parallel sub-tasks. Returns the new session_id (use it as session_id for subsequent dk_* calls). The parent session stays open."
+    )]
+    async fn dk_delegate(
+        &self,
+        Parameters(params): Parameters<DelegateParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let DelegateParams {
+            repo,
+            intent,
+            agent_name,
+            parent_session_id,
+        } = params;
+
+        // Resolve the parent session to seed the sub-session's agent_name when
+        // the caller did not provide one. This keeps sub-sessions discoverable
+        // in the UI by suffixing the parent name rather than inventing a
+        // completely unrelated handle.
+        let parent = self
+            .resolve_session(parent_session_id.as_deref())
+            .await
+            .ok();
+        let parent_id = parent
+            .as_ref()
+            .map(|s| s.session_id.clone())
+            .unwrap_or_default();
+
+        let derived_agent_name = agent_name.unwrap_or_else(|| {
+            // Compact the parent session ID (UUID) to the first 8 chars so the
+            // sub-agent's name stays readable in the concurrency summary.
+            let short = parent_id.chars().take(8).collect::<String>();
+            if short.is_empty() {
+                "dk-sub".to_string()
+            } else {
+                format!("sub-of-{short}")
+            }
+        });
+
+        let mut client = self.get_client().await?;
+
+        let request = crate::ConnectRequest {
+            agent_id: "claude-code".to_string(),
+            auth_token: String::new(),
+            codebase: repo.clone(),
+            intent: intent.clone(),
+            workspace_config: None,
+            agent_name: derived_agent_name.clone(),
+        };
+
+        let response = client
+            .connect(request)
+            .await
+            .map_err(|e| McpError::internal_error(format!("CONNECT RPC failed: {e}"), None))?
+            .into_inner();
+
+        let new_session_id = response.session_id.clone();
+        let session_data = SessionData {
+            session_id: new_session_id.clone(),
+            workspace_id: response.workspace_id.clone(),
+            changeset_id: response.changeset_id.clone(),
+            repo_name: repo.clone(),
+        };
+        {
+            let mut sessions = self.sessions.write().await;
+            sessions.insert(new_session_id.clone(), session_data);
+        }
+
+        let parent_label = if parent_id.is_empty() {
+            "<none>".to_string()
+        } else {
+            parent_id.clone()
+        };
+
+        let text = format!(
+            "Delegated sub-session created.\n\
+             parent_session_id: {parent_label}\n\
+             session_id: {new_session_id}\n\
+             agent_name: {derived_agent_name}\n\
+             repo: {repo}\n\
+             intent: {intent}\n\
+             changeset_id: {}\n\
+             workspace_id: {}\n\n\
+             Pass session_id={new_session_id} to subsequent dk_* tool calls to operate on this sub-session.\n",
+            response.changeset_id, response.workspace_id
+        );
+
+        Ok(CallToolResult::success(vec![Content::text(text)]))
+    }
+
+    // ── Tool 17: dk_abandon ──
 
     /// Force-abandon a stranded workspace (owner-authorized).
     #[tool(
@@ -3574,6 +4021,193 @@ impl ServerHandler for DkodMcp {
                 )),
             }
         }
+    }
+}
+
+// ── dk_run_local_sql impl (feature-gated) ──────────────────────────────────
+//
+// chDB only ships Linux x86_64 binaries, so the heavy backend is gated behind
+// the `local-sql` cargo feature. When the feature is off, calling the tool
+// returns a structured error explaining how to opt in. When the feature is
+// on, we route to `dk-embedded-ch`'s `query_*` helpers and offload large
+// results via the gateway's `maybe_offload`.
+
+#[cfg(feature = "local-sql")]
+async fn run_local_sql_impl(params: RunLocalSqlParams) -> Result<CallToolResult, McpError> {
+    use std::io::Write as _;
+
+    let RunLocalSqlParams { sql, source } = params;
+
+    // Resolve the source: either a path on disk, an inline blob (which we
+    // spool to a temp file so chDB's `file()` can read it), or `None`
+    // (standalone SQL like `SELECT 1`).
+    let (resolved_path, explicit_format): (Option<std::path::PathBuf>, Option<String>) =
+        match source {
+            None => (None, None),
+            Some(LocalSqlSource {
+                path: Some(p),
+                format,
+                ..
+            }) => (Some(std::path::PathBuf::from(p)), format),
+            Some(LocalSqlSource {
+                path: None,
+                data: Some(data),
+                format,
+            }) => {
+                // Spool inline data to <cache>/dkod/local-sql-inputs/<uuid>.<ext>.
+                let ext = match format
+                    .as_deref()
+                    .unwrap_or("csv")
+                    .to_ascii_lowercase()
+                    .as_str()
+                {
+                    "parquet" => "parquet",
+                    "json" | "jsoneachrow" => "jsonl",
+                    _ => "csv",
+                };
+                let dir = dirs::cache_dir()
+                    .ok_or_else(|| {
+                        McpError::internal_error(
+                            "no cache dir available for inline data spool",
+                            None,
+                        )
+                    })?
+                    .join("dkod")
+                    .join("local-sql-inputs");
+                std::fs::create_dir_all(&dir).map_err(|e| {
+                    McpError::internal_error(format!("failed to create spool dir: {e}"), None)
+                })?;
+                let path = dir.join(format!("{}.{}", uuid::Uuid::new_v4(), ext));
+                let mut f = std::fs::File::create(&path).map_err(|e| {
+                    McpError::internal_error(format!("failed to spool inline data: {e}"), None)
+                })?;
+                f.write_all(data.as_bytes()).map_err(|e| {
+                    McpError::internal_error(format!("failed to write spool data: {e}"), None)
+                })?;
+                (Some(path), None) // format already encoded in extension
+            }
+            Some(LocalSqlSource {
+                path: None,
+                data: None,
+                ..
+            }) => {
+                return Err(McpError::invalid_params(
+                    "`source` must include either `path` or `data`",
+                    None,
+                ));
+            }
+        };
+
+    // Pick the right helper based on explicit `format` (if caller supplied one)
+    // falling back to file extension sniffing.
+    let format_hint = explicit_format
+        .map(|f| f.to_ascii_lowercase())
+        .or_else(|| {
+            resolved_path
+                .as_ref()?
+                .extension()?
+                .to_str()
+                .map(|s| s.to_ascii_lowercase())
+        })
+        .unwrap_or_default();
+
+    let output = tokio::task::spawn_blocking(move || -> dk_embedded_ch::Result<_> {
+        match resolved_path.as_ref() {
+            None => {
+                dk_embedded_ch::execute(&sql, dk_embedded_ch::format::OutputFormat::JSONEachRow)
+            }
+            Some(path) => match format_hint.as_str() {
+                "parquet" => dk_embedded_ch::query_parquet(path, &sql),
+                "jsonl" | "json" | "ndjson" => dk_embedded_ch::query_json_each_row(path, &sql),
+                _ => dk_embedded_ch::query_csv(path, &sql),
+            },
+        }
+    })
+    .await
+    .map_err(|e| McpError::internal_error(format!("chDB join error: {e}"), None))?
+    .map_err(|e| McpError::internal_error(format!("chDB query failed: {e}"), None))?;
+
+    let body = output.as_utf8_lossy().into_owned();
+    let result = CallToolResult::success(vec![Content::text(body)]);
+    Ok(crate::gateway::maybe_offload("local-sql", result))
+}
+
+#[cfg(not(feature = "local-sql"))]
+async fn run_local_sql_impl(_params: RunLocalSqlParams) -> Result<CallToolResult, McpError> {
+    Err(McpError::internal_error(
+        "dk_run_local_sql requires dk-mcp built with `--features local-sql` (chDB ships Linux x86_64 binaries only).",
+        None,
+    ))
+}
+
+#[cfg(test)]
+mod local_sql_tests {
+    use super::*;
+
+    /// When the `local-sql` feature is OFF, calling the tool returns a
+    /// structured error pointing at the build flag — not a panic, not a
+    /// silent no-op.
+    #[cfg(not(feature = "local-sql"))]
+    #[tokio::test]
+    async fn returns_feature_disabled_error() {
+        let params = RunLocalSqlParams {
+            sql: "SELECT 1".into(),
+            source: None,
+        };
+        let err = run_local_sql_impl(params)
+            .await
+            .expect_err("must error when feature is disabled");
+        assert!(
+            err.message.contains("local-sql"),
+            "error message should reference the feature flag, got: {}",
+            err.message
+        );
+    }
+
+    /// `source` set but with neither `path` nor `data` is a user error.
+    #[cfg(feature = "local-sql")]
+    #[tokio::test]
+    async fn errors_when_source_is_empty() {
+        let params = RunLocalSqlParams {
+            sql: "SELECT 1 FROM $SOURCE".into(),
+            source: Some(LocalSqlSource {
+                path: None,
+                data: None,
+                format: None,
+            }),
+        };
+        let err = run_local_sql_impl(params)
+            .await
+            .expect_err("must error when source is empty");
+        assert!(
+            err.message.contains("path") && err.message.contains("data"),
+            "error message should explain required fields, got: {}",
+            err.message
+        );
+    }
+
+    /// Feature-on smoke test: standalone SQL through chDB returns the
+    /// expected JSONEachRow row.
+    #[cfg(feature = "local-sql")]
+    #[tokio::test]
+    async fn standalone_select_returns_jsoneachrow() {
+        let params = RunLocalSqlParams {
+            sql: "SELECT 1 + 1 AS sum".into(),
+            source: None,
+        };
+        let result = run_local_sql_impl(params)
+            .await
+            .expect("standalone SELECT should succeed");
+        let text = result
+            .content
+            .iter()
+            .filter_map(|c| c.as_text())
+            .map(|t| t.text.as_str())
+            .collect::<String>();
+        assert!(
+            text.contains(r#""sum":2"#),
+            "expected sum:2 in JSONEachRow output, got: {text}"
+        );
     }
 }
 

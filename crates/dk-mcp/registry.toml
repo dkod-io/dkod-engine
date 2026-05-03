@@ -1,0 +1,173 @@
+# dkod-managed integrations registry
+#
+# Two kinds of entries:
+#   - [[mcp]]  — Model Context Protocol servers dkod agents can call as tools.
+#   - [[peer]] — External binaries dkod delegates to (not MCP servers).
+#
+# Both kinds expose a stable schema so the `dk_list_integrations` MCP tool can
+# enumerate them and `/dkod/integrations` (in clickhouse-monitoring) can render
+# them with per-environment configured/unconfigured badges.
+#
+# Schema evolves via additive fields only. Older clients must tolerate unknown
+# keys (serde default: deny_unknown_fields is OFF for this reason).
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MCP servers
+# ─────────────────────────────────────────────────────────────────────────────
+
+[[mcp]]
+name = "supabase"
+transport = "http"
+categories = ["auth", "db", "metadata"]
+auth_env_vars = ["SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY"]
+homepage = "https://supabase.com/docs/guides/getting-started/mcp"
+description = "Supabase projects: SQL, migrations, Edge Functions, branching, storage, and auth."
+
+[[mcp]]
+name = "redis"
+transport = "stdio"
+categories = ["cache", "pubsub", "claim-tracker"]
+auth_env_vars = ["REDIS_URL"]
+homepage = "https://github.com/redis/mcp-redis"
+description = "Redis/Valkey key-value ops, hashes, lists, sets, streams, pub/sub, JSON. Used by dkod for session claim tracking."
+command = "uvx"
+args = ["--from", "mcp-redis", "mcp-redis"]
+env = { REDIS_URL = "${REDIS_URL}" }
+
+[[mcp]]
+name = "pinecone"
+transport = "stdio"
+categories = ["vector-search", "ai"]
+auth_env_vars = ["PINECONE_API_KEY"]
+homepage = "https://docs.pinecone.io"
+description = "Pinecone vector database — semantic search index peer to Qdrant."
+
+[[mcp]]
+name = "vercel"
+transport = "http"
+categories = ["deploy", "flags", "env-vars"]
+auth_env_vars = ["VERCEL_TOKEN", "FLAGS"]
+homepage = "https://vercel.com/docs/mcp/vercel-mcp"
+description = "Vercel deployments, projects, env vars, flags inspection. Used for clickhouse-monitoring PR preview management."
+
+[[mcp]]
+name = "cloudflare-docs"
+transport = "http"
+categories = ["docs"]
+auth_env_vars = []
+homepage = "https://developers.cloudflare.com/agents/model-context-protocol"
+description = "Cloudflare reference docs — Workers, Pages, edge platform guidance."
+
+[[mcp]]
+name = "cloudflare-ai-gateway"
+transport = "http"
+categories = ["observability", "ai"]
+auth_env_vars = ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]
+homepage = "https://developers.cloudflare.com/ai-gateway"
+description = "Cloudflare AI Gateway: request/response logs, token usage, cost analysis. Peer to Langfuse."
+
+[[mcp]]
+name = "cloudflare-audit-logs"
+transport = "http"
+categories = ["security", "audit"]
+auth_env_vars = ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]
+homepage = "https://developers.cloudflare.com/fundamentals/account/account-security"
+description = "Cloudflare account-level audit logs for security and compliance review."
+
+[[mcp]]
+name = "cloudflare-graphql"
+transport = "http"
+categories = ["analytics", "graphql"]
+auth_env_vars = ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]
+homepage = "https://developers.cloudflare.com/analytics/graphql-api"
+description = "Cloudflare Analytics GraphQL API — traffic, performance, security metrics. Peer to dk-graphql."
+
+[[mcp]]
+name = "context7"
+transport = "http"
+categories = ["docs"]
+auth_env_vars = ["CONTEXT7_API_KEY"]
+homepage = "https://context7.com"
+description = "Up-to-date package docs for 1000+ npm/Rust frameworks (BAML, rmcp, tonic, etc.)."
+url = "https://mcp.context7.com/mcp"
+headers = { Authorization = "Bearer ${CONTEXT7_API_KEY}" }
+
+[[mcp]]
+name = "deepwiki"
+transport = "http"
+categories = ["docs", "repo-qa"]
+auth_env_vars = []
+homepage = "https://deepwiki.com"
+description = "GitHub repo Q&A with AI-generated wiki summaries and semantic code search."
+url = "https://mcp.deepwiki.com/mcp"
+
+[[mcp]]
+name = "amplitude"
+transport = "http"
+categories = ["analytics", "product"]
+auth_env_vars = ["AMPLITUDE_API_KEY", "AMPLITUDE_SECRET_KEY"]
+homepage = "https://amplitude.com/docs"
+description = "Amplitude product analytics — user behaviour events, funnels, cohorts. Peer to dk-analytics remote sink."
+
+[[mcp]]
+name = "linear"
+transport = "http"
+categories = ["issue-tracking", "project-mgmt"]
+auth_env_vars = ["LINEAR_API_KEY"]
+homepage = "https://linear.app/docs/mcp"
+description = "Linear issues, projects, cycles, comments. Native Devin integration."
+url = "https://mcp.linear.app/mcp"
+headers = { Authorization = "Bearer ${LINEAR_API_KEY}" }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Peer binaries (installed alongside dkod, not embedded)
+# ─────────────────────────────────────────────────────────────────────────────
+
+[[peer]]
+name = "rtk"
+install = "cargo install --git https://github.com/rtk-ai/rtk"
+categories = ["cli", "devtools"]
+homepage = "https://github.com/rtk-ai/rtk"
+description = "rtk-ai developer toolkit — spawn as subprocess for specialised workflows."
+
+[[peer]]
+name = "grit"
+install = "cargo install --git https://github.com/getgrit/gritql"
+categories = ["cli", "refactoring", "codemod"]
+homepage = "https://docs.grit.io"
+description = "GritQL — structural search & rewrite across codebases; dkod invokes for large refactors."
+
+[[peer]]
+name = "gh-aw"
+install = "gh extension install githubnext/gh-aw"
+categories = ["ci", "agent-authoring"]
+homepage = "https://github.com/githubnext/gh-aw"
+description = "Agentic Workflows compiler: natural-language .md → SHA-pinned GitHub Actions .lock.yml, MCP gateway, AWF firewall, Serena LSP."
+
+[[peer]]
+name = "icm"
+install = "cargo install --git https://github.com/rtk-ai/icm"
+categories = ["memory", "mcp-server"]
+homepage = "https://github.com/rtk-ai/icm"
+description = "Intelligent Context Memory — persistent agent memory store. Registered as MCP server once running."
+
+[[peer]]
+name = "mdbook"
+install = "cargo install mdbook"
+categories = ["docs"]
+homepage = "https://rust-lang.github.io/mdBook"
+description = "Markdown book generator used for dkod-engine stack documentation under book/."
+
+[[peer]]
+name = "mcp-clickhouse"
+install = "uv tool install mcp-clickhouse"
+categories = ["db", "mcp-server"]
+homepage = "https://github.com/ClickHouse/mcp-clickhouse"
+description = "Official ClickHouse MCP server — list_databases, list_tables, run_select_query, run_chdb_select_query. Tool-naming reference for our run_local_sql."
+
+[[peer]]
+name = "houseofagents"
+install = "cargo install --git https://github.com/ClickHouse/houseofagents"
+categories = ["orchestration", "tui", "agents"]
+homepage = "https://github.com/ClickHouse/houseofagents"
+description = "Multi-agent orchestration framework: Relay (sequential), Swarm (parallel iterative), Pipeline (DAG). Reference for dk-agents crate."

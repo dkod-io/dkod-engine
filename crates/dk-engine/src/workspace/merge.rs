@@ -31,9 +31,7 @@ pub enum WorkspaceMergeResult {
     },
 
     /// At least one file has semantic conflicts that need resolution.
-    Conflicts {
-        conflicts: Vec<SemanticConflict>,
-    },
+    Conflicts { conflicts: Vec<SemanticConflict> },
 }
 
 // ── Merge function ───────────────────────────────────────────────────
@@ -108,12 +106,24 @@ pub fn merge_workspace(
 
     let mut base_entries: HashMap<&str, Option<Vec<u8>>> = HashMap::with_capacity(paths.len());
     for path in &paths {
-        base_entries.insert(path.as_str(), git_repo.read_tree_entry(&workspace.base_commit, path).ok());
+        base_entries.insert(
+            path.as_str(),
+            git_repo
+                .read_tree_entry(&workspace.base_commit, path)
+                .ok()
+                .map(|(c, _)| c),
+        );
     }
 
     let mut head_entries: HashMap<&str, Option<Vec<u8>>> = HashMap::with_capacity(paths.len());
     for path in &paths {
-        head_entries.insert(path.as_str(), git_repo.read_tree_entry(&head_hash, path).ok());
+        head_entries.insert(
+            path.as_str(),
+            git_repo
+                .read_tree_entry(&head_hash, path)
+                .ok()
+                .map(|(c, _)| c),
+        );
     }
 
     let mut all_conflicts = Vec::new();
@@ -136,7 +146,8 @@ pub fn merge_workspace(
                                 file_path: path.clone(),
                                 symbol_name: "<entire file>".to_string(),
                                 our_change: crate::workspace::conflict::SymbolChangeKind::Removed,
-                                their_change: crate::workspace::conflict::SymbolChangeKind::Modified,
+                                their_change:
+                                    crate::workspace::conflict::SymbolChangeKind::Modified,
                             });
                         }
                     }
@@ -145,57 +156,49 @@ pub fn merge_workspace(
                     }
                 }
             }
-            Some(overlay_content) => {
-                match (base_content, head_content) {
-                    (Some(base), Some(head)) => {
-                        if base == head {
-                            rebased_overlay.push((path.clone(), Some(overlay_content.clone())));
-                        } else {
-                            let analysis = analyze_file_conflict(
-                                path,
-                                base,
-                                head,
-                                overlay_content,
-                                parser,
-                            );
+            Some(overlay_content) => match (base_content, head_content) {
+                (Some(base), Some(head)) => {
+                    if base == head {
+                        rebased_overlay.push((path.clone(), Some(overlay_content.clone())));
+                    } else {
+                        let analysis =
+                            analyze_file_conflict(path, base, head, overlay_content, parser);
 
-                            match analysis {
-                                MergeAnalysis::AutoMerge { merged_content } => {
-                                    rebased_overlay
-                                        .push((path.clone(), Some(merged_content)));
-                                    auto_rebased.push(path.clone());
-                                }
-                                MergeAnalysis::Conflict { conflicts } => {
-                                    all_conflicts.extend(conflicts);
-                                }
+                        match analysis {
+                            MergeAnalysis::AutoMerge { merged_content } => {
+                                rebased_overlay.push((path.clone(), Some(merged_content)));
+                                auto_rebased.push(path.clone());
+                            }
+                            MergeAnalysis::Conflict { conflicts } => {
+                                all_conflicts.extend(conflicts);
                             }
                         }
                     }
-                    (None, Some(head_blob)) => {
-                        if *head_blob == *overlay_content {
-                            rebased_overlay.push((path.clone(), Some(overlay_content.clone())));
-                        } else {
-                            all_conflicts.push(SemanticConflict {
-                                file_path: path.clone(),
-                                symbol_name: "<entire file>".to_string(),
-                                our_change: crate::workspace::conflict::SymbolChangeKind::Added,
-                                their_change: crate::workspace::conflict::SymbolChangeKind::Added,
-                            });
-                        }
-                    }
-                    (None, None) => {
+                }
+                (None, Some(head_blob)) => {
+                    if *head_blob == *overlay_content {
                         rebased_overlay.push((path.clone(), Some(overlay_content.clone())));
-                    }
-                    (Some(_), None) => {
+                    } else {
                         all_conflicts.push(SemanticConflict {
                             file_path: path.clone(),
                             symbol_name: "<entire file>".to_string(),
-                            our_change: crate::workspace::conflict::SymbolChangeKind::Modified,
-                            their_change: crate::workspace::conflict::SymbolChangeKind::Removed,
+                            our_change: crate::workspace::conflict::SymbolChangeKind::Added,
+                            their_change: crate::workspace::conflict::SymbolChangeKind::Added,
                         });
                     }
                 }
-            }
+                (None, None) => {
+                    rebased_overlay.push((path.clone(), Some(overlay_content.clone())));
+                }
+                (Some(_), None) => {
+                    all_conflicts.push(SemanticConflict {
+                        file_path: path.clone(),
+                        symbol_name: "<entire file>".to_string(),
+                        our_change: crate::workspace::conflict::SymbolChangeKind::Modified,
+                        their_change: crate::workspace::conflict::SymbolChangeKind::Removed,
+                    });
+                }
+            },
         }
     }
 

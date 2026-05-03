@@ -28,7 +28,12 @@ pub async fn run(out: Output, path: &str) -> Result<()> {
         match String::from_utf8(resp.content.clone()) {
             Ok(text) => print!("{}", text),
             Err(_) => {
-                eprintln!("{} {} ({} bytes, binary)", "File:".green().bold(), path, resp.content.len());
+                eprintln!(
+                    "{} {} ({} bytes, binary)",
+                    "File:".green().bold(),
+                    path,
+                    resp.content.len()
+                );
             }
         }
     }

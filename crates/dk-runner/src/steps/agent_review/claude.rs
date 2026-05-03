@@ -1,10 +1,10 @@
 use std::time::Duration;
 
-use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
 use super::parse::parse_review_response;
 use super::prompt::build_review_prompt;
 use super::provider::{ReviewProvider, ReviewRequest, ReviewResponse};
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 
 pub struct ClaudeReviewProvider {
     client: reqwest::Client,
@@ -125,7 +125,8 @@ impl ReviewProvider for ClaudeReviewProvider {
 
     async fn review(&self, request: ReviewRequest) -> Result<ReviewResponse> {
         let prompt = build_review_prompt(&request);
-        let resp = self.client
+        let resp = self
+            .client
             .post("https://api.anthropic.com/v1/messages")
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
@@ -222,7 +223,8 @@ mod tests {
     fn is_opus_4_7_or_later_rejects_older_models() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         clear_env();
-        let p = ClaudeReviewProvider::new("k".into(), Some("claude-opus-4-6".into()), None).unwrap();
+        let p =
+            ClaudeReviewProvider::new("k".into(), Some("claude-opus-4-6".into()), None).unwrap();
         assert!(!p.is_opus_4_7_or_later());
         let p =
             ClaudeReviewProvider::new("k".into(), Some("claude-sonnet-4-6".into()), None).unwrap();

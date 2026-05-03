@@ -11,7 +11,7 @@ use dk_engine::repo::Engine;
 use crate::changeset::scope_command_to_changeset;
 use crate::executor::{Executor, StepOutput, StepStatus};
 use crate::findings::{Finding, Suggestion};
-use crate::steps::{agent_review, command, human_approve, semantic};
+use crate::steps::{agent_review, command, human_approve, llm_judge, pytorch_ci, semantic};
 use crate::workflow::types::{Stage, Step, StepType, Workflow};
 
 /// Result of running a single step, with metadata for streaming.
@@ -24,6 +24,37 @@ pub struct StepResult {
     pub required: bool,
     pub findings: Vec<Finding>,
     pub suggestions: Vec<Suggestion>,
+    /// Wall-clock duration of the step in milliseconds. Measured around
+    /// `run_single_step` so it includes framework overhead (spawn, await)
+    /// as well as the step body itself — this matches what a human would
+    /// see in a dashboard.
+    pub duration_ms: u64,
+}
+
+/// Emit a `verification_runs` row for a finished step.
+///
+/// A no-op when no analytics sink is installed or when the caller didn't
+/// pass a `changeset_id` (the schema requires a non-null `changeset_id`,
+/// and rows without one wouldn't roll up to anything useful).
+fn emit_verification_analytics(changeset_id: Option<Uuid>, result: &StepResult) {
+    let Some(changeset_id) = changeset_id else {
+        return;
+    };
+    dk_analytics::global::emit(dk_analytics::AnalyticsEvent::Verification(
+        dk_analytics::VerificationRun {
+            run_id: Uuid::new_v4(),
+            changeset_id,
+            step_name: format!("{}::{}", result.stage_name, result.step_name),
+            status: result.status.as_str().to_string(),
+            duration_ms: result.duration_ms,
+            // `output` already carries stdout+stderr concatenated; the
+            // column is named `stdout` in ClickHouse for backwards
+            // compatibility, not because of content.
+            stdout: result.output.clone(),
+            findings_count: result.findings.len() as u32,
+            created_at: chrono::Utc::now(),
+        },
+    ));
 }
 
 /// Run an entire workflow: stages sequentially, steps within parallel stages concurrently.
@@ -48,17 +79,36 @@ pub async fn run_workflow(
         info!(stage = %stage.name, parallel = stage.parallel, "running stage");
 
         let results = if stage.parallel {
-            run_stage_parallel(stage, executor, work_dir, changeset_files, env, engine, repo_id, changeset_id)
-                .await
+            run_stage_parallel(
+                stage,
+                executor,
+                work_dir,
+                changeset_files,
+                env,
+                engine,
+                repo_id,
+                changeset_id,
+            )
+            .await
         } else {
-            run_stage_sequential(stage, executor, work_dir, changeset_files, env, engine, repo_id, changeset_id)
-                .await
+            run_stage_sequential(
+                stage,
+                executor,
+                work_dir,
+                changeset_files,
+                env,
+                engine,
+                repo_id,
+                changeset_id,
+            )
+            .await
         };
 
         for result in results {
             if result.status != StepStatus::Pass && result.required {
                 all_passed = false;
             }
+            emit_verification_analytics(changeset_id, &result);
             let _ = tx.send(result).await;
         }
     }
@@ -146,6 +196,34 @@ async fn run_single_step(
 ) -> StepResult {
     info!(step = %step.name, "running step");
 
+    let started = std::time::Instant::now();
+    let mut result = run_single_step_inner(
+        stage_name,
+        step,
+        executor,
+        work_dir,
+        changeset_files,
+        env,
+        engine,
+        repo_id,
+        changeset_id,
+    )
+    .await;
+    result.duration_ms = started.elapsed().as_millis() as u64;
+    result
+}
+
+async fn run_single_step_inner(
+    stage_name: &str,
+    step: &Step,
+    executor: &dyn Executor,
+    work_dir: &Path,
+    changeset_files: &[String],
+    env: &HashMap<String, String>,
+    engine: Option<&Arc<Engine>>,
+    repo_id: Option<Uuid>,
+    changeset_id: Option<Uuid>,
+) -> StepResult {
     match &step.step_type {
         StepType::Command { run } => {
             let cmd = if step.changeset_aware {
@@ -158,8 +236,7 @@ async fn run_single_step(
                 } else {
                     changeset_files.to_vec()
                 };
-                scope_command_to_changeset(run, &local_files)
-                    .unwrap_or_else(|| run.clone())
+                scope_command_to_changeset(run, &local_files).unwrap_or_else(|| run.clone())
             } else {
                 run.clone()
             };
@@ -168,7 +245,9 @@ async fn run_single_step(
                 None => work_dir.to_path_buf(),
             };
             let output =
-                match command::run_command_step(executor, &cmd, &step_work_dir, step.timeout, env).await {
+                match command::run_command_step(executor, &cmd, &step_work_dir, step.timeout, env)
+                    .await
+                {
                     Ok(out) => out,
                     Err(e) => StepOutput {
                         status: StepStatus::Fail,
@@ -192,19 +271,14 @@ async fn run_single_step(
                 required: step.required,
                 findings: Vec::new(),
                 suggestions: Vec::new(),
+                duration_ms: 0,
             }
         }
         StepType::Semantic { checks } => {
             if let (Some(eng), Some(rid)) = (engine, repo_id) {
                 // Full Engine-backed semantic analysis
-                let (output, findings, suggestions) = semantic::run_semantic_step(
-                    eng,
-                    rid,
-                    changeset_files,
-                    work_dir,
-                    checks,
-                )
-                .await;
+                let (output, findings, suggestions) =
+                    semantic::run_semantic_step(eng, rid, changeset_files, work_dir, checks).await;
 
                 let combined_output = if output.stderr.is_empty() {
                     output.stdout
@@ -220,6 +294,7 @@ async fn run_single_step(
                     required: step.required,
                     findings,
                     suggestions,
+                    duration_ms: 0,
                 }
             } else {
                 // Fallback to simple shim (no Engine available)
@@ -239,6 +314,7 @@ async fn run_single_step(
                     required: step.required,
                     findings: Vec::new(),
                     suggestions: Vec::new(),
+                    duration_ms: 0,
                 }
             }
         }
@@ -274,6 +350,7 @@ async fn run_single_step(
                     required: step.required,
                     findings,
                     suggestions,
+                    duration_ms: 0,
                 };
             }
             // No provider: use legacy stub
@@ -290,21 +367,27 @@ async fn run_single_step(
                 required: step.required,
                 findings: Vec::new(),
                 suggestions: Vec::new(),
+                duration_ms: 0,
             }
         }
         StepType::HumanApprove => {
             if let (Some(eng), Some(cid)) = (engine, changeset_id) {
-                let (output, findings) = human_approve::run_human_approve_step_with_engine(
-                    eng, cid, Some(step.timeout),
-                ).await;
+                let (output, findings) =
+                    human_approve::run_human_approve_step_with_engine(eng, cid, Some(step.timeout))
+                        .await;
                 return StepResult {
                     stage_name: stage_name.to_string(),
                     step_name: step.name.clone(),
                     status: output.status,
-                    output: if output.stderr.is_empty() { output.stdout } else { format!("{}{}", output.stdout, output.stderr) },
+                    output: if output.stderr.is_empty() {
+                        output.stdout
+                    } else {
+                        format!("{}{}", output.stdout, output.stderr)
+                    },
                     required: step.required,
                     findings,
                     suggestions: Vec::new(),
+                    duration_ms: 0,
                 };
             }
             let output = human_approve::run_human_approve_step().await;
@@ -312,10 +395,93 @@ async fn run_single_step(
                 stage_name: stage_name.to_string(),
                 step_name: step.name.clone(),
                 status: output.status,
-                output: if output.stderr.is_empty() { output.stdout } else { format!("{}{}", output.stdout, output.stderr) },
+                output: if output.stderr.is_empty() {
+                    output.stdout
+                } else {
+                    format!("{}{}", output.stdout, output.stderr)
+                },
                 required: step.required,
                 findings: Vec::new(),
                 suggestions: Vec::new(),
+                duration_ms: 0,
+            }
+        }
+        StepType::LlmJudge {
+            criteria,
+            max_iterations,
+        } => {
+            // The judge needs: the diff (built from the changeset files
+            // the same way agent_review does), an engine to flip the
+            // changeset state, and an LLM provider. If we can't get all
+            // three we degrade gracefully — a misconfigured environment
+            // shouldn't take down the whole pipeline.
+            let provider = llm_judge::AnthropicJudge::from_env();
+            match (provider, engine, changeset_id) {
+                (Some(provider), Some(eng), Some(cid)) => {
+                    let mut diff = String::new();
+                    for path in changeset_files {
+                        let full_path = work_dir.join(path);
+                        if let Ok(content) = tokio::fs::read_to_string(&full_path).await {
+                            diff.push_str(&format!("--- {path}\n+++ {path}\n{content}\n"));
+                        }
+                    }
+                    let (output, findings) = llm_judge::run_llm_judge_step_with_engine(
+                        &provider,
+                        eng,
+                        cid,
+                        &diff,
+                        criteria,
+                        *max_iterations,
+                    )
+                    .await;
+                    StepResult {
+                        stage_name: stage_name.to_string(),
+                        step_name: step.name.clone(),
+                        status: output.status,
+                        output: if output.stderr.is_empty() {
+                            output.stdout
+                        } else {
+                            format!("{}{}", output.stdout, output.stderr)
+                        },
+                        required: step.required,
+                        findings,
+                        suggestions: Vec::new(),
+                        duration_ms: 0,
+                    }
+                }
+                _ => StepResult {
+                    stage_name: stage_name.to_string(),
+                    step_name: step.name.clone(),
+                    status: StepStatus::Skip,
+                    output: "llm-judge: no provider / engine / changeset configured — skipping"
+                        .to_string(),
+                    required: step.required,
+                    findings: Vec::new(),
+                    suggestions: Vec::new(),
+                    duration_ms: 0,
+                },
+            }
+        }
+        StepType::PytorchCi => {
+            // Symbols are not tracked on the `Step` level — the
+            // sharding heuristic can work with just files. When the
+            // engine starts exposing changed symbols per step we can
+            // thread them through here.
+            let files: Vec<String> = changeset_files.iter().map(|s| s.to_string()).collect();
+            let (output, findings) = pytorch_ci::run_pytorch_ci_step(&files, &[]).await;
+            StepResult {
+                stage_name: stage_name.to_string(),
+                step_name: step.name.clone(),
+                status: output.status,
+                output: if output.stderr.is_empty() {
+                    output.stdout
+                } else {
+                    format!("{}{}", output.stdout, output.stderr)
+                },
+                required: step.required,
+                findings,
+                suggestions: Vec::new(),
+                duration_ms: 0,
             }
         }
     }
@@ -354,8 +520,18 @@ mod tests {
         let (tx, mut rx) = mpsc::channel(32);
         let dir = std::env::temp_dir();
 
-        let passed =
-            run_workflow(&wf, &exec, &dir, &[], &HashMap::new(), &tx, None, None, None).await;
+        let passed = run_workflow(
+            &wf,
+            &exec,
+            &dir,
+            &[],
+            &HashMap::new(),
+            &tx,
+            None,
+            None,
+            None,
+        )
+        .await;
         drop(tx);
         assert!(passed);
         let result = rx.recv().await.unwrap();
@@ -388,8 +564,18 @@ mod tests {
         let (tx, _rx) = mpsc::channel(32);
         let dir = std::env::temp_dir();
 
-        let passed =
-            run_workflow(&wf, &exec, &dir, &[], &HashMap::new(), &tx, None, None, None).await;
+        let passed = run_workflow(
+            &wf,
+            &exec,
+            &dir,
+            &[],
+            &HashMap::new(),
+            &tx,
+            None,
+            None,
+            None,
+        )
+        .await;
         drop(tx);
         assert!(!passed);
     }
@@ -432,8 +618,18 @@ mod tests {
         let (tx, mut rx) = mpsc::channel(32);
         let dir = std::env::temp_dir();
 
-        let passed =
-            run_workflow(&wf, &exec, &dir, &[], &HashMap::new(), &tx, None, None, None).await;
+        let passed = run_workflow(
+            &wf,
+            &exec,
+            &dir,
+            &[],
+            &HashMap::new(),
+            &tx,
+            None,
+            None,
+            None,
+        )
+        .await;
         drop(tx);
         assert!(passed);
 

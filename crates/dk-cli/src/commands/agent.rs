@@ -788,11 +788,7 @@ async fn approve_cmd(server: String, session: String) -> Result<()> {
             resp.new_state,
         );
     } else {
-        println!(
-            "{} {}",
-            "Approve failed.".red().bold(),
-            resp.message,
-        );
+        println!("{} {}", "Approve failed.".red().bold(), resp.message,);
     }
     if resp.success && !resp.message.is_empty() {
         println!("  {}", resp.message);
@@ -824,10 +820,7 @@ async fn review_cmd(server: String, session: String, changeset: String) -> Resul
             .score
             .map(|s| format!("{}/5", s))
             .unwrap_or_else(|| "N/A".to_string());
-        let summary = review
-            .summary
-            .as_deref()
-            .unwrap_or("No summary");
+        let summary = review.summary.as_deref().unwrap_or("No summary");
         let tier_display = match review.tier.as_str() {
             "local" => "local".cyan().to_string(),
             "deep" => "deep".magenta().to_string(),
@@ -857,7 +850,11 @@ async fn review_cmd(server: String, session: String, changeset: String) -> Resul
                 (Some(start), _) => format!("{}:{}", finding.file_path, start),
                 _ => finding.file_path.clone(),
             };
-            let dismissed = if finding.dismissed { " [dismissed]" } else { "" };
+            let dismissed = if finding.dismissed {
+                " [dismissed]"
+            } else {
+                ""
+            };
             println!(
                 "  {} {} {}{}",
                 severity_display, location, finding.message, dismissed,

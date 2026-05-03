@@ -16,9 +16,7 @@ pub fn run(oneline: bool, n: Option<usize>) -> Result<()> {
 
     let limit = n.unwrap_or(usize::MAX);
 
-    let walk = repo
-        .rev_walk([head_commit.id])
-        .all()?;
+    let walk = repo.rev_walk([head_commit.id]).all()?;
 
     for (count, info) in walk.enumerate() {
         if count >= limit {
@@ -31,9 +29,7 @@ pub fn run(oneline: bool, n: Option<usize>) -> Result<()> {
         if oneline {
             let id_str = commit.id().to_string();
             let short_id = &id_str[..id_str.len().min(7)];
-            let message = commit
-                .message_raw_sloppy()
-                .to_str_lossy();
+            let message = commit.message_raw_sloppy().to_str_lossy();
             let first_line = message.lines().next().unwrap_or("");
             println!("{} {}", short_id.yellow(), first_line);
         } else {

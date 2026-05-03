@@ -76,11 +76,7 @@ func (s *Server) shutdown() {
     assert_eq!(helper_fn.kind, SymbolKind::Function);
     assert_eq!(helper_fn.visibility, Visibility::Private);
 
-    let start_method = analysis
-        .symbols
-        .iter()
-        .find(|s| s.name == "Start")
-        .unwrap();
+    let start_method = analysis.symbols.iter().find(|s| s.name == "Start").unwrap();
     assert_eq!(start_method.kind, SymbolKind::Function);
     assert_eq!(start_method.visibility, Visibility::Public);
 
@@ -135,30 +131,66 @@ var internalState = "ready"
     let names: Vec<&str> = analysis.symbols.iter().map(|s| s.name.as_str()).collect();
 
     // Struct
-    assert!(names.contains(&"UserService"), "Missing UserService struct, got: {:?}", names);
-    let user_svc = analysis.symbols.iter().find(|s| s.name == "UserService").unwrap();
+    assert!(
+        names.contains(&"UserService"),
+        "Missing UserService struct, got: {:?}",
+        names
+    );
+    let user_svc = analysis
+        .symbols
+        .iter()
+        .find(|s| s.name == "UserService")
+        .unwrap();
     assert_eq!(user_svc.kind, SymbolKind::Struct);
     assert_eq!(user_svc.visibility, Visibility::Public);
 
     // Interface
-    assert!(names.contains(&"Logger"), "Missing Logger interface, got: {:?}", names);
-    let logger = analysis.symbols.iter().find(|s| s.name == "Logger").unwrap();
+    assert!(
+        names.contains(&"Logger"),
+        "Missing Logger interface, got: {:?}",
+        names
+    );
+    let logger = analysis
+        .symbols
+        .iter()
+        .find(|s| s.name == "Logger")
+        .unwrap();
     assert_eq!(logger.kind, SymbolKind::Interface);
     assert_eq!(logger.visibility, Visibility::Public);
 
     // Constants
-    assert!(names.contains(&"MaxRetries"), "Missing MaxRetries const, got: {:?}", names);
-    let max_retries = analysis.symbols.iter().find(|s| s.name == "MaxRetries").unwrap();
+    assert!(
+        names.contains(&"MaxRetries"),
+        "Missing MaxRetries const, got: {:?}",
+        names
+    );
+    let max_retries = analysis
+        .symbols
+        .iter()
+        .find(|s| s.name == "MaxRetries")
+        .unwrap();
     assert_eq!(max_retries.kind, SymbolKind::Const);
     assert_eq!(max_retries.visibility, Visibility::Public);
 
-    let default_timeout = analysis.symbols.iter().find(|s| s.name == "defaultTimeout").unwrap();
+    let default_timeout = analysis
+        .symbols
+        .iter()
+        .find(|s| s.name == "defaultTimeout")
+        .unwrap();
     assert_eq!(default_timeout.kind, SymbolKind::Const);
     assert_eq!(default_timeout.visibility, Visibility::Private);
 
     // Variables
-    assert!(names.contains(&"GlobalConfig"), "Missing GlobalConfig var, got: {:?}", names);
-    let global_cfg = analysis.symbols.iter().find(|s| s.name == "GlobalConfig").unwrap();
+    assert!(
+        names.contains(&"GlobalConfig"),
+        "Missing GlobalConfig var, got: {:?}",
+        names
+    );
+    let global_cfg = analysis
+        .symbols
+        .iter()
+        .find(|s| s.name == "GlobalConfig")
+        .unwrap();
     assert_eq!(global_cfg.kind, SymbolKind::Variable);
     assert_eq!(global_cfg.visibility, Visibility::Public);
 }
@@ -203,10 +235,18 @@ func main() {
     );
 
     // Check call kinds
-    let process_call = analysis.calls.iter().find(|c| c.callee_name == "process").unwrap();
+    let process_call = analysis
+        .calls
+        .iter()
+        .find(|c| c.callee_name == "process")
+        .unwrap();
     assert_eq!(process_call.kind, CallKind::DirectCall);
 
-    let println_call = analysis.calls.iter().find(|c| c.callee_name == "Println").unwrap();
+    let println_call = analysis
+        .calls
+        .iter()
+        .find(|c| c.callee_name == "Println")
+        .unwrap();
     assert_eq!(println_call.kind, CallKind::MethodCall);
 }
 
@@ -259,8 +299,11 @@ import (
 
     // aliased import: log "github.com/sirupsen/logrus"
     assert!(
-        analysis.imports.iter().any(|i| i.module_path == "github.com/sirupsen/logrus"
-            && i.alias.as_deref() == Some("log")),
+        analysis
+            .imports
+            .iter()
+            .any(|i| i.module_path == "github.com/sirupsen/logrus"
+                && i.alias.as_deref() == Some("log")),
         "Should have aliased import 'logrus' as 'log'"
     );
 }

@@ -73,8 +73,15 @@ fn resolve_step(sc: StepConfig) -> Result<Step> {
                 .unwrap_or_else(|| "Review this changeset".to_string()),
         },
         Some("human-approve") => StepType::HumanApprove,
+        Some("llm-judge") => StepType::LlmJudge {
+            criteria: sc.criteria,
+            max_iterations: sc.max_iterations.unwrap_or(3),
+        },
+        Some("pytorch-ci") => StepType::PytorchCi,
         Some("command") => {
-            let run = sc.run.context("step with type 'command' must have a 'run' field")?;
+            let run = sc
+                .run
+                .context("step with type 'command' must have a 'run' field")?;
             StepType::Command { run }
         }
         Some(other) => bail!("unknown step type: '{}'", other),
@@ -143,6 +150,11 @@ fn resolve_yaml_step(sc: YamlStepConfig) -> Result<Step> {
                 .unwrap_or_else(|| "Review this changeset".to_string()),
         },
         Some("human-approve") => StepType::HumanApprove,
+        Some("llm-judge") => StepType::LlmJudge {
+            criteria: sc.criteria,
+            max_iterations: sc.max_iterations.unwrap_or(3),
+        },
+        Some("pytorch-ci") => StepType::PytorchCi,
         Some("command") | None => {
             let run = sc.run.context("command step must have a 'run' field")?;
             StepType::Command { run }
@@ -241,9 +253,7 @@ type = "human-approve"
         assert_eq!(wf.stages.len(), 1);
         let steps = &wf.stages[0].steps;
         assert_eq!(steps.len(), 3);
-        assert!(
-            matches!(&steps[0].step_type, StepType::Semantic { checks } if checks.len() == 2)
-        );
+        assert!(matches!(&steps[0].step_type, StepType::Semantic { checks } if checks.len() == 2));
         assert!(matches!(&steps[1].step_type, StepType::AgentReview { .. }));
         assert!(matches!(&steps[2].step_type, StepType::HumanApprove));
     }

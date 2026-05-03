@@ -84,11 +84,7 @@ namespace MyApp.Models
         "Missing Point struct, got: {:?}",
         names
     );
-    let point = analysis
-        .symbols
-        .iter()
-        .find(|s| s.name == "Point")
-        .unwrap();
+    let point = analysis.symbols.iter().find(|s| s.name == "Point").unwrap();
     assert_eq!(point.kind, SymbolKind::Struct);
     assert_eq!(point.visibility, Visibility::Public);
 
@@ -142,9 +138,7 @@ public class Config
     void DefaultMethod() {}
 }
 "#;
-    let analysis = registry
-        .parse_file(Path::new("Config.cs"), source)
-        .unwrap();
+    let analysis = registry.parse_file(Path::new("Config.cs"), source).unwrap();
 
     let public_fn = analysis
         .symbols
@@ -209,9 +203,7 @@ class Main
     }
 }
 "#;
-    let analysis = registry
-        .parse_file(Path::new("Main.cs"), source)
-        .unwrap();
+    let analysis = registry.parse_file(Path::new("Main.cs"), source).unwrap();
 
     let call_names: Vec<&str> = analysis
         .calls
@@ -276,9 +268,7 @@ namespace MyApp
     class App { }
 }
 "#;
-    let analysis = registry
-        .parse_file(Path::new("App.cs"), source)
-        .unwrap();
+    let analysis = registry.parse_file(Path::new("App.cs"), source).unwrap();
 
     assert!(
         analysis.imports.len() >= 3,

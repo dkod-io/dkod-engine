@@ -33,9 +33,7 @@ def protected_view(request):
 class ApiController:
     pass
 "#;
-    let analysis = registry
-        .parse_file(Path::new("auth.py"), source)
-        .unwrap();
+    let analysis = registry.parse_file(Path::new("auth.py"), source).unwrap();
 
     let names: Vec<&str> = analysis.symbols.iter().map(|s| s.name.as_str()).collect();
 
@@ -150,9 +148,7 @@ def main():
     print("hello")
     os.path.join("/tmp", "file")
 "#;
-    let analysis = registry
-        .parse_file(Path::new("main.py"), source)
-        .unwrap();
+    let analysis = registry.parse_file(Path::new("main.py"), source).unwrap();
 
     let call_names: Vec<&str> = analysis
         .calls
@@ -220,9 +216,7 @@ from collections import OrderedDict
 from .local_module import helper
 from ..parent import utils
 "#;
-    let analysis = registry
-        .parse_file(Path::new("app.py"), source)
-        .unwrap();
+    let analysis = registry.parse_file(Path::new("app.py"), source).unwrap();
 
     assert!(
         analysis.imports.len() >= 6,
@@ -258,9 +252,7 @@ from ..parent import utils
         analysis
             .imports
             .iter()
-            .any(|i| i.module_path == "os.path"
-                && i.imported_name == "join"
-                && i.is_external),
+            .any(|i| i.module_path == "os.path" && i.imported_name == "join" && i.is_external),
         "Should have external import 'join' from 'os.path'"
     );
 
@@ -269,9 +261,7 @@ from ..parent import utils
         analysis
             .imports
             .iter()
-            .any(|i| i.module_path == "os.path"
-                && i.imported_name == "exists"
-                && i.is_external),
+            .any(|i| i.module_path == "os.path" && i.imported_name == "exists" && i.is_external),
         "Should have external import 'exists' from 'os.path'"
     );
 
@@ -291,9 +281,7 @@ from ..parent import utils
         analysis
             .imports
             .iter()
-            .any(|i| i.module_path == "..parent"
-                && i.imported_name == "utils"
-                && !i.is_external),
+            .any(|i| i.module_path == "..parent" && i.imported_name == "utils" && !i.is_external),
         "Should have internal import 'utils' from '..parent'"
     );
 }
@@ -321,20 +309,14 @@ def create_config(path):
     cfg.load()
     return cfg
 "#;
-    let analysis = registry
-        .parse_file(Path::new("config.py"), source)
-        .unwrap();
+    let analysis = registry.parse_file(Path::new("config.py"), source).unwrap();
 
     // Symbols: Config class, create_config function, MAX_TIMEOUT variable
     assert!(
         analysis.symbols.len() >= 3,
         "Expected at least 3 symbols, got: {} => {:?}",
         analysis.symbols.len(),
-        analysis
-            .symbols
-            .iter()
-            .map(|s| &s.name)
-            .collect::<Vec<_>>()
+        analysis.symbols.iter().map(|s| &s.name).collect::<Vec<_>>()
     );
 
     let symbol_names: Vec<&str> = analysis.symbols.iter().map(|s| s.name.as_str()).collect();
@@ -343,10 +325,7 @@ def create_config(path):
     assert!(symbol_names.contains(&"MAX_TIMEOUT"));
 
     // Calls: Config(), cfg.load(), json.load(), open()
-    assert!(
-        !analysis.calls.is_empty(),
-        "Expected at least some calls"
-    );
+    assert!(!analysis.calls.is_empty(), "Expected at least some calls");
 
     let call_names: Vec<&str> = analysis
         .calls
@@ -372,10 +351,7 @@ def create_config(path):
     );
 
     // Types: stub, should be empty
-    assert!(
-        analysis.types.is_empty(),
-        "Types should be empty (stub)"
-    );
+    assert!(analysis.types.is_empty(), "Types should be empty (stub)");
 }
 
 #[test]
@@ -390,9 +366,7 @@ def api_handler():
 def protected():
     pass
 "#;
-    let analysis = registry
-        .parse_file(Path::new("views.py"), source)
-        .unwrap();
+    let analysis = registry.parse_file(Path::new("views.py"), source).unwrap();
 
     let call_names: Vec<&str> = analysis
         .calls

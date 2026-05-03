@@ -39,11 +39,7 @@ end
         "Missing MyApp module, got: {:?}",
         names
     );
-    let my_app = analysis
-        .symbols
-        .iter()
-        .find(|s| s.name == "MyApp")
-        .unwrap();
+    let my_app = analysis.symbols.iter().find(|s| s.name == "MyApp").unwrap();
     assert_eq!(my_app.kind, SymbolKind::Module);
     assert_eq!(my_app.visibility, Visibility::Public);
 
@@ -115,9 +111,7 @@ class Config
   end
 end
 "#;
-    let analysis = registry
-        .parse_file(Path::new("config.rb"), source)
-        .unwrap();
+    let analysis = registry.parse_file(Path::new("config.rb"), source).unwrap();
 
     // Ruby: all methods are public by default (AST has no modifier nodes)
     let public_fn = analysis
@@ -153,9 +147,7 @@ def main
   puts "hello"
 end
 "#;
-    let analysis = registry
-        .parse_file(Path::new("main.rb"), source)
-        .unwrap();
+    let analysis = registry.parse_file(Path::new("main.rb"), source).unwrap();
 
     let call_names: Vec<&str> = analysis
         .calls
@@ -210,9 +202,7 @@ require_relative './utils/parser'
 class App
 end
 "#;
-    let analysis = registry
-        .parse_file(Path::new("app.rb"), source)
-        .unwrap();
+    let analysis = registry.parse_file(Path::new("app.rb"), source).unwrap();
 
     assert!(
         analysis.imports.len() >= 4,
@@ -241,10 +231,7 @@ end
     );
 
     // require_relative 'helper' — internal (no ./ prefix)
-    let helper = analysis
-        .imports
-        .iter()
-        .find(|i| i.module_path == "helper");
+    let helper = analysis.imports.iter().find(|i| i.module_path == "helper");
     assert!(helper.is_some(), "Should have import 'helper'");
     assert!(
         !helper.unwrap().is_external,

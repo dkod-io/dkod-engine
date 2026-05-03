@@ -54,12 +54,15 @@ fn test_save_and_take_snapshot() {
     let mgr = SessionManager::new(Duration::from_secs(60));
     let sid = mgr.create_session("agent".into(), "repo".into(), "test".into(), "v1".into());
 
-    mgr.save_snapshot(&sid, SessionSnapshot {
-        agent_id: "agent".into(),
-        codebase: "repo".into(),
-        intent: "test".into(),
-        codebase_version: "v1".into(),
-    });
+    mgr.save_snapshot(
+        &sid,
+        SessionSnapshot {
+            agent_id: "agent".into(),
+            codebase: "repo".into(),
+            intent: "test".into(),
+            codebase_version: "v1".into(),
+        },
+    );
 
     let snap = mgr.take_snapshot(&sid).unwrap();
     assert_eq!(snap.agent_id, "agent");

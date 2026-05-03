@@ -76,7 +76,10 @@ impl ChangesetState {
     /// Used by the workspace pin guard (Epic B) to decide
     /// whether to evict or skip a candidate workspace.
     pub fn is_terminal(&self) -> bool {
-        matches!(self, Self::Draft | Self::Merged | Self::Rejected | Self::Closed)
+        matches!(
+            self,
+            Self::Draft | Self::Merged | Self::Rejected | Self::Closed
+        )
     }
 }
 
@@ -165,6 +168,20 @@ pub struct ChangesetFileMeta {
     pub size_bytes: i64,
 }
 
+/// A single AI-generated review result, as stored in `changeset_ai_reviews`.
+#[derive(Debug, Clone)]
+pub struct AiReview {
+    pub id: Uuid,
+    pub tier: String,
+    pub score: Option<i32>,
+    pub summary: Option<String>,
+    pub findings: serde_json::Value,
+    pub provider: String,
+    pub model: String,
+    pub duration_ms: i64,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
 pub struct ChangesetStore {
     db: PgPool,
 }
@@ -191,7 +208,13 @@ impl ChangesetStore {
         let intent_slug: String = intent
             .to_lowercase()
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '-' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' {
+                    c
+                } else {
+                    '-'
+                }
+            })
             .collect::<String>()
             .trim_matches('-')
             .to_string();
@@ -309,7 +332,8 @@ impl ChangesetStore {
         new_status: &str,
         expected_states: &[&str],
     ) -> dk_core::Result<()> {
-        self.update_status_if_with_reason(id, new_status, expected_states, "").await
+        self.update_status_if_with_reason(id, new_status, expected_states, "")
+            .await
     }
 
     /// Like `update_status_if` but also records a reason for the transition.
@@ -395,7 +419,10 @@ impl ChangesetStore {
 
     /// Lightweight query returning only file metadata (path, operation, size)
     /// without loading the full content column.
-    pub async fn get_files_metadata(&self, changeset_id: Uuid) -> dk_core::Result<Vec<ChangesetFileMeta>> {
+    pub async fn get_files_metadata(
+        &self,
+        changeset_id: Uuid,
+    ) -> dk_core::Result<Vec<ChangesetFileMeta>> {
         let rows: Vec<(String, String, i64)> = sqlx::query_as(
             "SELECT file_path, operation, COALESCE(LENGTH(content), 0)::bigint AS size_bytes FROM changeset_files WHERE changeset_id = $1",
         )
@@ -432,7 +459,10 @@ impl ChangesetStore {
         Ok(())
     }
 
-    pub async fn get_affected_symbols(&self, changeset_id: Uuid) -> dk_core::Result<Vec<(SymbolId, String)>> {
+    pub async fn get_affected_symbols(
+        &self,
+        changeset_id: Uuid,
+    ) -> dk_core::Result<Vec<(SymbolId, String)>> {
         let rows: Vec<(Uuid, String)> = sqlx::query_as(
             "SELECT symbol_id, symbol_qualified_name FROM changeset_symbols WHERE changeset_id = $1",
         )
@@ -440,6 +470,93 @@ impl ChangesetStore {
         .fetch_all(&self.db)
         .await?;
         Ok(rows)
+    }
+
+    /// Find the most recent non-terminal changeset for the given session ID.
+    pub async fn find_by_session(&self, session_id: Uuid) -> dk_core::Result<Option<Uuid>> {
+        let row: Option<(Uuid,)> = sqlx::query_as(
+            "SELECT id FROM changesets \
+             WHERE session_id = $1 AND state NOT IN ('merged', 'closed') \
+             ORDER BY created_at DESC LIMIT 1",
+        )
+        .bind(session_id)
+        .fetch_optional(&self.db)
+        .await?;
+        Ok(row.map(|(id,)| id))
+    }
+
+    /// Insert an AI-generated review result into `changeset_ai_reviews`.
+    /// Returns the newly-created review UUID.
+    pub async fn record_ai_review(
+        &self,
+        changeset_id: Uuid,
+        tier: &str,
+        score: Option<i32>,
+        summary: Option<&str>,
+        findings_json: &serde_json::Value,
+        provider: &str,
+        model: &str,
+        duration_ms: i64,
+    ) -> dk_core::Result<Uuid> {
+        let id: Uuid = sqlx::query_scalar(
+            "INSERT INTO changeset_ai_reviews \
+                 (changeset_id, tier, score, summary, findings, provider, model, duration_ms) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
+             RETURNING id",
+        )
+        .bind(changeset_id)
+        .bind(tier)
+        .bind(score)
+        .bind(summary)
+        .bind(findings_json)
+        .bind(provider)
+        .bind(model)
+        .bind(duration_ms)
+        .fetch_one(&self.db)
+        .await?;
+        Ok(id)
+    }
+
+    /// Retrieve all AI review results for a changeset, ordered oldest-first.
+    #[allow(clippy::type_complexity)]
+    pub async fn get_ai_reviews(&self, changeset_id: Uuid) -> dk_core::Result<Vec<AiReview>> {
+        let rows: Vec<(
+            Uuid,
+            String,
+            Option<i32>,
+            Option<String>,
+            serde_json::Value,
+            String,
+            String,
+            i64,
+            chrono::DateTime<chrono::Utc>,
+        )> = sqlx::query_as(
+            "SELECT id, tier, score, summary, findings, provider, model, duration_ms, created_at \
+                 FROM changeset_ai_reviews \
+                 WHERE changeset_id = $1 \
+                 ORDER BY created_at ASC",
+        )
+        .bind(changeset_id)
+        .fetch_all(&self.db)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(id, tier, score, summary, findings, provider, model, duration_ms, created_at)| {
+                    AiReview {
+                        id,
+                        tier,
+                        score,
+                        summary,
+                        findings,
+                        provider,
+                        model,
+                        duration_ms,
+                        created_at,
+                    }
+                },
+            )
+            .collect())
     }
 
     /// List live competitors on a file path.
@@ -501,7 +618,8 @@ impl ChangesetStore {
         .fetch_all(&self.db)
         .await?;
 
-        let mut map: std::collections::HashMap<Uuid, Vec<String>> = std::collections::HashMap::new();
+        let mut map: std::collections::HashMap<Uuid, Vec<String>> =
+            std::collections::HashMap::new();
         for (cs_id, sym_name) in rows {
             map.entry(cs_id).or_default().push(sym_name);
         }
@@ -519,7 +637,13 @@ mod tests {
         let slug: String = intent
             .to_lowercase()
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '-' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' {
+                    c
+                } else {
+                    '-'
+                }
+            })
             .collect::<String>()
             .trim_matches('-')
             .to_string();
@@ -610,7 +734,10 @@ mod tests {
         assert_eq!(cs.source_branch, "agent/test-agent");
         assert_eq!(cs.target_branch, "main");
         assert_eq!(cs.agent_name.as_deref(), Some("test-agent"));
-        assert_eq!(cs.agent_id, cs.agent_name, "agent_name should equal agent_id per create()");
+        assert_eq!(
+            cs.agent_id, cs.agent_name,
+            "agent_name should equal agent_id per create()"
+        );
         assert!(cs.merged_at.is_none());
         assert!(cs.merged_version.is_none());
     }

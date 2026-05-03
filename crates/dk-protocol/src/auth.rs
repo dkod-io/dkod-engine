@@ -253,7 +253,10 @@ mod tests {
             .issue_token(TEST_AGENT, TEST_SCOPE, TTL)
             .expect("issue_token should succeed");
         let result = config2.validate(&token);
-        assert!(result.is_err(), "should reject token signed with different secret");
+        assert!(
+            result.is_err(),
+            "should reject token signed with different secret"
+        );
     }
 
     #[test]
@@ -316,21 +319,33 @@ mod tests {
         let jwt = AuthConfig::Jwt {
             secret: TEST_SECRET.to_string(),
         };
-        assert!(jwt.validate("").is_err(), "JWT mode should reject empty token");
+        assert!(
+            jwt.validate("").is_err(),
+            "JWT mode should reject empty token"
+        );
 
         let shared = AuthConfig::SharedSecret {
             token: "my-token".to_string(),
         };
-        assert!(shared.validate("").is_err(), "SharedSecret should reject empty token");
+        assert!(
+            shared.validate("").is_err(),
+            "SharedSecret should reject empty token"
+        );
 
         let dual = AuthConfig::Dual {
             jwt_secret: TEST_SECRET.to_string(),
             shared_token: "fallback".to_string(),
         };
-        assert!(dual.validate("").is_err(), "Dual mode should reject empty token");
+        assert!(
+            dual.validate("").is_err(),
+            "Dual mode should reject empty token"
+        );
 
         let external = AuthConfig::External;
-        assert!(external.validate("").is_err(), "External mode should reject empty token");
+        assert!(
+            external.validate("").is_err(),
+            "External mode should reject empty token"
+        );
     }
 
     #[test]
@@ -340,7 +355,10 @@ mod tests {
         let config = AuthConfig::SharedSecret {
             token: "".to_string(),
         };
-        assert!(config.validate("").is_err(), "empty token should be rejected even if shared secret is empty");
+        assert!(
+            config.validate("").is_err(),
+            "empty token should be rejected even if shared secret is empty"
+        );
     }
 
     #[test]

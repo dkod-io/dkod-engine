@@ -103,9 +103,9 @@ impl ValkeyClaimTracker {
         }
         let repo_id = rest[..36].parse::<Uuid>().ok()?;
         let after_repo = &rest[37..]; // skip the ":"
-        // file_path:qualified_name — split on the FIRST ":"
-        // We use find() not rfind() because qualified names can contain "::"
-        // (e.g., MyStruct::method) but Unix file paths never contain ":".
+                                      // file_path:qualified_name — split on the FIRST ":"
+                                      // We use find() not rfind() because qualified names can contain "::"
+                                      // (e.g., MyStruct::method) but Unix file paths never contain ":".
         let first_colon = after_repo.find(':')?;
         let file_path = after_repo[..first_colon].to_string();
         let qualified_name = after_repo[first_colon + 1..].to_string();

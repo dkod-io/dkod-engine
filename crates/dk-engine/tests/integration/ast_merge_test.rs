@@ -169,7 +169,9 @@ fn helper() -> bool {
     let result = ast_merge(&registry(), "test.rs", base, version_a, version_b).unwrap();
     assert_eq!(result.status, MergeStatus::Clean);
     assert!(result.merged_content.contains("use std::io;"));
-    assert!(result.merged_content.contains("use std::collections::HashMap;"));
+    assert!(result
+        .merged_content
+        .contains("use std::collections::HashMap;"));
     assert!(result.merged_content.contains("use std::fmt;"));
 }
 
@@ -191,8 +193,7 @@ fn fn_c() -> String {
 }
 "#;
 
-    let result =
-        ast_merge(&registry(), "test.rs", RUST_BASE, version_a, RUST_BASE).unwrap();
+    let result = ast_merge(&registry(), "test.rs", RUST_BASE, version_a, RUST_BASE).unwrap();
     assert_eq!(result.status, MergeStatus::Clean);
     assert!(result.conflicts.is_empty());
     assert!(result.merged_content.contains("fn fn_c()"));
@@ -243,8 +244,7 @@ fn fn_c() -> i32 {
 #[test]
 fn test_merge_unmodified_file() {
     // No changes — base returned
-    let result =
-        ast_merge(&registry(), "test.rs", RUST_BASE, RUST_BASE, RUST_BASE).unwrap();
+    let result = ast_merge(&registry(), "test.rs", RUST_BASE, RUST_BASE, RUST_BASE).unwrap();
     assert_eq!(result.status, MergeStatus::Clean);
     assert!(result.conflicts.is_empty());
     // Content should contain both functions
@@ -610,7 +610,10 @@ fn test_python_merge_exact_production_file() {
         .expect("ast_merge should succeed for production-like Python file");
 
     // Print full output for debugging
-    eprintln!("=== MERGED OUTPUT ===\n{}\n=== END ===", result.merged_content);
+    eprintln!(
+        "=== MERGED OUTPUT ===\n{}\n=== END ===",
+        result.merged_content
+    );
 
     assert_eq!(
         result.status,
@@ -660,14 +663,18 @@ fn test_python_merge_exact_production_file() {
 
     // Inline comments must stay on the same line as their assignment
     assert!(
-        result.merged_content.contains("_LOGIN_RATE_LIMIT_WINDOW = 60  # 60 seconds"),
+        result
+            .merged_content
+            .contains("_LOGIN_RATE_LIMIT_WINDOW = 60  # 60 seconds"),
         "Inline comment must stay on same line. Output:\n{}",
         result.merged_content
     );
 
     // No extra blank lines between consecutive variable assignments
     assert!(
-        !result.merged_content.contains("_LOGIN_RATE_LIMIT_MAX = 5\n\n_LOGIN_RATE_LIMIT_WINDOW"),
+        !result
+            .merged_content
+            .contains("_LOGIN_RATE_LIMIT_MAX = 5\n\n_LOGIN_RATE_LIMIT_WINDOW"),
         "Consecutive variables should not have blank line between them. Output:\n{}",
         result.merged_content
     );

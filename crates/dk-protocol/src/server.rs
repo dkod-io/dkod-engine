@@ -29,9 +29,7 @@ impl ProtocolServer {
     pub fn new(engine: Arc<Engine>, auth_config: AuthConfig) -> Self {
         Self {
             engine,
-            session_mgr: Arc::new(SessionManager::new(std::time::Duration::from_secs(
-                30 * 60,
-            ))),
+            session_mgr: Arc::new(SessionManager::new(std::time::Duration::from_secs(30 * 60))),
             auth_config,
             event_bus: Arc::new(EventBus::new()),
             claim_tracker: Arc::new(LocalClaimTracker::new()),
@@ -75,9 +73,7 @@ impl ProtocolServer {
     ) -> Self {
         Self {
             engine,
-            session_mgr: Arc::new(SessionManager::new(std::time::Duration::from_secs(
-                30 * 60,
-            ))),
+            session_mgr: Arc::new(SessionManager::new(std::time::Duration::from_secs(30 * 60))),
             auth_config,
             event_bus: Arc::new(EventBus::new()),
             claim_tracker,
@@ -153,7 +149,8 @@ impl crate::agent_service_server::AgentService for ProtocolServer {
         crate::submit::handle_submit(self, request.into_inner()).await
     }
 
-    type VerifyStream = tokio_stream::wrappers::ReceiverStream<Result<crate::VerifyStepResult, Status>>;
+    type VerifyStream =
+        tokio_stream::wrappers::ReceiverStream<Result<crate::VerifyStepResult, Status>>;
 
     async fn verify(
         &self,
@@ -174,7 +171,9 @@ impl crate::agent_service_server::AgentService for ProtocolServer {
             crate::verify::handle_verify(&server_clone, req, tx).await;
         });
 
-        Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(rx)))
+        Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(
+            rx,
+        )))
     }
 
     async fn merge(
@@ -203,7 +202,9 @@ impl crate::agent_service_server::AgentService for ProtocolServer {
         tokio::spawn(async move {
             crate::watch::handle_watch(&server_clone, req, tx).await;
         });
-        Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(rx)))
+        Ok(Response::new(tokio_stream::wrappers::ReceiverStream::new(
+            rx,
+        )))
     }
 
     async fn file_read(
@@ -251,29 +252,23 @@ impl crate::agent_service_server::AgentService for ProtocolServer {
 
     async fn approve(
         &self,
-        _request: Request<crate::ApproveRequest>,
+        request: Request<crate::ApproveRequest>,
     ) -> Result<Response<crate::ApproveResponse>, Status> {
-        Err(Status::unimplemented(
-            "approve is a platform-level operation; use the managed server",
-        ))
+        crate::approve::handle_approve(self, request.into_inner()).await
     }
 
     async fn resolve(
         &self,
-        _request: Request<crate::ResolveRequest>,
+        request: Request<crate::ResolveRequest>,
     ) -> Result<Response<crate::ResolveResponse>, Status> {
-        Err(Status::unimplemented(
-            "resolve is a platform-level operation; use the managed server",
-        ))
+        crate::resolve::handle_resolve(self, request.into_inner()).await
     }
 
     async fn close(
         &self,
-        _request: Request<crate::CloseRequest>,
+        request: Request<crate::CloseRequest>,
     ) -> Result<Response<crate::CloseResponse>, Status> {
-        Err(Status::unimplemented(
-            "close is a platform-level operation; use the managed server",
-        ))
+        crate::close::handle_close(self, request.into_inner()).await
     }
 
     async fn abandon(
@@ -285,19 +280,15 @@ impl crate::agent_service_server::AgentService for ProtocolServer {
 
     async fn review(
         &self,
-        _request: Request<crate::ReviewRequest>,
+        request: Request<crate::ReviewRequest>,
     ) -> Result<Response<crate::ReviewResponse>, Status> {
-        Err(Status::unimplemented(
-            "review is a platform-level operation; use the managed server",
-        ))
+        crate::review::handle_review(self, request.into_inner()).await
     }
 
     async fn record_review(
         &self,
-        _request: Request<crate::RecordReviewRequest>,
+        request: Request<crate::RecordReviewRequest>,
     ) -> Result<Response<crate::RecordReviewResponse>, Status> {
-        Err(Status::unimplemented(
-            "record_review is a platform-level operation; use the managed server",
-        ))
+        crate::record_review::handle_record_review(self, request.into_inner()).await
     }
 }

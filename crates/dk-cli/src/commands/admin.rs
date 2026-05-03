@@ -59,11 +59,7 @@ pub async fn run(args: AdminArgs, global_server: Option<String>) -> Result<()> {
             // ASCII so that it can be embedded as a gRPC metadata header value
             // without error. Whitespace-only input is rejected.
             let operator = operator.trim();
-            if operator.is_empty()
-                || !operator
-                    .chars()
-                    .all(|c| c.is_ascii_graphic() || c == ' ')
-            {
+            if operator.is_empty() || !operator.chars().all(|c| c.is_ascii_graphic() || c == ' ') {
                 anyhow::bail!(
                     "--operator must be non-empty ASCII (letters, digits, punctuation, \
                      space); got {operator:?}"
@@ -88,7 +84,9 @@ pub async fn run(args: AdminArgs, global_server: Option<String>) -> Result<()> {
             if !resp.success {
                 anyhow::bail!(
                     "failed to abandon session {} (changeset {}, reason {})",
-                    session_id, resp.changeset_id, resp.abandoned_reason
+                    session_id,
+                    resp.changeset_id,
+                    resp.abandoned_reason
                 );
             }
             println!(

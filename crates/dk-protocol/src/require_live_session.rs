@@ -10,16 +10,18 @@ use uuid::Uuid;
 
 use crate::server::ProtocolServer;
 
-pub async fn require_live_session(
-    server: &ProtocolServer,
-    session_id: &str,
-) -> Result<(), Status> {
+pub async fn require_live_session(server: &ProtocolServer, session_id: &str) -> Result<(), Status> {
     let sid = session_id
         .parse::<Uuid>()
         .map_err(|_| Status::invalid_argument("Invalid session ID"))?;
 
     // Live in-memory → proceed.
-    if server.engine().workspace_manager().get_workspace(&sid).is_some() {
+    if server
+        .engine()
+        .workspace_manager()
+        .get_workspace(&sid)
+        .is_some()
+    {
         return Ok(());
     }
 
@@ -46,7 +48,15 @@ pub async fn require_live_session(
     .await
     .map_err(|e| Status::internal(format!("workspace lookup failed: {e}")))?;
 
-    let Some((stranded_at, abandoned_at, changeset_id_opt, stranded_reason, abandoned_reason, base_commit)) = row else {
+    let Some((
+        stranded_at,
+        abandoned_at,
+        changeset_id_opt,
+        stranded_reason,
+        abandoned_reason,
+        base_commit,
+    )) = row
+    else {
         return Err(Status::not_found("Workspace not found for session"));
     };
 

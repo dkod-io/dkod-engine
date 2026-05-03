@@ -45,10 +45,7 @@ fn test_read_tree_entry_invalid_commit() {
     );
 
     // Valid hex format but non-existent commit.
-    let result = repo.read_tree_entry(
-        "0000000000000000000000000000000000000000",
-        "file.txt",
-    );
+    let result = repo.read_tree_entry("0000000000000000000000000000000000000000", "file.txt");
     assert!(
         result.is_err(),
         "read_tree_entry with non-existent commit should error"
@@ -119,8 +116,9 @@ async fn test_commit_tree_overlay_empty() {
     // The base file should still be present and unchanged.
     let content = repo
         .read_tree_entry(&new_commit, "base.txt")
+        .map(|(c, _)| c)
         .expect("base.txt should exist in new commit");
-    assert_eq!(content, b"base content");
+    assert_eq!(content.0, b"base content");
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -134,9 +132,10 @@ fn test_read_tree_entry_correct_content() {
 
     let content = repo
         .read_tree_entry(&commit, "src/main.rs")
+        .map(|(c, _)| c)
         .expect("should read file from tree");
 
-    assert_eq!(content, expected.to_vec());
+    assert_eq!(content.0, expected.to_vec());
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -219,8 +218,9 @@ async fn test_commit_tree_overlay_add_and_delete() {
     // Verify new file exists.
     let new_content = repo
         .read_tree_entry(&new_commit, "new.txt")
+        .map(|(c, _)| c)
         .expect("new.txt should exist");
-    assert_eq!(new_content, b"brand new");
+    assert_eq!(new_content.0, b"brand new");
 
     // Verify deleted file is gone.
     let removed = repo.read_tree_entry(&new_commit, "remove.txt");
@@ -229,6 +229,7 @@ async fn test_commit_tree_overlay_add_and_delete() {
     // Verify kept file is unchanged.
     let kept = repo
         .read_tree_entry(&new_commit, "keep.txt")
+        .map(|(c, _)| c)
         .expect("keep.txt should still exist");
-    assert_eq!(kept, b"keep");
+    assert_eq!(kept.0, b"keep");
 }

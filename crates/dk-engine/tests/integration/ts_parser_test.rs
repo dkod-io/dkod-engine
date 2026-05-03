@@ -41,11 +41,7 @@ const MAX_RETRIES = 3;
         "Missing AuthService, got: {:?}",
         names
     );
-    assert!(
-        names.contains(&"User"),
-        "Missing User, got: {:?}",
-        names
-    );
+    assert!(names.contains(&"User"), "Missing User, got: {:?}", names);
     assert!(
         names.contains(&"AuthResult"),
         "Missing AuthResult, got: {:?}",

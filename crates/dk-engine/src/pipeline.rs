@@ -50,25 +50,35 @@ impl PipelineStore {
             .collect())
     }
 
-    pub async fn set_pipeline(&self, repo_id: RepoId, steps: &[PipelineStep]) -> dk_core::Result<()> {
+    pub async fn set_pipeline(
+        &self,
+        repo_id: RepoId,
+        steps: &[PipelineStep],
+    ) -> dk_core::Result<()> {
         sqlx::query("DELETE FROM verification_pipelines WHERE repo_id = $1")
             .bind(repo_id)
             .execute(&self.db)
             .await?;
 
-        for step in steps {
-            sqlx::query(
-                r#"INSERT INTO verification_pipelines (repo_id, step_order, step_type, config, required)
-                   VALUES ($1, $2, $3, $4, $5)"#,
-            )
-            .bind(repo_id)
-            .bind(step.step_order)
-            .bind(&step.step_type)
-            .bind(&step.config)
-            .bind(step.required)
-            .execute(&self.db)
-            .await?;
+        if steps.is_empty() {
+            return Ok(());
         }
+
+        let mut query_builder: sqlx::QueryBuilder<sqlx::Postgres> = sqlx::QueryBuilder::new(
+            "INSERT INTO verification_pipelines (repo_id, step_order, step_type, config, required) ",
+        );
+
+        query_builder.push_values(steps, |mut b, step| {
+            b.push_bind(repo_id)
+                .push_bind(step.step_order)
+                .push_bind(&step.step_type)
+                .push_bind(&step.config)
+                .push_bind(step.required);
+        });
+
+        let query = query_builder.build();
+        query.execute(&self.db).await?;
+
         Ok(())
     }
 
@@ -100,7 +110,10 @@ impl PipelineStore {
         })
     }
 
-    pub async fn get_results(&self, changeset_id: Uuid) -> dk_core::Result<Vec<VerificationResult>> {
+    pub async fn get_results(
+        &self,
+        changeset_id: Uuid,
+    ) -> dk_core::Result<Vec<VerificationResult>> {
         let rows: Vec<(Uuid, Uuid, i32, String, Option<String>)> = sqlx::query_as(
             "SELECT id, changeset_id, step_order, status, output FROM verification_results WHERE changeset_id = $1 ORDER BY step_order",
         )

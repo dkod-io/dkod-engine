@@ -1,0 +1,12 @@
+[package]
+name = "dk-embedded-ch"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Embedded ClickHouse (chDB) wrapper for local, zero-copy analytics"
+
+[dependencies]
+chdb-rust = "1.3"
+thiserror = { workspace = true }
+tracing = { workspace = true }

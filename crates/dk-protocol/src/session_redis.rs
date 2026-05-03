@@ -47,7 +47,13 @@ struct StoredSession {
 }
 
 impl StoredSession {
-    fn from_parts(id: Uuid, agent_id: String, codebase: String, intent: String, codebase_version: String) -> Self {
+    fn from_parts(
+        id: Uuid,
+        agent_id: String,
+        codebase: String,
+        intent: String,
+        codebase_version: String,
+    ) -> Self {
         let now_ms = chrono::Utc::now().timestamp_millis();
         Self {
             id,
@@ -89,8 +95,8 @@ impl StoredSession {
     fn is_expired(&self, timeout: &Duration) -> bool {
         let last_active = millis_to_utc(self.last_active_ms);
         let elapsed = Utc::now().signed_duration_since(last_active);
-        let timeout_delta = chrono::TimeDelta::from_std(*timeout)
-            .unwrap_or(chrono::TimeDelta::max_value());
+        let timeout_delta =
+            chrono::TimeDelta::from_std(*timeout).unwrap_or(chrono::TimeDelta::max_value());
         elapsed > timeout_delta
     }
 }

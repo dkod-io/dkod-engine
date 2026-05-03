@@ -23,7 +23,11 @@ fn configure_git_user(dir: &std::path::Path) {
 
 fn init_repo_with_commit(msg: &str) -> TempDir {
     let dir = TempDir::new().unwrap();
-    dk().arg("git").arg("init").arg(dir.path()).assert().success();
+    dk().arg("git")
+        .arg("init")
+        .arg(dir.path())
+        .assert()
+        .success();
     configure_git_user(dir.path());
     fs::write(dir.path().join("file.txt"), "content").unwrap();
     dk().args(["git", "add", "file.txt"])
@@ -85,7 +89,11 @@ fn log_limit() {
 #[test]
 fn log_empty_repo_fails() {
     let dir = TempDir::new().unwrap();
-    dk().arg("git").arg("init").arg(dir.path()).assert().success();
+    dk().arg("git")
+        .arg("init")
+        .arg(dir.path())
+        .assert()
+        .success();
     dk().args(["git", "log"])
         .current_dir(dir.path())
         .assert()

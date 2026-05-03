@@ -7,3 +7,22 @@ data/
 __pycache__/
 *.pyc
 *.egg-info/
+
+# BAML-generated Rust client. Regenerate via `./scripts/baml-generate.sh`.
+# Source of truth lives under `baml_src/`.
+/baml_client/
+
+# Intermediate TypeScript generator output; the baml-generate.sh script
+# renames `baml_client_ts_raw/baml_client/` to `baml_client_ts/` and deletes
+# this directory. Only present if the rename step failed.
+/baml_client_ts_raw/
+
+# NOTE: `/baml_client_ts/` is NOT gitignored — it is committed so downstream
+# consumers (clickhouse-monitoring) can pull it via git submodule without
+# needing baml-cli installed.
+
+# chDB install artefacts dropped by `curl -sL https://lib.chdb.io | bash`.
+# The shared lib + headers go under /usr/local/{lib,include}; the install
+# script also drops a copy of chdb.hpp into the cwd — not needed in repo.
+/chdb.hpp
+/chdb.h

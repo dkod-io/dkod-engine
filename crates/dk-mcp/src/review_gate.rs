@@ -10,10 +10,10 @@
 
 use std::time::Duration;
 
+use dk_runner::findings::{Finding, Severity};
 use dk_runner::steps::agent_review::provider::{
     FileContext, ReviewProvider, ReviewRequest, ReviewResponse, ReviewVerdict,
 };
-use dk_runner::findings::{Finding, Severity};
 
 /// Map a review verdict + findings list to a 1–5 integer score.
 ///
@@ -270,7 +270,8 @@ pub fn startup_warnings(cfg: &GateConfig) -> Vec<String> {
         out.push(
             "[dk-mcp] WARNING: DKOD_CODE_REVIEW=1 but no provider key set. \
              dk_approve will reject with gate_misconfigured until \
-             DKOD_ANTHROPIC_API_KEY or DKOD_OPENROUTER_API_KEY is set.".to_string()
+             DKOD_ANTHROPIC_API_KEY or DKOD_OPENROUTER_API_KEY is set."
+                .to_string(),
         );
     }
     out
@@ -292,7 +293,9 @@ impl GateConfig {
     /// the value recorded in audit records matches the model the provider
     /// actually uses).
     pub fn from_env() -> Self {
-        let enabled = std::env::var("DKOD_CODE_REVIEW").map(|v| v == "1").unwrap_or(false);
+        let enabled = std::env::var("DKOD_CODE_REVIEW")
+            .map(|v| v == "1")
+            .unwrap_or(false);
         // Treat empty-string env vars as absent so that e.g.
         // `DKOD_OPENROUTER_API_KEY=""` + a real `DKOD_ANTHROPIC_API_KEY`
         // selects anthropic instead of a silent wrong-provider failure.
@@ -310,11 +313,13 @@ impl GateConfig {
             None
         };
         let min_score = std::env::var("DKOD_REVIEW_MIN_SCORE")
-            .ok().and_then(|s| s.parse().ok())
+            .ok()
+            .and_then(|s| s.parse().ok())
             .filter(|&n: &i32| (1..=5).contains(&n))
             .unwrap_or(4);
         let timeout = std::env::var("DKOD_REVIEW_TIMEOUT_SECS")
-            .ok().and_then(|s| s.parse::<u64>().ok())
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
             .map(Duration::from_secs)
             .unwrap_or(Duration::from_secs(180));
         let backoff_policy = match std::env::var("DKOD_REVIEW_BACKOFF_POLICY").as_deref() {
@@ -322,7 +327,14 @@ impl GateConfig {
             _ => BackoffPolicy::Strict,
         };
         let model = std::env::var("DKOD_REVIEW_MODEL").ok();
-        Self { enabled, provider_name, min_score, timeout, backoff_policy, model }
+        Self {
+            enabled,
+            provider_name,
+            min_score,
+            timeout,
+            backoff_policy,
+            model,
+        }
     }
 
     /// Returns `true` when the gate flag is enabled but no provider key is set —
@@ -529,9 +541,53 @@ pub async fn run_background_review(
         None => return,
     };
 
+    emit_review_analytics(&record, &provider_name, &cfg, elapsed);
+
     if let Err(e) = client.record_review(record).await {
         tracing::debug!(error = %e, "background review: record_review RPC failed");
     }
+}
+
+fn emit_review_analytics(
+    record: &crate::RecordReviewRequest,
+    provider_name: &str,
+    cfg: &GateConfig,
+    elapsed: std::time::Duration,
+) {
+    // Only emit when we have a parseable changeset_id — the ClickHouse
+    // schema makes it NOT NULL. Reviews recorded against a session without
+    // a changeset are dropped silently; they wouldn't contribute to any
+    // useful per-changeset roll-ups anyway.
+    let Ok(changeset_id) = uuid::Uuid::parse_str(&record.changeset_id) else {
+        return;
+    };
+    // RecordReviewRequest is flat — fields live directly on the message.
+    // Derive a human verdict from the score range so the review_results
+    // row has something useful to filter on in dashboards.
+    let score = record.score;
+    let verdict = match score {
+        Some(s) if s >= 4 => "approve",
+        Some(3) => "comment",
+        Some(s) if s <= 2 => "request_changes",
+        Some(_) => "unknown",
+        None => "provider_error",
+    }
+    .to_string();
+    let findings_count = record.findings.len() as u32;
+    let model = cfg.model.clone().unwrap_or_default();
+    dk_analytics::global::emit(dk_analytics::AnalyticsEvent::Review(
+        dk_analytics::ReviewResult {
+            review_id: uuid::Uuid::new_v4(),
+            changeset_id,
+            provider: provider_name.to_string(),
+            model,
+            score,
+            findings_count,
+            verdict,
+            duration_ms: elapsed.as_millis() as u64,
+            created_at: chrono::Utc::now(),
+        },
+    ));
 }
 
 #[cfg(test)]
@@ -543,9 +599,15 @@ mod env_parsing_tests {
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn clear_all() {
-        for k in ["DKOD_CODE_REVIEW", "DKOD_ANTHROPIC_API_KEY", "DKOD_OPENROUTER_API_KEY",
-                  "DKOD_REVIEW_MIN_SCORE", "DKOD_REVIEW_TIMEOUT_SECS",
-                  "DKOD_REVIEW_BACKOFF_POLICY", "DKOD_REVIEW_MODEL"] {
+        for k in [
+            "DKOD_CODE_REVIEW",
+            "DKOD_ANTHROPIC_API_KEY",
+            "DKOD_OPENROUTER_API_KEY",
+            "DKOD_REVIEW_MIN_SCORE",
+            "DKOD_REVIEW_TIMEOUT_SECS",
+            "DKOD_REVIEW_BACKOFF_POLICY",
+            "DKOD_REVIEW_MODEL",
+        ] {
             std::env::remove_var(k);
         }
     }
@@ -631,8 +693,14 @@ mod env_parsing_tests {
         std::env::set_var("DKOD_ANTHROPIC_API_KEY", "");
         let cfg = GateConfig::from_env();
         assert!(cfg.enabled);
-        assert!(cfg.provider_name.is_none(), "empty strings must not select a provider");
-        assert!(cfg.misconfigured(), "empty provider keys must surface as gate_misconfigured");
+        assert!(
+            cfg.provider_name.is_none(),
+            "empty strings must not select a provider"
+        );
+        assert!(
+            cfg.misconfigured(),
+            "empty provider keys must surface as gate_misconfigured"
+        );
         clear_all();
     }
 
@@ -656,12 +724,18 @@ mod env_parsing_tests {
 #[cfg(test)]
 mod verdict_mapping_tests {
     use super::score_from_verdict;
-    use dk_runner::steps::agent_review::provider::ReviewVerdict;
     use dk_runner::findings::{Finding, Severity};
+    use dk_runner::steps::agent_review::provider::ReviewVerdict;
 
     fn f(sev: Severity) -> Finding {
-        Finding { severity: sev, check_name: "x".into(), message: "m".into(),
-                  file_path: None, line: None, symbol: None }
+        Finding {
+            severity: sev,
+            check_name: "x".into(),
+            message: "m".into(),
+            file_path: None,
+            line: None,
+            symbol: None,
+        }
     }
 
     #[test]
@@ -670,7 +744,10 @@ mod verdict_mapping_tests {
     }
     #[test]
     fn approve_with_warnings_is_4() {
-        assert_eq!(score_from_verdict(&ReviewVerdict::Approve, &[f(Severity::Warning)]), 4);
+        assert_eq!(
+            score_from_verdict(&ReviewVerdict::Approve, &[f(Severity::Warning)]),
+            4
+        );
     }
     #[test]
     fn comment_is_3() {
@@ -678,11 +755,17 @@ mod verdict_mapping_tests {
     }
     #[test]
     fn request_changes_with_only_warnings_is_2() {
-        assert_eq!(score_from_verdict(&ReviewVerdict::RequestChanges, &[f(Severity::Warning)]), 2);
+        assert_eq!(
+            score_from_verdict(&ReviewVerdict::RequestChanges, &[f(Severity::Warning)]),
+            2
+        );
     }
     #[test]
     fn request_changes_with_errors_is_1() {
-        assert_eq!(score_from_verdict(&ReviewVerdict::RequestChanges, &[f(Severity::Error)]), 1);
+        assert_eq!(
+            score_from_verdict(&ReviewVerdict::RequestChanges, &[f(Severity::Error)]),
+            1
+        );
     }
 }
 
