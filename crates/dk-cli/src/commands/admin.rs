@@ -43,7 +43,7 @@ pub async fn run(args: AdminArgs, global_server: Option<String>) -> Result<()> {
             let addr = server
                 .or(global_server)
                 .or_else(|| std::env::var("DKOD_GRPC_ADDR").ok())
-                .unwrap_or_else(|| "https://agent.dkod.io:443".to_string());
+                .unwrap_or_else(|| crate::DEFAULT_SERVER.to_string());
 
             let api_base = auth::api_base_from_grpc(&addr);
             let env_token = std::env::var("DKOD_AUTH_TOKEN").ok();

@@ -2,6 +2,14 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+/// Default gRPC server address when neither `DKOD_GRPC_ADDR` (env or dotenv)
+/// nor a local probe on port 50051 succeeds.
+///
+/// Defaults to the local agent (`http://[::1]:50051`) so that tooling works
+/// out of the box against a developer's local dk-server. Override with
+/// `DKOD_GRPC_ADDR` to point at a remote (e.g. `https://agent.dkod.io:443`).
+const DEFAULT_LOCAL_SERVER: &str = "http://[::1]:50051";
+
 /// Walk up from `start` looking for the workspace root (a `Cargo.toml` containing `[workspace]`).
 /// Falls back to the first `Cargo.toml` found if none contain `[workspace]`.
 pub fn find_repo_root(start: &Path) -> Option<PathBuf> {
@@ -177,7 +185,7 @@ impl SessionState {
     pub fn from_env() -> Self {
         Self {
             server_addr: std::env::var("DKOD_GRPC_ADDR")
-                .unwrap_or_else(|_| "https://agent.dkod.io:443".to_string()),
+                .unwrap_or_else(|_| DEFAULT_LOCAL_SERVER.to_string()),
             auth_token: std::env::var("DKOD_AUTH_TOKEN")
                 .ok()
                 .filter(|s| !s.is_empty()),
@@ -189,7 +197,7 @@ impl SessionState {
     ///
     /// Resolution order:
     /// - Auth token: env var > dotenv > None (device flow)
-    /// - Server address: explicit `DKOD_GRPC_ADDR` (env or dotenv) > local probe (port 50051) > production
+    /// - Server address: explicit `DKOD_GRPC_ADDR` (env or dotenv) > local probe (port 50051) > local default (`http://[::1]:50051`)
     pub async fn resolve() -> Self {
         // Try to find repo root and load dotenv vars.
         let cwd = std::env::current_dir().unwrap_or_default();
@@ -208,7 +216,7 @@ impl SessionState {
                     .cloned()
             });
 
-        // Resolve server address: explicit env/dotenv > local probe > production
+        // Resolve server address: explicit env/dotenv > local probe > local default
         let explicit_addr = std::env::var("DKOD_GRPC_ADDR")
             .ok()
             .filter(|s| !s.is_empty())
@@ -226,8 +234,8 @@ impl SessionState {
             tracing::info!(endpoint = %addr, source = "local_probe", "resolved server address");
             addr
         } else {
-            let addr = "https://agent.dkod.io:443".to_string();
-            tracing::info!(endpoint = %addr, source = "production_default", "resolved server address");
+            let addr = DEFAULT_LOCAL_SERVER.to_string();
+            tracing::info!(endpoint = %addr, source = "local_default", "resolved server address");
             addr
         };
 
@@ -325,7 +333,8 @@ mod tests {
     fn test_session_state_defaults() {
         with_clean_env(|| {
             let state = SessionState::from_env();
-            assert_eq!(state.server_addr, "https://agent.dkod.io:443");
+            assert_eq!(state.server_addr, DEFAULT_LOCAL_SERVER);
+            assert_eq!(state.server_addr, "http://[::1]:50051");
             assert!(state.auth_token.is_none());
         });
     }
