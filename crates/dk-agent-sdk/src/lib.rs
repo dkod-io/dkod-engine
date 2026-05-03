@@ -23,11 +23,16 @@
 //! # }
 //! ```
 
+#[cfg(feature = "agent-driver")]
+pub mod agent_loop;
 pub mod client;
 pub mod error;
 pub mod session;
 pub mod tools;
 pub mod types;
+
+#[cfg(feature = "agent-driver")]
+pub use agent_loop::{AgentDriver, AgentProvider};
 
 pub use client::AgentClient;
 pub use error::{Result, SdkError};

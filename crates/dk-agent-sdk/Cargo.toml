@@ -20,3 +20,30 @@ tracing = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+# Optional LLM agent driver — uses adk-rust to power tool-calling against
+# OpenRouter, Anthropic Claude, and Google Gemini. Pulled in by enabling
+# the `agent-driver` feature; off by default so consumers that only want
+# the gRPC client don't pay for the LLM dependency tree.
+adk-core = { version = "0.7", optional = true }
+adk-agent = { version = "0.7", optional = true }
+adk-model = { version = "0.7", optional = true, default-features = false, features = ["gemini", "anthropic", "openrouter"] }
+adk-runner = { version = "0.7", optional = true }
+adk-session = { version = "0.7", optional = true }
+async-trait = { version = "0.1", optional = true }
+futures = { version = "0.3", optional = true }
+
+[features]
+default = []
+agent-driver = [
+    "dep:adk-core",
+    "dep:adk-agent",
+    "dep:adk-model",
+    "dep:adk-runner",
+    "dep:adk-session",
+    "dep:async-trait",
+    "dep:futures",
+]
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
