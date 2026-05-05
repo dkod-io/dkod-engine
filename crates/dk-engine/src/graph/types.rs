@@ -79,27 +79,42 @@ impl TypeInfoStore {
     /// `params` and `fields` are serialized as JSONB arrays of `["name","type"]` pairs.
     /// `implements` is stored as a PostgreSQL `TEXT[]` array.
     pub async fn upsert_type_info(&self, info: &TypeInfo) -> dk_core::Result<()> {
-        let params_json = pairs_to_json(&info.params);
-        let fields_json = pairs_to_json(&info.fields);
+        self.upsert_type_infos(std::slice::from_ref(info)).await
+    }
 
-        sqlx::query(
+    /// Insert or update multiple type infos.
+    pub async fn upsert_type_infos(&self, infos: &[TypeInfo]) -> dk_core::Result<()> {
+        if infos.is_empty() {
+            return Ok(());
+        }
+
+        let mut query_builder: sqlx::QueryBuilder<sqlx::Postgres> = sqlx::QueryBuilder::new(
+            "INSERT INTO type_info (symbol_id, params, return_type, fields, implements) ",
+        );
+
+        query_builder.push_values(infos, |mut b, info| {
+            let params_json = pairs_to_json(&info.params);
+            let fields_json = pairs_to_json(&info.fields);
+
+            b.push_bind(info.symbol_id)
+                .push_bind(params_json)
+                .push_bind(info.return_type.clone())
+                .push_bind(fields_json)
+                .push_bind(info.implements.clone());
+        });
+
+        query_builder.push(
             r#"
-            INSERT INTO type_info (symbol_id, params, return_type, fields, implements)
-            VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (symbol_id) DO UPDATE SET
                 params = EXCLUDED.params,
                 return_type = EXCLUDED.return_type,
                 fields = EXCLUDED.fields,
                 implements = EXCLUDED.implements
             "#,
-        )
-        .bind(info.symbol_id)
-        .bind(&params_json)
-        .bind(&info.return_type)
-        .bind(&fields_json)
-        .bind(&info.implements)
-        .execute(&self.pool)
-        .await?;
+        );
+
+        let query = query_builder.build();
+        query.execute(&self.pool).await?;
 
         Ok(())
     }

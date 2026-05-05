@@ -54,22 +54,36 @@ impl CallGraphStore {
     /// Insert a call edge. Uses `ON CONFLICT DO NOTHING` so repeated
     /// insertion of the same edge is idempotent.
     pub async fn insert_edge(&self, edge: &CallEdge) -> dk_core::Result<()> {
-        let kind_str = edge.kind.to_string();
+        self.insert_edges(std::slice::from_ref(edge)).await
+    }
 
-        sqlx::query(
+    /// Insert multiple call edges. Uses `ON CONFLICT DO NOTHING` so repeated
+    /// insertion of the same edge is idempotent.
+    pub async fn insert_edges(&self, edges: &[CallEdge]) -> dk_core::Result<()> {
+        if edges.is_empty() {
+            return Ok(());
+        }
+
+        let mut query_builder: sqlx::QueryBuilder<sqlx::Postgres> = sqlx::QueryBuilder::new(
+            "INSERT INTO call_edges (id, repo_id, caller_id, callee_id, kind) ",
+        );
+
+        query_builder.push_values(edges, |mut b, edge| {
+            b.push_bind(edge.id)
+                .push_bind(edge.repo_id)
+                .push_bind(edge.caller)
+                .push_bind(edge.callee)
+                .push_bind(edge.kind.to_string());
+        });
+
+        query_builder.push(
             r#"
-            INSERT INTO call_edges (id, repo_id, caller_id, callee_id, kind)
-            VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (repo_id, caller_id, callee_id, kind) DO NOTHING
             "#,
-        )
-        .bind(edge.id)
-        .bind(edge.repo_id)
-        .bind(edge.caller)
-        .bind(edge.callee)
-        .bind(&kind_str)
-        .execute(&self.pool)
-        .await?;
+        );
+
+        let query = query_builder.build();
+        query.execute(&self.pool).await?;
 
         Ok(())
     }
