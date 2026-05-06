@@ -1,0 +1,25 @@
+{
+  "repo_notes": [
+    {
+      "content": "This repository contains the main UI components in the cui/ folder, which should be prioritized in documentation",
+      "author": "Team Lead"
+    }
+  ],
+  "pages": [
+    {
+      "title": "CUI Components Overview",
+      "purpose": "Document the cui/ folder structure and main UI components",
+      "parent": null
+    },
+    {
+      "title": "Authentication System",
+      "purpose": "Document the authentication flow and related components",
+      "parent": null
+    },
+    {
+      "title": "Login Components",
+      "purpose": "Detailed documentation of login-related UI components",
+      "parent": "Authentication System"
+    }
+  ]
+}
