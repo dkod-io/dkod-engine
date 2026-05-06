@@ -26,3 +26,19 @@ __pycache__/
 # script also drops a copy of chdb.hpp into the cwd — not needed in repo.
 /chdb.hpp
 /chdb.h
+# Root-level libchdb artefacts (dropped by the chdb.io installer).
+/libchdb.so
+/libchdb.tar.gz
+
+# Pre-built libchdb drop-in for offline / CI builds.
+# Place libchdb.so here and build.rs will use it automatically.
+# Not committed — obtain via: curl -sL https://lib.chdb.io | bash
+crates/dk-embedded-ch/lib/*.so
+crates/dk-embedded-ch/lib/*.tar.gz
+
+# Planning / editor history artefacts
+/.history/
+/plan.md
+.helix/
+target/
+*.log

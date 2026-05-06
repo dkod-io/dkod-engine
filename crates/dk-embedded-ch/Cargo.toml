@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Embedded ClickHouse (chDB) wrapper for local, zero-copy analytics"
+build = "build.rs"
 
 [dependencies]
 chdb-rust = "1.3"

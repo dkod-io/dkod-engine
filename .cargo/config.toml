@@ -1,0 +1,4 @@
+[env]
+# Point chdb-rust's build script at the pre-bundled libchdb.so inside
+# dk-embedded-ch/lib/ so the build never needs to download it at compile time.
+CHDB_LIB_DIR = { value = "crates/dk-embedded-ch/lib", relative = true }

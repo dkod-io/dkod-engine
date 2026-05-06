@@ -15,6 +15,7 @@ pub async fn handle_record_review(
     req: RecordReviewRequest,
 ) -> Result<Response<RecordReviewResponse>, Status> {
     let _session = server.validate_session(&req.session_id)?;
+    crate::require_live_session::require_live_session(server, &req.session_id).await?;
 
     let changeset_id = req
         .changeset_id
