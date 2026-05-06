@@ -13,6 +13,7 @@ pub async fn handle_review(
     req: ReviewRequest,
 ) -> Result<Response<ReviewResponse>, Status> {
     let _session = server.validate_session(&req.session_id)?;
+    crate::require_live_session::require_live_session(server, &req.session_id).await?;
 
     let changeset_id = req
         .changeset_id

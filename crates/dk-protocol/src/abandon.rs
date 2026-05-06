@@ -12,6 +12,16 @@ pub async fn handle_abandon(
 ) -> Result<Response<AbandonResponse>, Status> {
     // Check whether the caller is an admin (scope "admin" in JWT).
     let is_admin = server.has_admin_scope(request.metadata());
+    let caller_agent = {
+        let header = request
+            .metadata()
+            .get("authorization")
+            .ok_or_else(|| Status::unauthenticated("missing authorization metadata"))?
+            .to_str()
+            .map_err(|_| Status::unauthenticated("invalid authorization metadata"))?;
+        let token = header.strip_prefix("Bearer ").unwrap_or(header);
+        server.validate_auth(token)?
+    };
 
     // Extract operator name from the `dk-admin-operator` metadata header when
     // the caller is admin.
@@ -22,10 +32,6 @@ pub async fn handle_abandon(
         .map(|s| s.to_string());
 
     let req = request.into_inner();
-
-    // Validate session (exists + belongs to caller's agent identity).
-    let caller_session = server.validate_session(&req.session_id)?;
-    let caller_agent = caller_session.agent_id.clone();
 
     let sid = req
         .session_id

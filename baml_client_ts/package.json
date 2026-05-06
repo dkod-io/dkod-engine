@@ -6,6 +6,9 @@
   "type": "commonjs",
   "main": "./index.ts",
   "types": "./index.ts",
+  "dependencies": {
+    "@dkod/baml-client": "file:./vendor/dkod-engine/baml_client_ts"
+  },
   "peerDependencies": {
     "@boundaryml/baml": "0.221.0"
   },
