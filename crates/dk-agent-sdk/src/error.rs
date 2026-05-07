@@ -23,6 +23,12 @@ pub enum SdkError {
 
     #[error("transport error: {0}")]
     Transport(#[from] tonic::transport::Error),
+
+    #[error("agent driver configuration error: {0}")]
+    AgentConfig(String),
+
+    #[error("agent driver runtime error: {0}")]
+    AgentRuntime(String),
 }
 
 pub type Result<T> = std::result::Result<T, SdkError>;

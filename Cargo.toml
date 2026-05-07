@@ -13,6 +13,12 @@ members = [
     "crates/dk-supabase",
 ]
 
+# dk-helix (crates/dk-helix/) is intentionally NOT in members because it
+# depends on a local HelixDB path (.helix/dev/helix-repo-copy/) that is
+# gitignored and not available in CI.  Run it standalone:
+#   git clone https://github.com/HelixDB/helix-db .helix/dev/helix-repo-copy
+#   cargo run -p dk-helix
+
 [workspace.package]
 # 0.3.0 makes release-locks-at-submit + STALE_OVERLAY the default. Operators
 # can opt out with `DKOD_RELEASE_ON_SUBMIT=0` (the flag is preserved as a
