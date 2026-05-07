@@ -1,0 +1,12 @@
+[project]
+name = "dkod-engine"
+queries = "./db/"
+container_runtime = "docker"
+
+[local.dev]
+port = 6969
+build_mode = "dev"
+
+[cloud]
+
+[enterprise]
