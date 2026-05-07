@@ -306,156 +306,37 @@ pub fn detect_workflow(repo_dir: &Path) -> Workflow {
             Some(PathBuf::from(subdir_name))
         };
 
-        // ── Rust ──
-        if dir.join("Cargo.toml").exists() && (is_root || !root_languages.contains("rust")) {
-            let name_prefix = if is_root {
-                "rust".to_string()
-            } else {
-                format!("rust({subdir_name})")
-            };
-            steps.push(Step {
-                name: format!("{name_prefix}:check"),
-                step_type: StepType::Command {
-                    run: "cargo check".to_string(),
-                },
-                timeout: Duration::from_secs(60),
-                required: true,
-                changeset_aware: true,
-                work_dir: step_work_dir.clone(),
-            });
-            steps.push(Step {
-                name: format!("{name_prefix}:test"),
-                step_type: StepType::Command {
-                    run: "cargo test".to_string(),
-                },
-                timeout: Duration::from_secs(60),
-                required: true,
-                changeset_aware: true,
-                work_dir: step_work_dir.clone(),
-            });
-        }
+        steps.extend(detect_rust_steps(
+            dir,
+            is_root,
+            subdir_name,
+            &root_languages,
+            step_work_dir.clone(),
+        ));
 
-        // ── Node / Bun ──
-        if dir.join("package.json").exists() {
-            let is_bun = dir.join("bun.lock").exists() || dir.join("bun.lockb").exists();
-            let lang_key = if is_bun { "bun" } else { "node" };
-            if is_root || !root_languages.contains(lang_key) {
-                let (label, install_cmd, test_cmd) = if is_bun {
-                    ("bun", "bun install --frozen-lockfile", "bun test")
-                } else {
-                    ("node", "npm ci", "npm test")
-                };
-                let name_prefix = if is_root {
-                    label.to_string()
-                } else {
-                    format!("{label}({subdir_name})")
-                };
-                steps.push(Step {
-                    name: format!("{name_prefix}:install"),
-                    step_type: StepType::Command {
-                        run: install_cmd.to_string(),
-                    },
-                    timeout: Duration::from_secs(120),
-                    required: true,
-                    changeset_aware: false,
-                    work_dir: step_work_dir.clone(),
-                });
-                steps.push(Step {
-                    name: format!("{name_prefix}:test"),
-                    step_type: StepType::Command {
-                        run: test_cmd.to_string(),
-                    },
-                    timeout: Duration::from_secs(60),
-                    required: true,
-                    changeset_aware: true,
-                    work_dir: step_work_dir.clone(),
-                });
-            }
-        }
+        steps.extend(detect_node_steps(
+            dir,
+            is_root,
+            subdir_name,
+            &root_languages,
+            step_work_dir.clone(),
+        ));
 
-        // ── Python ──
-        if (dir.join("pyproject.toml").exists() || dir.join("requirements.txt").exists())
-            && (is_root || !root_languages.contains("python"))
-        {
-            let name_prefix = if is_root {
-                "python".to_string()
-            } else {
-                format!("python({subdir_name})")
-            };
-            if dir.join("pyproject.toml").exists() {
-                steps.push(Step {
-                    name: format!("{name_prefix}:install"),
-                    step_type: StepType::Command {
-                        run: "pip install -e .".to_string(),
-                    },
-                    timeout: Duration::from_secs(120),
-                    required: true,
-                    changeset_aware: false,
-                    work_dir: step_work_dir.clone(),
-                });
-            }
-            if dir.join("requirements.txt").exists() {
-                steps.push(Step {
-                    name: format!("{name_prefix}:install-deps"),
-                    step_type: StepType::Command {
-                        run: "pip install -r requirements.txt".to_string(),
-                    },
-                    timeout: Duration::from_secs(120),
-                    required: true,
-                    changeset_aware: false,
-                    work_dir: step_work_dir.clone(),
-                });
-            }
-            steps.push(Step {
-                name: format!("{name_prefix}:test"),
-                step_type: StepType::Command {
-                    run: "pytest".to_string(),
-                },
-                timeout: Duration::from_secs(60),
-                required: true,
-                changeset_aware: true,
-                work_dir: step_work_dir.clone(),
-            });
-        }
+        steps.extend(detect_python_steps(
+            dir,
+            is_root,
+            subdir_name,
+            &root_languages,
+            step_work_dir.clone(),
+        ));
 
-        // ── Go ──
-        if dir.join("go.mod").exists() && (is_root || !root_languages.contains("go")) {
-            let name_prefix = if is_root {
-                "go".to_string()
-            } else {
-                format!("go({subdir_name})")
-            };
-            steps.push(Step {
-                name: format!("{name_prefix}:build"),
-                step_type: StepType::Command {
-                    run: "go build ./...".to_string(),
-                },
-                timeout: Duration::from_secs(60),
-                required: true,
-                changeset_aware: true,
-                work_dir: step_work_dir.clone(),
-            });
-            steps.push(Step {
-                name: format!("{name_prefix}:vet"),
-                step_type: StepType::Command {
-                    run: "go vet ./...".to_string(),
-                },
-                timeout: Duration::from_secs(60),
-                required: true,
-                changeset_aware: true,
-                work_dir: step_work_dir.clone(),
-            });
-            steps.push(Step {
-                name: format!("{name_prefix}:test"),
-                step_type: StepType::Command {
-                    run: "go test ./...".to_string(),
-                },
-                timeout: Duration::from_secs(60),
-                required: true,
-                changeset_aware: true,
-                work_dir: step_work_dir.clone(),
-            });
-        }
+        steps.extend(detect_go_steps(
+            dir,
+            is_root,
+            subdir_name,
+            &root_languages,
+            step_work_dir.clone(),
+        ));
     }
 
     if steps.is_empty() {
@@ -1135,4 +1016,191 @@ mod tests {
         assert_eq!(wf.name, "auto-none");
         assert!(wf.stages.is_empty());
     }
+}
+
+fn detect_rust_steps(
+    dir: &Path,
+    is_root: bool,
+    subdir_name: &str,
+    root_languages: &std::collections::HashSet<&str>,
+    step_work_dir: Option<std::path::PathBuf>,
+) -> Vec<Step> {
+    let mut steps = Vec::new();
+    if dir.join("Cargo.toml").exists() && (is_root || !root_languages.contains("rust")) {
+        let name_prefix = if is_root {
+            "rust".to_string()
+        } else {
+            format!("rust({subdir_name})")
+        };
+        steps.push(Step {
+            name: format!("{name_prefix}:check"),
+            step_type: StepType::Command {
+                run: "cargo check".to_string(),
+            },
+            timeout: Duration::from_secs(60),
+            required: true,
+            changeset_aware: true,
+            work_dir: step_work_dir.clone(),
+        });
+        steps.push(Step {
+            name: format!("{name_prefix}:test"),
+            step_type: StepType::Command {
+                run: "cargo test".to_string(),
+            },
+            timeout: Duration::from_secs(60),
+            required: true,
+            changeset_aware: true,
+            work_dir: step_work_dir,
+        });
+    }
+    steps
+}
+
+fn detect_node_steps(
+    dir: &Path,
+    is_root: bool,
+    subdir_name: &str,
+    root_languages: &std::collections::HashSet<&str>,
+    step_work_dir: Option<std::path::PathBuf>,
+) -> Vec<Step> {
+    let mut steps = Vec::new();
+    if dir.join("package.json").exists() {
+        let is_bun = dir.join("bun.lock").exists() || dir.join("bun.lockb").exists();
+        let lang_key = if is_bun { "bun" } else { "node" };
+        if is_root || !root_languages.contains(lang_key) {
+            let (label, install_cmd, test_cmd) = if is_bun {
+                ("bun", "bun install --frozen-lockfile", "bun test")
+            } else {
+                ("node", "npm ci", "npm test")
+            };
+            let name_prefix = if is_root {
+                label.to_string()
+            } else {
+                format!("{label}({subdir_name})")
+            };
+            steps.push(Step {
+                name: format!("{name_prefix}:install"),
+                step_type: StepType::Command {
+                    run: install_cmd.to_string(),
+                },
+                timeout: Duration::from_secs(120),
+                required: true,
+                changeset_aware: false,
+                work_dir: step_work_dir.clone(),
+            });
+            steps.push(Step {
+                name: format!("{name_prefix}:test"),
+                step_type: StepType::Command {
+                    run: test_cmd.to_string(),
+                },
+                timeout: Duration::from_secs(60),
+                required: true,
+                changeset_aware: true,
+                work_dir: step_work_dir,
+            });
+        }
+    }
+    steps
+}
+
+fn detect_python_steps(
+    dir: &Path,
+    is_root: bool,
+    subdir_name: &str,
+    root_languages: &std::collections::HashSet<&str>,
+    step_work_dir: Option<std::path::PathBuf>,
+) -> Vec<Step> {
+    let mut steps = Vec::new();
+    if (dir.join("pyproject.toml").exists() || dir.join("requirements.txt").exists())
+        && (is_root || !root_languages.contains("python"))
+    {
+        let name_prefix = if is_root {
+            "python".to_string()
+        } else {
+            format!("python({subdir_name})")
+        };
+        if dir.join("pyproject.toml").exists() {
+            steps.push(Step {
+                name: format!("{name_prefix}:install"),
+                step_type: StepType::Command {
+                    run: "pip install -e .".to_string(),
+                },
+                timeout: Duration::from_secs(120),
+                required: true,
+                changeset_aware: false,
+                work_dir: step_work_dir.clone(),
+            });
+        }
+        if dir.join("requirements.txt").exists() {
+            steps.push(Step {
+                name: format!("{name_prefix}:install-deps"),
+                step_type: StepType::Command {
+                    run: "pip install -r requirements.txt".to_string(),
+                },
+                timeout: Duration::from_secs(120),
+                required: true,
+                changeset_aware: false,
+                work_dir: step_work_dir.clone(),
+            });
+        }
+        steps.push(Step {
+            name: format!("{name_prefix}:test"),
+            step_type: StepType::Command {
+                run: "pytest".to_string(),
+            },
+            timeout: Duration::from_secs(60),
+            required: true,
+            changeset_aware: true,
+            work_dir: step_work_dir,
+        });
+    }
+    steps
+}
+
+fn detect_go_steps(
+    dir: &Path,
+    is_root: bool,
+    subdir_name: &str,
+    root_languages: &std::collections::HashSet<&str>,
+    step_work_dir: Option<std::path::PathBuf>,
+) -> Vec<Step> {
+    let mut steps = Vec::new();
+    if dir.join("go.mod").exists() && (is_root || !root_languages.contains("go")) {
+        let name_prefix = if is_root {
+            "go".to_string()
+        } else {
+            format!("go({subdir_name})")
+        };
+        steps.push(Step {
+            name: format!("{name_prefix}:build"),
+            step_type: StepType::Command {
+                run: "go build ./...".to_string(),
+            },
+            timeout: Duration::from_secs(60),
+            required: true,
+            changeset_aware: true,
+            work_dir: step_work_dir.clone(),
+        });
+        steps.push(Step {
+            name: format!("{name_prefix}:vet"),
+            step_type: StepType::Command {
+                run: "go vet ./...".to_string(),
+            },
+            timeout: Duration::from_secs(60),
+            required: true,
+            changeset_aware: true,
+            work_dir: step_work_dir.clone(),
+        });
+        steps.push(Step {
+            name: format!("{name_prefix}:test"),
+            step_type: StepType::Command {
+                run: "go test ./...".to_string(),
+            },
+            timeout: Duration::from_secs(60),
+            required: true,
+            changeset_aware: true,
+            work_dir: step_work_dir,
+        });
+    }
+    steps
 }
