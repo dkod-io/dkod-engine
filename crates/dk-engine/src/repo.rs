@@ -308,15 +308,17 @@ impl Engine {
             let analysis = self.parser.parse_file(relative, &source)?;
 
             // Symbols
+            self.symbol_store
+                .upsert_symbols(repo_id, &analysis.symbols)
+                .await?;
             for sym in &analysis.symbols {
-                self.symbol_store.upsert_symbol(repo_id, sym).await?;
                 search_index.index_symbol(repo_id, sym)?;
             }
 
             // Type info
-            for ti in &analysis.types {
-                self.type_info_store.upsert_type_info(ti).await?;
-            }
+            self.type_info_store
+                .upsert_type_infos(&analysis.types)
+                .await?;
 
             all_symbols.extend(analysis.symbols);
             all_raw_edges.extend(analysis.calls);
@@ -328,9 +330,7 @@ impl Engine {
 
         // Resolve and insert call edges.
         let edges = resolve_call_edges(&all_raw_edges, &all_symbols, repo_id);
-        for edge in &edges {
-            self.call_graph_store.insert_edge(edge).await?;
-        }
+        self.call_graph_store.insert_edges(&edges).await?;
 
         Ok(())
     }
@@ -399,14 +399,16 @@ impl Engine {
             let source = std::fs::read(&full_path)?;
             let analysis = self.parser.parse_file(relative, &source)?;
 
+            self.symbol_store
+                .upsert_symbols(repo_id, &analysis.symbols)
+                .await?;
             for sym in &analysis.symbols {
-                self.symbol_store.upsert_symbol(repo_id, sym).await?;
                 search_index.index_symbol(repo_id, sym)?;
             }
 
-            for ti in &analysis.types {
-                self.type_info_store.upsert_type_info(ti).await?;
-            }
+            self.type_info_store
+                .upsert_type_infos(&analysis.types)
+                .await?;
 
             all_symbols.extend(analysis.symbols);
             all_raw_edges.extend(analysis.calls);
@@ -416,9 +418,7 @@ impl Engine {
         drop(search_index);
 
         let edges = resolve_call_edges(&all_raw_edges, &all_symbols, repo_id);
-        for edge in &edges {
-            self.call_graph_store.insert_edge(edge).await?;
-        }
+        self.call_graph_store.insert_edges(&edges).await?;
 
         Ok(())
     }

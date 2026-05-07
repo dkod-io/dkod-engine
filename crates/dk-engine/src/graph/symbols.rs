@@ -69,24 +69,39 @@ impl SymbolStore {
     /// Uses `ON CONFLICT (repo_id, qualified_name) DO UPDATE` so that
     /// repeated ingestion of the same file is idempotent.
     pub async fn upsert_symbol(&self, repo_id: RepoId, sym: &Symbol) -> dk_core::Result<()> {
-        let kind_str = sym.kind.to_string();
-        let vis_str = sym.visibility.to_string();
-        let file_path_str = sym.file_path.to_string_lossy().to_string();
+        self.upsert_symbols(repo_id, std::slice::from_ref(sym)).await
+    }
 
-        sqlx::query(
+    /// Insert or update multiple symbols.
+    pub async fn upsert_symbols(&self, repo_id: RepoId, symbols: &[Symbol]) -> dk_core::Result<()> {
+        if symbols.is_empty() {
+            return Ok(());
+        }
+
+        let mut query_builder: sqlx::QueryBuilder<sqlx::Postgres> = sqlx::QueryBuilder::new(
+            "INSERT INTO symbols (id, repo_id, name, qualified_name, kind, visibility, file_path, start_byte, end_byte, signature, doc_comment, parent_id, last_modified_by, last_modified_intent) "
+        );
+
+        query_builder.push_values(symbols, |mut b, sym| {
+            b.push_bind(sym.id)
+                .push_bind(repo_id)
+                .push_bind(sym.name.clone())
+                .push_bind(sym.qualified_name.clone())
+                .push_bind(sym.kind.to_string())
+                .push_bind(sym.visibility.to_string())
+                .push_bind(sym.file_path.to_string_lossy().to_string())
+                .push_bind(sym.span.start_byte as i32)
+                .push_bind(sym.span.end_byte as i32)
+                .push_bind(sym.signature.clone())
+                .push_bind(sym.doc_comment.clone())
+                .push_bind(sym.parent)
+                .push_bind(sym.last_modified_by.clone())
+                .push_bind(sym.last_modified_intent.clone());
+        });
+
+        query_builder.push(
             r#"
-            INSERT INTO symbols (
-                id, repo_id, name, qualified_name, kind, visibility,
-                file_path, start_byte, end_byte, signature, doc_comment,
-                parent_id, last_modified_by, last_modified_intent
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             ON CONFLICT (repo_id, qualified_name) DO UPDATE SET
-                -- Safe: migration 014 adds ON UPDATE CASCADE to all FKs referencing
-                -- symbols(id) (call_edges, type_info, symbol_dependencies, parent_id).
-                -- Note: changeset_symbols.symbol_id has NO FK to symbols(id) by design
-                -- (migration 009) — it retains stale UUIDs after PK update. This is OK
-                -- because get_affected_symbols only uses qualified_name, not symbol_id.
                 id = EXCLUDED.id,
                 name = EXCLUDED.name,
                 kind = EXCLUDED.kind,
@@ -100,23 +115,10 @@ impl SymbolStore {
                 last_modified_by = EXCLUDED.last_modified_by,
                 last_modified_intent = EXCLUDED.last_modified_intent
             "#,
-        )
-        .bind(sym.id)
-        .bind(repo_id)
-        .bind(&sym.name)
-        .bind(&sym.qualified_name)
-        .bind(&kind_str)
-        .bind(&vis_str)
-        .bind(&file_path_str)
-        .bind(sym.span.start_byte as i32)
-        .bind(sym.span.end_byte as i32)
-        .bind(&sym.signature)
-        .bind(&sym.doc_comment)
-        .bind(sym.parent)
-        .bind(&sym.last_modified_by)
-        .bind(&sym.last_modified_intent)
-        .execute(&self.pool)
-        .await?;
+        );
+
+        let query = query_builder.build();
+        query.execute(&self.pool).await?;
 
         Ok(())
     }
