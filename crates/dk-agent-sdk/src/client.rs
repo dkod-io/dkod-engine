@@ -18,9 +18,10 @@ pub struct AgentClient {
 impl AgentClient {
     /// Connect to a dkod Agent Protocol server at the given address.
     ///
-    /// `addr` should be a full URI such as `"http://localhost:50051"` or
-    /// `"https://agent.dkod.io:443"`. TLS is enabled automatically for
-    /// `https://` addresses.
+    /// `addr` should be a full URI. The default for local development is
+    /// `"http://[::1]:50051"` (the local dk-server agent). For a remote
+    /// deployment use any reachable URI such as `"https://my-agent.example.com:443"`.
+    /// TLS is enabled automatically for `https://` addresses.
     pub async fn connect(addr: &str, auth_token: &str) -> Result<Self> {
         let mut endpoint = Channel::from_shared(addr.to_string())
             .map_err(|e| SdkError::Connection(e.to_string()))?;

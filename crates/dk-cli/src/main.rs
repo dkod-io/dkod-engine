@@ -14,7 +14,13 @@ use clap::{Parser, Subcommand};
 use commands::remote::RemoteAction;
 use output::Output;
 
-const DEFAULT_SERVER: &str = "https://agent.dkod.io:443";
+/// Default gRPC server when neither `--server` nor `DKOD_GRPC_ADDR` is set.
+///
+/// Defaults to the local dk-server (`http://[::1]:50051`) so `dk` works
+/// out of the box against a developer's local agent. Override with
+/// `--server <url>` or `DKOD_GRPC_ADDR=<url>` to point at a remote
+/// (e.g. `https://agent.dkod.io:443`).
+const DEFAULT_SERVER: &str = "http://[::1]:50051";
 
 #[derive(Parser)]
 #[command(
