@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-from dkod.v1 import agent_pb2 as dkod_dot_v1_dot_agent__pb2
+from dkod._generated.dkod.v1 import agent_pb2 as dkod_dot_v1_dot_agent__pb2
 
 GRPC_GENERATED_VERSION = '1.80.0'
 GRPC_VERSION = grpc.__version__
@@ -108,6 +108,11 @@ class AgentServiceStub(object):
                 '/dkod.v1.AgentService/Close',
                 request_serializer=dkod_dot_v1_dot_agent__pb2.CloseRequest.SerializeToString,
                 response_deserializer=dkod_dot_v1_dot_agent__pb2.CloseResponse.FromString,
+                _registered_method=True)
+        self.Abandon = channel.unary_unary(
+                '/dkod.v1.AgentService/Abandon',
+                request_serializer=dkod_dot_v1_dot_agent__pb2.AbandonRequest.SerializeToString,
+                response_deserializer=dkod_dot_v1_dot_agent__pb2.AbandonResponse.FromString,
                 _registered_method=True)
         self.Review = channel.unary_unary(
                 '/dkod.v1.AgentService/Review',
@@ -224,6 +229,13 @@ class AgentServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def Abandon(self, request, context):
+        """Abandon a session, discarding its changeset and releasing all locks
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def Review(self, request, context):
         """Get code review results for a changeset
         """
@@ -315,6 +327,11 @@ def add_AgentServiceServicer_to_server(servicer, server):
                     servicer.Close,
                     request_deserializer=dkod_dot_v1_dot_agent__pb2.CloseRequest.FromString,
                     response_serializer=dkod_dot_v1_dot_agent__pb2.CloseResponse.SerializeToString,
+            ),
+            'Abandon': grpc.unary_unary_rpc_method_handler(
+                    servicer.Abandon,
+                    request_deserializer=dkod_dot_v1_dot_agent__pb2.AbandonRequest.FromString,
+                    response_serializer=dkod_dot_v1_dot_agent__pb2.AbandonResponse.SerializeToString,
             ),
             'Review': grpc.unary_unary_rpc_method_handler(
                     servicer.Review,
@@ -732,6 +749,33 @@ class AgentService(object):
             '/dkod.v1.AgentService/Close',
             dkod_dot_v1_dot_agent__pb2.CloseRequest.SerializeToString,
             dkod_dot_v1_dot_agent__pb2.CloseResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Abandon(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dkod.v1.AgentService/Abandon',
+            dkod_dot_v1_dot_agent__pb2.AbandonRequest.SerializeToString,
+            dkod_dot_v1_dot_agent__pb2.AbandonResponse.FromString,
             options,
             channel_credentials,
             insecure,
