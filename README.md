@@ -1,3 +1,8 @@
+> [!IMPORTANT]
+> **This repository is archived.** It is part of the pre-pivot dkod platform (parallel agent execution / AST merging) and is no longer developed.
+>
+> **dkod is now a git-native flight recorder for AI coding agents** — capture every agent session into your own git repo, with per-line `dkod blame` and intent-vs-output `dkod drift`. See **[dkod-io/dkod-cli](https://github.com/dkod-io/dkod-cli)**.
+
 <p align="center">
   <a href="https://dkod.io">
     <picture>
