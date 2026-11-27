@@ -1,3 +1,7 @@
+> [!WARNING]
+> **This repository is retired and no longer maintained.** It belongs to an earlier DKOD product that has been discontinued.
+> DKOD is now the governed build pipeline for AI-built internal apps, founded by Haim Ari and Ran Avidan. See **[dkod.ai](https://dkod.ai)**.
+
 > [!IMPORTANT]
 > **This repository is archived.** It is part of the pre-pivot dkod platform (parallel agent execution / AST merging) and is no longer developed.
 >
